@@ -126,6 +126,38 @@ export const RULES = Object.freeze([
       }),
     ]),
   },
+  // 🔴 CAMP-51. ЗАЯВКА, ЯКУ НІХТО НЕ ПІДТВЕРДИВ, — ЦЕ РЯДОК ІЗ `user_id`
+  // І БІЛЬШЕ НІЧОГО КОРИСНОГО.
+  //
+  // Код у ній живе 24 години (`CODE_TTL_MS`), далі він не відмикає нічого.
+  // Але рядок лишається й далі каже, ЯКИЙ АКАУНТ цікавився ЯКИМ кемпінгом.
+  // Це і є персональні дані, яких ми більше не потребуємо.
+  //
+  // 🔴 ПІДТВЕРДЖЕНІ НЕ ЧІПАЄМО, І ЦЕ НЕ ВИНЯТОК ЗАРАДИ ЗРУЧНОСТІ.
+  // `used_at IS NOT NULL` — це сам грант: видалити його означає мовчки
+  // забрати в людини її кемпінг. Він зникає разом з акаунтом
+  // (`ON DELETE CASCADE`) або коли людина від нього відмовиться.
+  {
+    table: 'spot_claims',
+    card: 'Claim your listing (CAMP-51); строк — реєстр §11',
+    legal: 'docs/GDPR-REGISTER.md §11 — GDPR ст. 6(1)(f); строк обрано 03.11.2026 за метою, без юриста',
+    branches: Object.freeze([
+      Object.freeze({
+        name: 'unconfirmed',
+        label: 'непідтверджені (код так і не ввели)',
+        // 🔴 ЧОМУ 1 МІСЯЦЬ, А НЕ 24 ГОДИНИ. Код мертвий через добу, але
+        // рахунок листів («не більше трьох на кемпінг за добу») читає ці
+        // ж рядки, і людина, якій лист загубився, приходить не того
+        // самого дня. Місяць лишає запас на «я написав вам минулого
+        // тижня» і все одно коротший за будь-яку мету, яку ми можемо
+        // назвати. Довше тримати нема навіщо.
+        months: 1,
+        where: 'used_at IS NULL',
+        since: 'created_at',
+        mark: null,
+      }),
+    ]),
+  },
   {
     table: 'not_found_hits',
     card: 'Журнал ненайдених адрес (CAMP-235); строк — реєстр §5',
@@ -367,8 +399,22 @@ function selfTest() {
   // ── журнали браузера й 404 (01.11.2026) ───────────────────────────
   const ce = RULES.find((r) => r.table === 'client_errors');
   const nf = RULES.find((r) => r.table === 'not_found_hits');
-  t('🔴 правил три: заявки, помилки браузера, ненайдені адреси',
-    RULES.map((r) => r.table).sort().join(','), 'client_errors,not_found_hits,problem_reports');
+  t('🔴 правил чотири: заявки, помилки браузера, ненайдені адреси, заявки на володіння',
+    RULES.map((r) => r.table).sort().join(','),
+    'client_errors,not_found_hits,problem_reports,spot_claims');
+
+  // ── заявка на володіння кемпінгом (CAMP-51, 03.11.2026) ───────────
+  const sc = RULES.find((r) => r.table === 'spot_claims');
+  t('🔴 spot_claims — 1 місяць від created_at, і ЛИШЕ непідтверджені',
+    sc.branches.length === 1 && sc.branches[0].months === 1 &&
+    sc.branches[0].since === 'created_at' &&
+    sc.branches[0].where === 'used_at IS NULL', true);
+  // 🔴 Без цього випадку одруківка в умові (`IS NOT NULL`) видаляла б
+  // САМ ГРАНТ — тобто мовчки забирала б у людини її кемпінг, і помітили б
+  // це лише тоді, коли вона прийшла б питати, куди він подівся.
+  t('🔴 умова НЕ зачіпає підтверджених',
+    /used_at IS NULL/.test(sc.branches[0].where) &&
+    !/IS NOT NULL/.test(sc.branches[0].where), true);
   t('🔴 client_errors — 3 місяці від received_at, одна гілка на всі рядки',
     ce.branches.length === 1 && ce.branches[0].months === 3 && ce.branches[0].since === 'received_at' && ce.branches[0].where === 'TRUE', true);
   t('🔴 not_found_hits — 1 місяць від created_at, одна гілка на всі рядки',
@@ -531,7 +577,7 @@ function selfTest() {
 
   // 🔴 Лічильник стверджується, бо випадок, до якого не дійшло,
   // виглядає точно як випадок, що пройшов.
-  t('🔴 лічильник: усі випадки дійшли до кінця', p + f, 54);
+  t('🔴 лічильник: усі випадки дійшли до кінця', p + f, 56);
   console.log(`retention-purge self-test: ran ${p + f}, passed ${p}, failed ${f}`);
   return f === 0 ? 0 : 1;
 }

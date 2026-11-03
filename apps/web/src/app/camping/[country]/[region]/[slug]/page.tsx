@@ -175,6 +175,34 @@ function hasContact(spot: Spot): boolean {
   );
 }
 
+/**
+ * CAMP-51 — вхід у «claim your listing», і лише там, де він працює.
+ *
+ * 🔴 ПОКАЗУЄМО ЛИШЕ ЗА НАЯВНОСТІ ПОШТИ В OSM. Без неї заявка впирається
+ * у «нема куди слати» вже після натискання, тобто ми ведемо людину в
+ * глухий кут і там пояснюємо. Заміряно 03.11.2026: пошта є в 11 628
+ * кемпінгів із 63 159 — тобто посилання побачить менш ніж кожен п'ятий,
+ * і це чесне число, а не недоробка.
+ *
+ * Нічого нового про кемпінг це не видає: адресу сторінка вже показує в
+ * блоці «Getting in touch», бо вона публічна в OSM.
+ *
+ * 🔴 Звичайне посилання, не острівець. Сторінки кемпінгів будуються один
+ * раз на всі 63 тисячі; форма живе за /account/claim, за сесією.
+ */
+function ClaimListing({ spot }: { spot: Spot }) {
+  if (!spot.contact?.email) return null;
+  return (
+    <p className="mt-6 text-sm text-ink-2">
+      Is this your campsite?{' '}
+      <Link className="underline" href={`/account/claim?spot=${spot.slug}`}>
+        Claim the listing
+      </Link>{' '}
+      — we send a code to the email address already in its OpenStreetMap tags.
+    </p>
+  );
+}
+
 function Contact({ spot }: { spot: Spot }) {
   const contact = spot.contact ?? {};
   const site = spot.website ?? contact.website ?? null;
@@ -518,6 +546,8 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
           import graph). Always rendered, photos or not: a wrong pin is
           wrong whether or not there is a picture above it. */}
       <ReportProblem slug={spot.slug} />
+
+      <ClaimListing spot={spot} />
 
       <Around spot={spot} />
 
