@@ -189,7 +189,7 @@ export class RentalCity {
   @Column({ type: 'enum', enum: ContentStatus, default: ContentStatus.DRAFT })
   status: ContentStatus;
 
-  @UpdateDateColumn({ name: 'updated_at' })
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 
   /** The gate itself, so nobody has to remember the numbers. */

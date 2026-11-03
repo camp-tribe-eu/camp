@@ -39,6 +39,6 @@ export class NotFoundHit {
 
   /** Indexed because every report is "the last N days". */
   @Index()
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }

@@ -41,6 +41,6 @@ export class Trip {
   @OneToMany(() => TripStop, (stop) => stop.trip)
   stops: TripStop[];
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }
