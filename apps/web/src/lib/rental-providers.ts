@@ -123,7 +123,7 @@ export function filtersFromQuery(
 ): CatalogueFilters {
   const q = new URLSearchParams(search);
   const country = (q.get("country") ?? "").toUpperCase();
-  const known = new Set(all.map((p) => p.homeCountry));
+  const known = new Set(all.flatMap((p) => p.countries));
   const codes = new Set(all.flatMap((p) => p.serviceCodes));
   return {
     country: known.has(country) ? country : null,

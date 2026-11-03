@@ -1,0 +1,2072 @@
+{
+  "_meta": {
+    "card": "CAMP-427 follow-up: local providers for the 14 EU countries where the ten pan-European players leave 0–2 companies",
+    "collectedOn": "2026-11-03",
+    "rules": "Inclusion: own website; at least one pick-up depot in the country named with a city or address on the company's own site; at least two named models; rents campervans or motorhomes (trailer caravans only are out); homepage HTTP 200 on collectedOn. declaredDepotCount and declaredFleetSize are numbers only when the company itself states or explicitly lists them; otherwise null. No prices. No rating figures. reviewProfiles only when the company's own site links the profile; trustpilot.com and google review pages were not opened. Texts in English.",
+    "serviceCodesOutsideDictionary": [
+      "delivery_to_renter",
+      "kitchen_kit",
+      "roadside_assistance"
+    ]
+  },
+  "providers": [
+    {
+      "slug": "camperisimo",
+      "name": "Camperisimo",
+      "legalName": "Kemperisimo EOOD",
+      "homeCountry": "BG",
+      "countries": [
+        "BG"
+      ],
+      "website": "https://camperisimo.com",
+      "email": "booking@camperisimo.com",
+      "phone": "+359 888 677 676",
+      "declaredDepotCount": 4,
+      "declaredFleetSize": null,
+      "sourceUrl": "https://camperisimo.com/contacts/",
+      "sourceCheckedOn": "2026-11-03",
+      "intro": "Bulgarian motorhome rental company with pick-up bases listed in Sofia, Varna, Ruse and Plovdiv; its fleet page lists around 55 motorhome and campervan models from Sunlight, GiottiLine, Carado and Roller Team.",
+      "whatToKnow": "Depot count is taken from the four locations named on the contacts page; the Plovdiv entry is a map link without a street address. The company does not state a fleet size in units.",
+      "reviewProfiles": [],
+      "services": [
+        {
+          "code": "one_way",
+          "availability": "extra",
+          "note": "Vehicle may be collected and/or returned in a different town by arrangement (rental terms)",
+          "sourceUrl": "https://camperisimo.com/obshti-uslovia/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "additional_driver",
+          "availability": "extra",
+          "note": "Fee charged from the second additional driver onwards (rental terms)",
+          "sourceUrl": "https://camperisimo.com/obshti-uslovia/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "kitchen_kit",
+          "availability": "extra",
+          "note": "Paid optional package",
+          "sourceUrl": "https://camperisimo.com/dopalnitelni-paketi-esktri/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "camping_table_chairs",
+          "availability": "extra",
+          "note": "Paid optional package",
+          "sourceUrl": "https://camperisimo.com/dopalnitelni-paketi-esktri/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "bedding",
+          "availability": "extra",
+          "note": "Paid optional package",
+          "sourceUrl": "https://camperisimo.com/dopalnitelni-paketi-esktri/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "delivery_to_renter",
+          "availability": "extra",
+          "note": "Delivery charged per kilometre",
+          "sourceUrl": "https://camperisimo.com/dopalnitelni-paketi-esktri/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ],
+      "vehicles": [
+        {
+          "name": "Sunlight I 67 S",
+          "slug": "sunlight-i-67-s",
+          "berths": 4,
+          "beltedSeats": 4,
+          "lengthCm": 696,
+          "sourceUrl": "https://camperisimo.com/sunlight-i-67-s/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "GiottiLine Siena 440 Automatic",
+          "slug": "giottiline-siena-440-automatic",
+          "beltedSeats": 6,
+          "lengthCm": 699,
+          "sourceUrl": "https://camperisimo.com/giottiline-siena-440/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Sunlight T68C",
+          "slug": "sunlight-t68c",
+          "sourceUrl": "https://camperisimo.com/kemperi-pod-naem/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ]
+    },
+    {
+      "slug": "dimarrent",
+      "name": "DimarRent",
+      "homeCountry": "BG",
+      "countries": [
+        "BG"
+      ],
+      "website": "https://www.dimarrent.com",
+      "email": "dimarrent@abv.bg",
+      "phone": "+359 899 929 968",
+      "declaredDepotCount": 4,
+      "declaredFleetSize": null,
+      "sourceUrl": "https://www.dimarrent.com/contacts.html",
+      "sourceCheckedOn": "2026-11-03",
+      "intro": "Motorhome rental company from Sofia with four Bulgarian pick-up points (Sofia, Plovdiv, Varna and Burgas) listed with street addresses on its contacts page and nine named rental models.",
+      "whatToKnow": "The fleet page labels the Carado as T344 in an image caption while the model page and URL say T334; the model page was used.",
+      "reviewProfiles": [],
+      "services": [
+        {
+          "code": "bedding",
+          "availability": "extra",
+          "note": "Bed linen offered as a paid extra",
+          "sourceUrl": "https://www.dimarrent.com/campers.html",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "child_seat",
+          "availability": "extra",
+          "note": "Child seat offered as a paid extra",
+          "sourceUrl": "https://www.dimarrent.com/campers.html",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "gps",
+          "availability": "extra",
+          "note": "Navigation device offered as a paid extra",
+          "sourceUrl": "https://www.dimarrent.com/campers.html",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "camping_table_chairs",
+          "availability": "extra",
+          "note": "Camping table offered as a paid extra",
+          "sourceUrl": "https://www.dimarrent.com/campers.html",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "delivery_to_renter",
+          "availability": "extra",
+          "note": "Delivery to any point in Bulgaria on request",
+          "sourceUrl": "https://www.dimarrent.com/campers.html",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ],
+      "vehicles": [
+        {
+          "name": "Carado T334",
+          "slug": "carado-t334",
+          "berths": 4,
+          "beltedSeats": 4,
+          "lengthCm": 699,
+          "sourceUrl": "https://www.dimarrent.com/camper-carado-t334.html",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Giottiline Siena 440",
+          "slug": "giottiline-siena-440",
+          "berths": 6,
+          "beltedSeats": 6,
+          "sourceUrl": "https://www.dimarrent.com/campers.html",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "VW Grand California 600",
+          "slug": "vw-grand-california-600",
+          "berths": 4,
+          "beltedSeats": 4,
+          "sourceUrl": "https://www.dimarrent.com/campers.html",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ]
+    },
+    {
+      "slug": "xcampers",
+      "name": "XCampers",
+      "homeCountry": "BG",
+      "countries": [
+        "BG"
+      ],
+      "website": "https://xcampers.bg",
+      "email": "contact@xcampers.bg",
+      "phone": "+359 876 172 679",
+      "declaredDepotCount": 1,
+      "declaredFleetSize": null,
+      "sourceUrl": "https://xcampers.bg/contact/",
+      "sourceCheckedOn": "2026-11-03",
+      "intro": "Small motorhome rental company based in Gabrovo in central Bulgaria with four named vehicles; the FAQ says pick-up is at the Gabrovo base, with delivery to Sofia, Plovdiv or Varna on request.",
+      "reviewProfiles": [],
+      "services": [
+        {
+          "code": "bedding",
+          "availability": "included",
+          "note": "Listed in the standard equipment",
+          "sourceUrl": "https://xcampers.bg/standard-xcampers-equipment/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "kitchen_kit",
+          "availability": "included",
+          "note": "Listed in the standard equipment",
+          "sourceUrl": "https://xcampers.bg/standard-xcampers-equipment/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "camping_table_chairs",
+          "availability": "extra",
+          "note": "Offered as an additional package",
+          "sourceUrl": "https://xcampers.bg/camper-prices/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "cleaning_service",
+          "availability": "included",
+          "note": "Cleaning fee stated as included",
+          "sourceUrl": "https://xcampers.bg/camper-prices/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "delivery_to_renter",
+          "availability": "extra",
+          "note": "Delivery to Sofia, Plovdiv or Varna on request (model page FAQ)",
+          "sourceUrl": "https://xcampers.bg/campers/carado-cv-600-pro/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ],
+      "vehicles": [
+        {
+          "name": "Carado CV600 Pro",
+          "slug": "carado-cv600-pro",
+          "berths": 4,
+          "beltedSeats": 4,
+          "lengthCm": 599,
+          "sourceUrl": "https://xcampers.bg/campers/carado-cv-600-pro/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Mooveo TEI-70EBH",
+          "slug": "mooveo-tei-70ebh",
+          "berths": 5,
+          "beltedSeats": 4,
+          "sourceUrl": "https://xcampers.bg/campers/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Adria Sun Living Lido M46 SP",
+          "slug": "adria-sun-living-lido-m46-sp",
+          "berths": 6,
+          "beltedSeats": 4,
+          "sourceUrl": "https://xcampers.bg/campers/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ]
+    },
+    {
+      "slug": "joy2wander",
+      "name": "Joy2Wander",
+      "legalName": "Demetra Corporate Finance SRL",
+      "homeCountry": "RO",
+      "countries": [
+        "RO"
+      ],
+      "website": "https://joy2wander.com",
+      "email": "contact@joy2wander.com",
+      "phone": "+40 734 463 226",
+      "declaredDepotCount": 1,
+      "declaredFleetSize": null,
+      "sourceUrl": "https://joy2wander.com/contact/",
+      "sourceCheckedOn": "2026-11-03",
+      "intro": "Motorhome rental company operating from Otopeni next to Bucharest with a fleet of eight Benimar motorhomes; unlimited kilometres, bedding, awning and bike rack are listed as included.",
+      "whatToKnow": "Berths per model are not stated; the page gives a fleet-wide maximum of six persons (four adults and two children). The .ro domain did not respond; the .com site is live.",
+      "reviewProfiles": [],
+      "services": [
+        {
+          "code": "unlimited_km",
+          "availability": "included",
+          "note": "Unlimited kilometres stated on the rental page",
+          "sourceUrl": "https://joy2wander.com/inchiriere-autorulote/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "roadside_assistance",
+          "availability": "included",
+          "note": "Roadside assistance listed as included",
+          "sourceUrl": "https://joy2wander.com/inchiriere-autorulote/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "bedding",
+          "availability": "included",
+          "note": "Pillows, duvets and blankets listed as included",
+          "sourceUrl": "https://joy2wander.com/inchiriere-autorulote/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "bike_rack",
+          "availability": "included",
+          "note": "Bike carrier for up to four bikes",
+          "sourceUrl": "https://joy2wander.com/inchiriere-autorulote/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "pets_allowed",
+          "availability": "included",
+          "note": "Vehicles described as pet friendly",
+          "sourceUrl": "https://joy2wander.com/inchiriere-autorulote/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "delivery_to_renter",
+          "availability": "extra",
+          "note": "Delivery anywhere in Romania for rentals of seven days or more",
+          "sourceUrl": "https://joy2wander.com/inchiriere-autorulote/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ],
+      "vehicles": [
+        {
+          "name": "Benimar 344 Sport",
+          "slug": "benimar-344-sport",
+          "sourceUrl": "https://joy2wander.com/inchiriere-autorulote/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Benimar Tessoro 497",
+          "slug": "benimar-tessoro-497",
+          "sourceUrl": "https://joy2wander.com/inchiriere-autorulote/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Benimar 346 Sport",
+          "slug": "benimar-346-sport",
+          "sourceUrl": "https://joy2wander.com/inchiriere-autorulote/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ]
+    },
+    {
+      "slug": "green-camper",
+      "name": "Green Camper",
+      "legalName": "Croland Group SRL",
+      "homeCountry": "RO",
+      "countries": [
+        "RO"
+      ],
+      "website": "https://greencamper.ro",
+      "email": "office@greencamper.ro",
+      "phone": "+40 722 939 856",
+      "declaredDepotCount": 1,
+      "declaredFleetSize": null,
+      "sourceUrl": "https://greencamper.ro/autorulote-de-inchiriat/",
+      "sourceCheckedOn": "2026-11-03",
+      "intro": "Bucharest-area motorhome rental company based in Pantelimon with ten named models including Sunlight, Hymer, XGO and Ahorn; it states no kilometre limit and links to its Google reviews from the homepage.",
+      "whatToKnow": "The homepage shows a Google review count through a third-party widget; no review profile URL is linked, so none is recorded.",
+      "reviewProfiles": [],
+      "services": [
+        {
+          "code": "unlimited_km",
+          "availability": "included",
+          "note": "Page states there is no kilometre limit",
+          "sourceUrl": "https://greencamper.ro/autorulote-de-inchiriat/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "bedding",
+          "availability": "extra",
+          "note": "Bed linen and towel set offered as an extra",
+          "sourceUrl": "https://greencamper.ro/autorulote-de-inchiriat/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "bike_rack",
+          "availability": "included",
+          "note": "Fitted on several models",
+          "sourceUrl": "https://greencamper.ro/autorulote-de-inchiriat/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "camping_table_chairs",
+          "availability": "included",
+          "note": "Camping furniture stays in the vehicle permanently",
+          "sourceUrl": "https://greencamper.ro/autorulote-de-inchiriat/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "awning",
+          "availability": "included",
+          "note": "Fitted on most models",
+          "sourceUrl": "https://greencamper.ro/autorulote-de-inchiriat/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "cleaning_service",
+          "availability": "extra",
+          "note": "Mandatory sanitation fee",
+          "sourceUrl": "https://greencamper.ro/autorulote-de-inchiriat/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ],
+      "vehicles": [
+        {
+          "name": "Sunlight I69L Edition",
+          "slug": "sunlight-i69l-edition",
+          "berths": 4,
+          "beltedSeats": 4,
+          "lengthCm": 741,
+          "sourceUrl": "https://greencamper.ro/autorulote-de-inchiriat/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Hymer Exsis 594",
+          "slug": "hymer-exsis-594",
+          "berths": 4,
+          "beltedSeats": 4,
+          "lengthCm": 699,
+          "sourceUrl": "https://greencamper.ro/autorulote-de-inchiriat/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Ahorn Canada AD",
+          "slug": "ahorn-canada-ad",
+          "berths": 6,
+          "beltedSeats": 6,
+          "lengthCm": 732,
+          "sourceUrl": "https://greencamper.ro/autorulote-de-inchiriat/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ]
+    },
+    {
+      "slug": "premium-lakoauto",
+      "name": "Prémium Lakóautó",
+      "legalName": "Caravan Travel Kft.",
+      "homeCountry": "HU",
+      "countries": [
+        "HU"
+      ],
+      "website": "https://premiumlakoauto.hu",
+      "email": "berles@premiumlakoauto.hu",
+      "phone": "+36 70 420 3581",
+      "declaredDepotCount": 1,
+      "declaredFleetSize": 50,
+      "sourceUrl": "https://premiumlakoauto.hu/kapcsolat/",
+      "sourceCheckedOn": "2026-11-03",
+      "intro": "Hungarian motorhome rental company from Veszprém that declares close to fifty rental vehicles and lists 37 units on its site, with Giottiline, Weinsberg, Roller Team and Mobilvetta models.",
+      "whatToKnow": "Fleet size is the company's own wording 'close to 50 rental vehicles' on the contact page; the site lists 37 units.",
+      "reviewProfiles": [],
+      "services": [
+        {
+          "code": "unlimited_km",
+          "availability": "unavailable",
+          "note": "200 km per day included, excess charged per kilometre",
+          "sourceUrl": "https://premiumlakoauto.hu/berleti-feltetelek/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "roadside_assistance",
+          "availability": "included",
+          "note": "Assistance cover across Europe",
+          "sourceUrl": "https://premiumlakoauto.hu/berleti-feltetelek/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ],
+      "vehicles": [
+        {
+          "name": "Giottiline Siena 440",
+          "slug": "giottiline-siena-440",
+          "berths": 6,
+          "beltedSeats": 6,
+          "lengthCm": 699,
+          "sourceUrl": "https://premiumlakoauto.hu/lakoauto/giottiline-siena-440-l/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Weinsberg CaraCore 700 MEG",
+          "slug": "weinsberg-caracore-700-meg",
+          "berths": 4,
+          "beltedSeats": 4,
+          "lengthCm": 741,
+          "sourceUrl": "https://premiumlakoauto.hu/lakoauto/caracore-700-meg/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Roller Team Kronos 284 TL",
+          "slug": "roller-team-kronos-284-tl",
+          "berths": 5,
+          "beltedSeats": 5,
+          "sourceUrl": "https://premiumlakoauto.hu/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ]
+    },
+    {
+      "slug": "vpt-caravan",
+      "name": "VPT Caravan",
+      "homeCountry": "HU",
+      "countries": [
+        "HU"
+      ],
+      "website": "https://vpt-caravan.hu",
+      "email": "info@vpt-caravan.hu",
+      "phone": "+36 30 530 1111",
+      "declaredDepotCount": 2,
+      "declaredFleetSize": null,
+      "foundedYear": 2002,
+      "sourceUrl": "https://vpt-caravan.hu/rolunk/",
+      "sourceCheckedOn": "2026-11-03",
+      "intro": "Caravan and motorhome dealer founded in 2002 that rents motorhomes from two Hungarian sites, Sopron and Fót near the Budapest M3/M0 junction, with twelve named rental models.",
+      "whatToKnow": "Berths and lengths are not stated on the rental list; the list also contains an Eriba Touring caravan which is not a motorhome.",
+      "reviewProfiles": [],
+      "services": [
+        {
+          "code": "unlimited_km",
+          "availability": "included",
+          "note": "No kilometre restriction stated",
+          "sourceUrl": "https://vpt-caravan.hu/lakoauto-berles/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "gps",
+          "availability": "included",
+          "note": "Navigation listed as standard equipment",
+          "sourceUrl": "https://vpt-caravan.hu/lakoauto-berles/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "bike_rack",
+          "availability": "included",
+          "note": "Listed as standard equipment",
+          "sourceUrl": "https://vpt-caravan.hu/lakoauto-berles/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "cleaning_service",
+          "availability": "extra",
+          "note": "Interior and exterior cleaning charged, with a pet surcharge",
+          "sourceUrl": "https://vpt-caravan.hu/lakoauto-berles/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ],
+      "vehicles": [
+        {
+          "name": "Sunlight T67 S",
+          "slug": "sunlight-t67-s",
+          "sourceUrl": "https://vpt-caravan.hu/lakoauto-berles/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Hymer Free 600",
+          "slug": "hymer-free-600",
+          "sourceUrl": "https://vpt-caravan.hu/lakoauto-berles/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Sunlight A 70",
+          "slug": "sunlight-a-70",
+          "sourceUrl": "https://vpt-caravan.hu/lakoauto-berles/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ]
+    },
+    {
+      "slug": "gurulo-luxus",
+      "name": "Guruló Luxus",
+      "homeCountry": "HU",
+      "countries": [
+        "HU"
+      ],
+      "website": "https://guruloluxus.hu",
+      "email": "info@guruloluxus.hu",
+      "phone": "+36 30 860 3576",
+      "declaredDepotCount": 1,
+      "declaredFleetSize": null,
+      "sourceUrl": "https://guruloluxus.hu/index.php/rolunk/",
+      "sourceCheckedOn": "2026-11-03",
+      "intro": "Motorhome rental business in Debrecen in eastern Hungary with three named motorhomes; bedding, kitchen kit, camping furniture, awning and bike rack are listed as included.",
+      "reviewProfiles": [],
+      "services": [
+        {
+          "code": "bedding",
+          "availability": "included",
+          "note": "Listed as included equipment",
+          "sourceUrl": "https://guruloluxus.hu/index.php/lakoautoink/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "kitchen_kit",
+          "availability": "included",
+          "note": "Listed as included equipment",
+          "sourceUrl": "https://guruloluxus.hu/index.php/lakoautoink/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "camping_table_chairs",
+          "availability": "included",
+          "note": "Table and four chairs",
+          "sourceUrl": "https://guruloluxus.hu/index.php/lakoautoink/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "awning",
+          "availability": "included",
+          "note": "Four-metre awning",
+          "sourceUrl": "https://guruloluxus.hu/index.php/lakoautoink/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "bike_rack",
+          "availability": "included",
+          "note": "Carrier for four bikes",
+          "sourceUrl": "https://guruloluxus.hu/index.php/lakoautoink/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "roadside_assistance",
+          "availability": "extra",
+          "note": "Part of a paid preparation package, waived for rentals of ten days or more",
+          "sourceUrl": "https://guruloluxus.hu/index.php/arak/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ],
+      "vehicles": [
+        {
+          "name": "Mobilvetta KEA I67",
+          "slug": "mobilvetta-kea-i67",
+          "berths": 4,
+          "sourceUrl": "https://guruloluxus.hu/index.php/lakoautoink/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Roller Team Zefiro 266 TL",
+          "slug": "roller-team-zefiro-266-tl",
+          "berths": 4,
+          "sourceUrl": "https://guruloluxus.hu/index.php/lakoautoink/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Weinsberg CaraHome 650 DG",
+          "slug": "weinsberg-carahome-650-dg",
+          "berths": 6,
+          "sourceUrl": "https://guruloluxus.hu/index.php/lakoautoink/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ]
+    },
+    {
+      "slug": "karavan-sk",
+      "name": "KARAVAN.sk",
+      "legalName": "KARAVAN.sk s.r.o.",
+      "homeCountry": "SK",
+      "countries": [
+        "SK"
+      ],
+      "website": "https://www.karavan.sk",
+      "email": "pozicovna@karavan.sk",
+      "phone": "+421 918 947 435",
+      "declaredDepotCount": 1,
+      "declaredFleetSize": null,
+      "sourceUrl": "https://www.karavan.sk/pozicovna",
+      "sourceCheckedOn": "2026-11-03",
+      "intro": "Slovak caravan dealer whose rental office in Trnava-Modranka lists five rental motorhomes and campervans with full specifications, from a Bürstner Campeo 4x4 van to a Concorde Charisma integrated motorhome.",
+      "whatToKnow": "The company also has a sales and service branch in Haniska near Košice, but only Trnava is listed as the rental office.",
+      "reviewProfiles": [],
+      "services": [
+        {
+          "code": "unlimited_km",
+          "availability": "unavailable",
+          "note": "Average cap of 300 km per day",
+          "sourceUrl": "https://www.karavan.sk/pozicovna",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "pets_allowed",
+          "availability": "extra",
+          "note": "Daily pet fee",
+          "sourceUrl": "https://www.karavan.sk/pozicovna",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "bike_rack",
+          "availability": "included",
+          "note": "Four-bike carrier",
+          "sourceUrl": "https://www.karavan.sk/pozicovna",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "camping_table_chairs",
+          "availability": "included",
+          "note": "Listed as included",
+          "sourceUrl": "https://www.karavan.sk/pozicovna",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "awning",
+          "availability": "included",
+          "note": "4.5 m awning with carpet",
+          "sourceUrl": "https://www.karavan.sk/pozicovna",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "delivery_to_renter",
+          "availability": "unavailable",
+          "note": "Handover only at the rental office",
+          "sourceUrl": "https://www.karavan.sk/pozicovna",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ],
+      "vehicles": [
+        {
+          "name": "Bürstner Campeo 4x4 C540",
+          "slug": "b-rstner-campeo-4x4-c540",
+          "berths": 4,
+          "beltedSeats": 4,
+          "lengthCm": 541,
+          "sourceUrl": "https://www.karavan.sk/pozicovna",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Bürstner Lineo C590",
+          "slug": "b-rstner-lineo-c590",
+          "berths": 4,
+          "beltedSeats": 4,
+          "lengthCm": 598,
+          "sourceUrl": "https://www.karavan.sk/pozicovna",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "McLouis Mc4 865",
+          "slug": "mclouis-mc4-865",
+          "berths": 5,
+          "beltedSeats": 4,
+          "lengthCm": 699,
+          "sourceUrl": "https://www.karavan.sk/pozicovna",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ]
+    },
+    {
+      "slug": "karavan365",
+      "name": "Karavan365",
+      "homeCountry": "SK",
+      "countries": [
+        "SK"
+      ],
+      "website": "https://www.karavan365.sk",
+      "email": "info@karavan365.sk",
+      "phone": "+421 903 529 183",
+      "declaredDepotCount": 1,
+      "declaredFleetSize": null,
+      "sourceUrl": "https://www.karavan365.sk/kontakt/",
+      "sourceCheckedOn": "2026-11-03",
+      "intro": "Motorhome rental company in Žilina in northern Slovakia with around seventeen rental vehicles listed, including Eura Mobil, Forster and Karmann-Mobil motorhomes and vans.",
+      "whatToKnow": "The rental list also contains two Adria Altea trailer caravans. Two legal names appear on the site (December SK s. r. o. in the billing block, JPK Slovakia s.r.o. in the page title), so none is recorded.",
+      "reviewProfiles": [],
+      "services": [
+        {
+          "code": "cleaning_service",
+          "availability": "included",
+          "note": "Ozone cleaning stated",
+          "sourceUrl": "https://www.karavan365.sk/prenajom-karavanov/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ],
+      "vehicles": [
+        {
+          "name": "Eura Mobil Profila T 676 EB",
+          "slug": "eura-mobil-profila-t-676-eb",
+          "berths": 4,
+          "beltedSeats": 4,
+          "sourceUrl": "https://www.karavan365.sk/prenajom-karavanov/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Forster 699 HB",
+          "slug": "forster-699-hb",
+          "berths": 6,
+          "beltedSeats": 6,
+          "sourceUrl": "https://www.karavan365.sk/prenajom-karavanov/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Karmann-Mobil Dexter 581",
+          "slug": "karmann-mobil-dexter-581",
+          "berths": 4,
+          "beltedSeats": 4,
+          "sourceUrl": "https://www.karavan365.sk/prenajom-karavanov/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ]
+    },
+    {
+      "slug": "karavanea",
+      "name": "Karavanea",
+      "homeCountry": "SK",
+      "countries": [
+        "SK"
+      ],
+      "website": "https://www.karavanea.sk",
+      "email": "info@karavanea.sk",
+      "phone": "+421 903 563 569",
+      "declaredDepotCount": null,
+      "declaredFleetSize": null,
+      "sourceUrl": "https://www.karavanea.sk/kontakt",
+      "sourceCheckedOn": "2026-11-03",
+      "intro": "Motorhome rental and sales business in Haniska near Košice in eastern Slovakia, listing ten vehicles including Hymer, Carado, Adria, Etrusco and Elnagh models with model years.",
+      "whatToKnow": "No service terms were found on the fetched pages, so the services list is empty rather than marked unavailable.",
+      "reviewProfiles": [],
+      "services": [],
+      "vehicles": [
+        {
+          "name": "Hymer ML-T 580 4x4",
+          "slug": "hymer-ml-t-580-4x4",
+          "berths": 4,
+          "beltedSeats": 3,
+          "sourceUrl": "https://karavanea.sk/ponuka-karavanov",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Carado I447 Pro+",
+          "slug": "carado-i447-pro",
+          "berths": 4,
+          "beltedSeats": 4,
+          "sourceUrl": "https://karavanea.sk/ponuka-karavanov",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Adria Coral XL 660 SL",
+          "slug": "adria-coral-xl-660-sl",
+          "berths": 5,
+          "beltedSeats": 5,
+          "sourceUrl": "https://karavanea.sk/ponuka-karavanov",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ]
+    },
+    {
+      "slug": "karavany-krejci",
+      "name": "Karavany Krejčí",
+      "homeCountry": "CZ",
+      "countries": [
+        "CZ"
+      ],
+      "website": "https://karavany-krejci.cz",
+      "email": "karavany.krejci@seznam.cz",
+      "phone": "+420 603 212 480",
+      "declaredDepotCount": 1,
+      "declaredFleetSize": null,
+      "sourceUrl": "https://karavany-krejci.cz/karavany/",
+      "sourceCheckedOn": "2026-11-03",
+      "intro": "Prague motorhome rental business at Vídeňská street in Prague 4 with six listed vehicles from Sunlight, Carado, Weinsberg, Knaus and Eura Mobil; unlimited kilometres from the eighth rental day.",
+      "reviewProfiles": [],
+      "services": [
+        {
+          "code": "unlimited_km",
+          "availability": "included",
+          "note": "Unlimited from eight days; 350 km per day for shorter rentals",
+          "sourceUrl": "https://karavany-krejci.cz/karavany/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "pets_allowed",
+          "availability": "extra",
+          "note": "One-time fee, by prior agreement",
+          "sourceUrl": "https://karavany-krejci.cz/karavany/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "bike_rack",
+          "availability": "included",
+          "note": "Carrier for three to four bikes",
+          "sourceUrl": "https://karavany-krejci.cz/karavany/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "camping_table_chairs",
+          "availability": "included",
+          "note": "Listed as included",
+          "sourceUrl": "https://karavany-krejci.cz/karavany/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "awning",
+          "availability": "included",
+          "note": "On all vehicles",
+          "sourceUrl": "https://karavany-krejci.cz/karavany/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "delivery_to_renter",
+          "availability": "extra",
+          "note": "Charged per kilometre",
+          "sourceUrl": "https://karavany-krejci.cz/karavany/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ],
+      "vehicles": [
+        {
+          "name": "Sunlight A60",
+          "slug": "sunlight-a60",
+          "berths": 4,
+          "lengthCm": 600,
+          "sourceUrl": "https://karavany-krejci.cz/karavany/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Carado A464",
+          "slug": "carado-a464",
+          "beltedSeats": 6,
+          "lengthCm": 700,
+          "sourceUrl": "https://karavany-krejci.cz/karavany/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Weinsberg CaraSuite 700 ME",
+          "slug": "weinsberg-carasuite-700-me",
+          "berths": 4,
+          "lengthCm": 700,
+          "sourceUrl": "https://karavany-krejci.cz/karavany/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ]
+    },
+    {
+      "slug": "resl-group",
+      "name": "Resl group",
+      "legalName": "Resl group s.r.o.",
+      "homeCountry": "CZ",
+      "countries": [
+        "CZ"
+      ],
+      "website": "https://www.reslgroup.cz",
+      "email": "pronajem@reslgroup.cz",
+      "phone": "+420 601 383 595",
+      "declaredDepotCount": 1,
+      "declaredFleetSize": null,
+      "sourceUrl": "https://www.reslgroup.cz/pronajem-obytnych-vozu",
+      "sourceCheckedOn": "2026-11-03",
+      "intro": "Caravan dealer in Police nad Metují in north-east Bohemia that rents three recent motorhomes, an Eura Mobil Profila and two Karmann-Mobil vans, with bike rack, awning and European roadside assistance included.",
+      "reviewProfiles": [],
+      "services": [
+        {
+          "code": "bike_rack",
+          "availability": "included",
+          "note": "Rack for four bikes",
+          "sourceUrl": "https://www.reslgroup.cz/pronajem-obytnych-vozu",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "camping_table_chairs",
+          "availability": "included",
+          "note": "Listed as included",
+          "sourceUrl": "https://www.reslgroup.cz/pronajem-obytnych-vozu",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "awning",
+          "availability": "included",
+          "note": "Listed as included",
+          "sourceUrl": "https://www.reslgroup.cz/pronajem-obytnych-vozu",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "roadside_assistance",
+          "availability": "included",
+          "note": "Assistance across Europe",
+          "sourceUrl": "https://www.reslgroup.cz/pronajem-obytnych-vozu",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ],
+      "vehicles": [
+        {
+          "name": "Eura Mobil Profila RS 695 EB",
+          "slug": "eura-mobil-profila-rs-695-eb",
+          "berths": 4,
+          "beltedSeats": 4,
+          "sourceUrl": "https://www.reslgroup.cz/pronajem-obytnych-vozu",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Karmann-Mobil Duncan 500",
+          "slug": "karmann-mobil-duncan-500",
+          "berths": 4,
+          "beltedSeats": 5,
+          "sourceUrl": "https://www.reslgroup.cz/pronajem-obytnych-vozu",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Karmann-Mobil Davis 591",
+          "slug": "karmann-mobil-davis-591",
+          "berths": 4,
+          "beltedSeats": 4,
+          "sourceUrl": "https://www.reslgroup.cz/pronajem-obytnych-vozu",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ]
+    },
+    {
+      "slug": "avtodomi-stipic",
+      "name": "Avtodomi Martin Stipič",
+      "legalName": "Martin Stipič d.o.o.",
+      "homeCountry": "SI",
+      "countries": [
+        "SI"
+      ],
+      "website": "https://avtodomi-stipic.si",
+      "email": "booking@stipic.eu",
+      "phone": "+386 1 520 30 22",
+      "declaredDepotCount": 1,
+      "declaredFleetSize": null,
+      "foundedYear": 1984,
+      "sourceUrl": "https://avtodomi-stipic.si/najem-avtodoma/",
+      "sourceCheckedOn": "2026-11-03",
+      "intro": "Ljubljana motorhome dealer in business since 1984 that has rented motorhomes since 2001; the rental page lists fourteen models including Morelo, Itineo, Etrusco, Bürstner and LMC.",
+      "reviewProfiles": [],
+      "services": [
+        {
+          "code": "camping_table_chairs",
+          "availability": "included",
+          "note": "Listed as included",
+          "sourceUrl": "https://avtodomi-stipic.si/najem-avtodoma/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "awning",
+          "availability": "included",
+          "note": "Listed as included",
+          "sourceUrl": "https://avtodomi-stipic.si/najem-avtodoma/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "roadside_assistance",
+          "availability": "included",
+          "note": "Free 24/7 technical support",
+          "sourceUrl": "https://avtodomi-stipic.si/najem-avtodoma/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "one_way",
+          "availability": "unavailable",
+          "note": "Vehicle must be returned to the same site",
+          "sourceUrl": "https://avtodomi-stipic.si/najem-avtodoma/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ],
+      "vehicles": [
+        {
+          "name": "Morelo Loft 84M",
+          "slug": "morelo-loft-84m",
+          "berths": 4,
+          "sourceUrl": "https://avtodomi-stipic.si/najem-avtodoma/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Etrusco A 7300 DB",
+          "slug": "etrusco-a-7300-db",
+          "berths": 6,
+          "sourceUrl": "https://avtodomi-stipic.si/najem-avtodoma/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Itineo SB 740",
+          "slug": "itineo-sb-740",
+          "berths": 5,
+          "sourceUrl": "https://avtodomi-stipic.si/najem-avtodoma/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ]
+    },
+    {
+      "slug": "hisa-na-kolesih",
+      "name": "Hiša na kolesih",
+      "legalName": "HNK d.o.o.",
+      "homeCountry": "SI",
+      "countries": [
+        "SI"
+      ],
+      "website": "https://www.hisanakolesih.com",
+      "email": "booking@hisanakolesih.com",
+      "phone": "+386 31 732 777",
+      "declaredDepotCount": 1,
+      "declaredFleetSize": null,
+      "sourceUrl": "https://www.hisanakolesih.com/sl/faq",
+      "sourceCheckedOn": "2026-11-03",
+      "intro": "Large Slovenian motorhome rental company in Šenčur next to Ljubljana airport, also trading as Slovenia Camper in English, with 28 motorhome and van models listed and per-model unit counts shown.",
+      "whatToKnow": "Per-model unit counts on the fleet page add up to roughly ninety vehicles including passenger vans and trailers, but the site does not state a fleet size, so none is recorded. English mirror: sloveniacamper.com.",
+      "reviewProfiles": [],
+      "services": [
+        {
+          "code": "pets_allowed",
+          "availability": "extra",
+          "note": "Advance notice required plus cleaning surcharge",
+          "sourceUrl": "https://www.hisanakolesih.com/sl/faq",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "cleaning_service",
+          "availability": "included",
+          "note": "Final cleaning covered by the pick-up fee",
+          "sourceUrl": "https://www.hisanakolesih.com/sl/faq",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "roadside_assistance",
+          "availability": "included",
+          "note": "24-hour assistance",
+          "sourceUrl": "https://www.hisanakolesih.com/sl/faq",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "excess_reduction",
+          "availability": "unavailable",
+          "note": "Deposit covers damage; no reduction product listed",
+          "sourceUrl": "https://www.hisanakolesih.com/sl/faq",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "one_way",
+          "availability": "unavailable",
+          "note": "Return to Šenčur unless agreed otherwise",
+          "sourceUrl": "https://www.hisanakolesih.com/sl/faq",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ],
+      "vehicles": [
+        {
+          "name": "Robeta Helios",
+          "slug": "robeta-helios",
+          "sourceUrl": "https://www.hisanakolesih.com/sl/car_park/all/standard",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Giottiline Siena 385",
+          "slug": "giottiline-siena-385",
+          "sourceUrl": "https://www.hisanakolesih.com/sl/car_park/all/standard",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Knaus Boxdrive 600 XL",
+          "slug": "knaus-boxdrive-600-xl",
+          "sourceUrl": "https://www.hisanakolesih.com/sl/car_park/all/standard",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ]
+    },
+    {
+      "slug": "kamperi-hr",
+      "name": "Kamperi.hr",
+      "legalName": "Miholić usluge d.o.o.",
+      "homeCountry": "HR",
+      "countries": [
+        "HR"
+      ],
+      "website": "https://www.kamperi.hr",
+      "phone": "+385 1 6570 670",
+      "declaredDepotCount": 1,
+      "declaredFleetSize": null,
+      "sourceUrl": "https://www.kamperi.hr/najam-kampera/",
+      "sourceCheckedOn": "2026-11-03",
+      "intro": "Zagreb motorhome rental company operating from Kerestinec with ten listed Benimar motorhomes and vans; the rental page links to its Google reviews.",
+      "reviewProfiles": [
+        {
+          "source": "google",
+          "profileUrl": "https://g.co/kgs/k2fVzmE"
+        }
+      ],
+      "services": [
+        {
+          "code": "unlimited_km",
+          "availability": "unavailable",
+          "note": "350 km per night included",
+          "sourceUrl": "https://www.kamperi.hr/najam-kampera/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "pets_allowed",
+          "availability": "included",
+          "note": "Pet friendly on semi-integrated, integrated and alcove models",
+          "sourceUrl": "https://www.kamperi.hr/najam-kampera/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "bedding",
+          "availability": "extra",
+          "note": "Offered as an extra",
+          "sourceUrl": "https://www.kamperi.hr/najam-kampera/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "camping_table_chairs",
+          "availability": "included",
+          "note": "Table and four chairs",
+          "sourceUrl": "https://www.kamperi.hr/najam-kampera/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "winter_tyres",
+          "availability": "included",
+          "note": "Listed as included",
+          "sourceUrl": "https://www.kamperi.hr/najam-kampera/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "cleaning_service",
+          "availability": "included",
+          "note": "Covered by the mandatory fee",
+          "sourceUrl": "https://www.kamperi.hr/najam-kampera/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ],
+      "vehicles": [
+        {
+          "name": "Benimar Tessoro 444",
+          "slug": "benimar-tessoro-444",
+          "berths": 6,
+          "sourceUrl": "https://www.kamperi.hr/najam-kampera/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Benimar Tessoro 463",
+          "slug": "benimar-tessoro-463",
+          "berths": 5,
+          "sourceUrl": "https://www.kamperi.hr/najam-kampera/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Benimar Benivan 120up",
+          "slug": "benimar-benivan-120up",
+          "berths": 4,
+          "sourceUrl": "https://www.kamperi.hr/najam-kampera/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ]
+    },
+    {
+      "slug": "favorit-rent",
+      "name": "Favorit Rent",
+      "legalName": "Favorit Rent SIA",
+      "homeCountry": "LV",
+      "countries": [
+        "LV"
+      ],
+      "website": "https://favoritrent.lv",
+      "email": "rent@favoritrent.lv",
+      "phone": "+371 67 802 000",
+      "declaredDepotCount": 2,
+      "declaredFleetSize": 7,
+      "foundedYear": 2012,
+      "sourceUrl": "https://favoritrent.lv/lv/kontakti",
+      "sourceCheckedOn": "2026-11-03",
+      "intro": "Riga vehicle rental company founded in 2012 with a dedicated motorhome fleet of seven units, mostly Sunlight and Dethleffs, collected from its showroom or its airport branch.",
+      "whatToKnow": "The seven-unit figure is the heading of the camper rental page; one of the seven is an Eriba Feeling 470 trailer caravan.",
+      "reviewProfiles": [],
+      "services": [
+        {
+          "code": "unlimited_km",
+          "availability": "unavailable",
+          "note": "400 km per day included",
+          "sourceUrl": "https://favoritrent.lv/lv/camper/727/SUNLIGHT-T68",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "roadside_assistance",
+          "availability": "included",
+          "note": "24-hour roadside assistance across Europe",
+          "sourceUrl": "https://favoritrent.lv/lv/camper/727/SUNLIGHT-T68",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "cleaning_service",
+          "availability": "extra",
+          "note": "Washing and interior cleaning done only by the company, one-time fee",
+          "sourceUrl": "https://favoritrent.lv/lv/biezak-uzdotie-jautajumi",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "additional_driver",
+          "availability": "included",
+          "note": "Another person may drive the vehicle",
+          "sourceUrl": "https://favoritrent.lv/lv/biezak-uzdotie-jautajumi",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "delivery_to_renter",
+          "availability": "extra",
+          "note": "Pick-up outside the office within Riga for a fee",
+          "sourceUrl": "https://favoritrent.lv/lv/camper/727/SUNLIGHT-T68",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ],
+      "vehicles": [
+        {
+          "name": "Sunlight T68",
+          "slug": "sunlight-t68",
+          "berths": 5,
+          "beltedSeats": 5,
+          "sourceUrl": "https://favoritrent.lv/lv/camper/727/SUNLIGHT-T68",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Dethleffs T 7052 EB",
+          "slug": "dethleffs-t-7052-eb",
+          "berths": 4,
+          "beltedSeats": 5,
+          "sourceUrl": "https://favoritrent.lv/lv/camper/921/DETHLEFFS-T-7052-EB",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Sunlight T67S",
+          "slug": "sunlight-t67s",
+          "sourceUrl": "https://favoritrent.lv/lv/kemperu-noma",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ]
+    },
+    {
+      "slug": "vanbaltic",
+      "name": "VanBaltic",
+      "legalName": "VanBaltic SIA",
+      "homeCountry": "LV",
+      "countries": [
+        "LV"
+      ],
+      "website": "https://vanbaltic.com",
+      "phone": "+371 27006162",
+      "declaredDepotCount": 1,
+      "declaredFleetSize": null,
+      "sourceUrl": "https://vanbaltic.com/about-us/",
+      "sourceCheckedOn": "2026-11-03",
+      "intro": "Campervan rental company at Riga airport in Mārupe renting only Volkswagen California models up to three years old; unlimited kilometres within the Baltics and a free airport transfer are included.",
+      "whatToKnow": "A Vilnius page says service there is coming soon and vehicles are collected in Riga, so no Lithuanian depot is counted.",
+      "reviewProfiles": [],
+      "services": [
+        {
+          "code": "unlimited_km",
+          "availability": "included",
+          "note": "Unlimited within the Baltic states; per-kilometre charge outside",
+          "sourceUrl": "https://vanbaltic.com/faq/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "one_way",
+          "availability": "unavailable",
+          "note": "No one-way trips or drop-offs elsewhere",
+          "sourceUrl": "https://vanbaltic.com/faq/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "additional_driver",
+          "availability": "extra",
+          "note": "One extra driver; free in the Silver and Gold packages",
+          "sourceUrl": "https://vanbaltic.com/faq/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "pets_allowed",
+          "availability": "extra",
+          "note": "One dog, one-time fee",
+          "sourceUrl": "https://vanbaltic.com/faq/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "excess_reduction",
+          "availability": "extra",
+          "note": "Silver and Gold Carefree packages",
+          "sourceUrl": "https://vanbaltic.com/faq/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "airport_transfer",
+          "availability": "included",
+          "note": "Free transfer to and from Riga airport or a nearby hotel",
+          "sourceUrl": "https://vanbaltic.com/services/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ],
+      "vehicles": [
+        {
+          "name": "VW California 6.1 Beach Space",
+          "slug": "vw-california-6-1-beach-space",
+          "berths": 4,
+          "beltedSeats": 5,
+          "lengthCm": 490,
+          "sourceUrl": "https://vanbaltic.com/vw-california-beach-space/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "VW California T6.1 Ocean Comfort",
+          "slug": "vw-california-t6-1-ocean-comfort",
+          "beltedSeats": 4,
+          "lengthCm": 490,
+          "sourceUrl": "https://vanbaltic.com/vw-california-ocean-comfort/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "VW California T6.1 Ocean Premium",
+          "slug": "vw-california-t6-1-ocean-premium",
+          "berths": 4,
+          "beltedSeats": 4,
+          "sourceUrl": "https://vanbaltic.com/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ]
+    },
+    {
+      "slug": "leana",
+      "name": "Leana",
+      "legalName": "SIA Leana",
+      "homeCountry": "LV",
+      "countries": [
+        "LV"
+      ],
+      "website": "https://leana.lv",
+      "phone": "+371 29487739",
+      "declaredDepotCount": 1,
+      "declaredFleetSize": 2,
+      "sourceUrl": "https://leana.lv/noteikumi/",
+      "sourceCheckedOn": "2026-11-03",
+      "intro": "Small family motorhome rental in Jelgava, Latvia, with two Bürstner motorhomes; handover takes place only at its Jelgava site and pets are not allowed.",
+      "reviewProfiles": [],
+      "services": [
+        {
+          "code": "pets_allowed",
+          "availability": "unavailable",
+          "note": "Animals prohibited, fine stated",
+          "sourceUrl": "https://leana.lv/noteikumi/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "additional_driver",
+          "availability": "included",
+          "note": "Must be registered in the contract",
+          "sourceUrl": "https://leana.lv/noteikumi/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "bedding",
+          "availability": "extra",
+          "note": "Two-person set per rental",
+          "sourceUrl": "https://leana.lv/noteikumi/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "cleaning_service",
+          "availability": "extra",
+          "note": "Mandatory and charged",
+          "sourceUrl": "https://leana.lv/noteikumi/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "delivery_to_renter",
+          "availability": "unavailable",
+          "note": "Handover only at Rūpniecības iela 39",
+          "sourceUrl": "https://leana.lv/noteikumi/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ],
+      "vehicles": [
+        {
+          "name": "Bürstner Limited 7265",
+          "slug": "b-rstner-limited-7265",
+          "berths": 7,
+          "beltedSeats": 5,
+          "sourceUrl": "https://leana.lv/piedavajums-burnister-limited/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Bürstner BT6905 Delfin",
+          "slug": "b-rstner-bt6905-delfin",
+          "berths": 5,
+          "beltedSeats": 4,
+          "sourceUrl": "https://leana.lv/piedavajums-burnster-delphin/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ]
+    },
+    {
+      "slug": "puikus-kemperiai",
+      "name": "Puikūs Kemperiai",
+      "legalName": "UAB Kertušas",
+      "homeCountry": "LT",
+      "countries": [
+        "LT"
+      ],
+      "website": "https://www.puikuskemperiai.lt",
+      "email": "info@puikuskemperiai.lt",
+      "phone": "+370 684 35550",
+      "declaredDepotCount": null,
+      "declaredFleetSize": null,
+      "sourceUrl": "https://www.puikuskemperiai.lt/kontaktai",
+      "sourceCheckedOn": "2026-11-03",
+      "intro": "Vilnius motorhome dealer and rental company whose rental page lists 35 vehicles from Benimar, Adria, Rimor, Sunlight, Mobilvetta and Weinsberg; 24/7 roadside assistance, awning and outdoor furniture included.",
+      "whatToKnow": "Main office in Vilnius with a second service site in Panevėžys; the FAQ says the company is based in Vilnius and other cities are served by delivery, so the depot count is not stated.",
+      "reviewProfiles": [],
+      "services": [
+        {
+          "code": "roadside_assistance",
+          "availability": "included",
+          "note": "Roadside help works 24/7",
+          "sourceUrl": "https://www.puikuskemperiai.lt/duk",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "bike_rack",
+          "availability": "included",
+          "note": "Ask when booking",
+          "sourceUrl": "https://www.puikuskemperiai.lt/duk",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "camping_table_chairs",
+          "availability": "included",
+          "note": "Outdoor furniture listed",
+          "sourceUrl": "https://www.puikuskemperiai.lt/duk",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "awning",
+          "availability": "included",
+          "note": "Outdoor awning listed",
+          "sourceUrl": "https://www.puikuskemperiai.lt/duk",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "bedding",
+          "availability": "extra",
+          "note": "Optional rental",
+          "sourceUrl": "https://www.puikuskemperiai.lt/duk",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "delivery_to_renter",
+          "availability": "extra",
+          "note": "Contact for delivery terms",
+          "sourceUrl": "https://www.puikuskemperiai.lt/duk",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ],
+      "vehicles": [
+        {
+          "name": "Benimar Tessoro 468",
+          "slug": "benimar-tessoro-468",
+          "berths": 4,
+          "beltedSeats": 4,
+          "lengthCm": 743,
+          "sourceUrl": "https://www.puikuskemperiai.lt/kemperiai/benimar-tessoro-468/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Adria Matrix 670SL",
+          "slug": "adria-matrix-670sl",
+          "berths": 5,
+          "beltedSeats": 5,
+          "sourceUrl": "https://www.puikuskemperiai.lt/kemperiu-nuoma/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Rimor Kilig 9",
+          "slug": "rimor-kilig-9",
+          "berths": 7,
+          "beltedSeats": 7,
+          "sourceUrl": "https://www.puikuskemperiai.lt/kemperiu-nuoma/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ]
+    },
+    {
+      "slug": "keliauju-kemperiu",
+      "name": "Keliauju kemperiu",
+      "legalName": "UAB Soteras",
+      "homeCountry": "LT",
+      "countries": [
+        "LT"
+      ],
+      "website": "https://keliaujukemperiu.lt",
+      "email": "info@keliaujukemperiu.lt",
+      "phone": "+370 618 09966",
+      "declaredDepotCount": null,
+      "declaredFleetSize": null,
+      "sourceUrl": "https://keliaujukemperiu.lt/kontaktai",
+      "sourceCheckedOn": "2026-11-03",
+      "intro": "Motorhome rental company in Kaišiadorys between Vilnius and Kaunas with ten listed Bürstner, Carado and Hymer motorhomes, including a Hymer ML-T 4x4; roadside assistance is included.",
+      "whatToKnow": "The company also rents trailer caravans on a separate page; motorhomes dominate the offer.",
+      "reviewProfiles": [],
+      "services": [
+        {
+          "code": "roadside_assistance",
+          "availability": "included",
+          "note": "Listed on the homepage",
+          "sourceUrl": "https://keliaujukemperiu.lt/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "kitchen_kit",
+          "availability": "included",
+          "note": "Kitchen equipment included",
+          "sourceUrl": "https://keliaujukemperiu.lt/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "awning",
+          "availability": "included",
+          "note": "Thule awning listed on the Campeo 676 page",
+          "sourceUrl": "https://keliaujukemperiu.lt/nuoma/kemperiu-nuoma/buerstner-campeo-676",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ],
+      "vehicles": [
+        {
+          "name": "Bürstner Campeo 676",
+          "slug": "b-rstner-campeo-676",
+          "berths": 6,
+          "beltedSeats": 6,
+          "lengthCm": 676,
+          "sourceUrl": "https://keliaujukemperiu.lt/nuoma/kemperiu-nuoma/buerstner-campeo-676",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Bürstner B66 Automatic",
+          "slug": "b-rstner-b66-automatic",
+          "berths": 5,
+          "beltedSeats": 5,
+          "sourceUrl": "https://keliaujukemperiu.lt/nuoma/kemperiu-nuoma/buerstner-b66-automatic",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Hymer ML-T 570 Crossover 4x4",
+          "slug": "hymer-ml-t-570-crossover-4x4",
+          "berths": 4,
+          "beltedSeats": 4,
+          "sourceUrl": "https://keliaujukemperiu.lt/nuoma/kemperiu-nuoma",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ]
+    },
+    {
+      "slug": "gocamp",
+      "name": "GoCamp",
+      "legalName": "MB Motis group",
+      "homeCountry": "LT",
+      "countries": [
+        "LT"
+      ],
+      "website": "https://www.gocamp.lt",
+      "email": "info@gocamp.lt",
+      "phone": "+370 644 22220",
+      "declaredDepotCount": 1,
+      "declaredFleetSize": null,
+      "sourceUrl": "https://www.gocamp.lt/",
+      "sourceCheckedOn": "2026-11-03",
+      "intro": "Family-run campervan rental near Vilnius with two vehicles, a Challenger motorhome and a Knaus Tourer Van, collected at its site in Zujūnai; unlimited kilometres and bike rack included.",
+      "reviewProfiles": [],
+      "services": [
+        {
+          "code": "unlimited_km",
+          "availability": "included",
+          "note": "Unlimited kilometres stated on the homepage",
+          "sourceUrl": "https://www.gocamp.lt/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "bike_rack",
+          "availability": "included",
+          "note": "Listed in the homepage feature list",
+          "sourceUrl": "https://www.gocamp.lt/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "awning",
+          "availability": "included",
+          "note": "Outdoor awning listed",
+          "sourceUrl": "https://www.gocamp.lt/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "bedding",
+          "availability": "extra",
+          "note": "Rented separately",
+          "sourceUrl": "https://www.gocamp.lt/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "additional_driver",
+          "availability": "included",
+          "note": "Age 25 or over with three years of licence",
+          "sourceUrl": "https://www.gocamp.lt/nuomos-salygos/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "delivery_to_renter",
+          "availability": "unavailable",
+          "note": "Handover at the fixed location",
+          "sourceUrl": "https://www.gocamp.lt/nuomos-salygos/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ],
+      "vehicles": [
+        {
+          "name": "Challenger 287 GA",
+          "slug": "challenger-287-ga",
+          "berths": 5,
+          "beltedSeats": 5,
+          "lengthCm": 699,
+          "sourceUrl": "https://www.gocamp.lt/kemperiai/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Knaus Tourer Van 500 MQ Vansation",
+          "slug": "knaus-tourer-van-500-mq-vansation",
+          "sourceUrl": "https://www.gocamp.lt/kemperiai/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ]
+    },
+    {
+      "slug": "auto-grupp-2000",
+      "name": "Auto Grupp 2000",
+      "legalName": "Auto Grupp 2000 OÜ",
+      "homeCountry": "EE",
+      "countries": [
+        "EE"
+      ],
+      "website": "https://www.autogrupp.ee",
+      "email": "info@autogrupp.ee",
+      "phone": "+372 56215444",
+      "declaredDepotCount": 1,
+      "declaredFleetSize": 3,
+      "sourceUrl": "https://www.autogrupp.ee/matkaauto-rent/",
+      "sourceCheckedOn": "2026-11-03",
+      "intro": "Tallinn company renting motorhomes since 2008 with a declared fleet of three vehicles, an Elnagh Baron alcove and two Carado models, handed over at Kadaka tee in Mustamäe.",
+      "whatToKnow": "Motorhome rental is a side line; the company's main business is tow bars and car parts.",
+      "reviewProfiles": [],
+      "services": [
+        {
+          "code": "roadside_assistance",
+          "availability": "included",
+          "note": "24/7 roadside assistance in Europe",
+          "sourceUrl": "https://www.autogrupp.ee/matkaauto-rent/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "excess_reduction",
+          "availability": "included",
+          "note": "Super casco cover stated as included",
+          "sourceUrl": "https://www.autogrupp.ee/matkaauto-rent/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "awning",
+          "availability": "included",
+          "note": "Listed as included",
+          "sourceUrl": "https://www.autogrupp.ee/matkaauto-rent/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "bike_rack",
+          "availability": "included",
+          "note": "Rack for three bikes on the Carado models",
+          "sourceUrl": "https://www.autogrupp.ee/matkaauto-rent/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ],
+      "vehicles": [
+        {
+          "name": "Elnagh Baron 22",
+          "slug": "elnagh-baron-22",
+          "berths": 7,
+          "beltedSeats": 7,
+          "sourceUrl": "https://www.autogrupp.ee/baron-auto1/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Carado A461",
+          "slug": "carado-a461",
+          "berths": 6,
+          "beltedSeats": 6,
+          "sourceUrl": "https://www.autogrupp.ee/carado-auto2/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Carado T447",
+          "slug": "carado-t447",
+          "berths": 5,
+          "beltedSeats": 4,
+          "lengthCm": 740,
+          "sourceUrl": "https://www.autogrupp.ee/matkaauto/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ]
+    },
+    {
+      "slug": "webcamper",
+      "name": "WebCamper",
+      "homeCountry": "LU",
+      "countries": [
+        "LU"
+      ],
+      "website": "https://www.webcamper.lu",
+      "email": "hello@webcamper.lu",
+      "phone": "+352 20 35 10 51",
+      "declaredDepotCount": 2,
+      "declaredFleetSize": null,
+      "sourceUrl": "https://www.webcamper.lu/en/webcamper.html",
+      "sourceCheckedOn": "2026-11-03",
+      "intro": "Luxembourg campervan and motorhome rental brand of the Emile Weber group with two pick-up sites, Canach and Fridhaff near Diekirch, and 34 listed models; unlimited kilometres and all drivers included.",
+      "whatToKnow": "The fleet list also includes two trailer caravans alongside 32 motorhomes and vans. It is the only Luxembourg fleet owner found that meets the inclusion rule.",
+      "reviewProfiles": [],
+      "services": [
+        {
+          "code": "unlimited_km",
+          "availability": "included",
+          "note": "Unlimited mileage and all drivers included",
+          "sourceUrl": "https://www.webcamper.lu/fr/louer.html",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "additional_driver",
+          "availability": "included",
+          "note": "All drivers included",
+          "sourceUrl": "https://www.webcamper.lu/fr/louer.html",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "kitchen_kit",
+          "availability": "included",
+          "note": "Kitchen kit listed",
+          "sourceUrl": "https://www.webcamper.lu/fr/louer.html",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "camping_table_chairs",
+          "availability": "included",
+          "note": "Camping chairs and table listed",
+          "sourceUrl": "https://www.webcamper.lu/fr/louer.html",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "roadside_assistance",
+          "availability": "included",
+          "note": "24/7 emergency hotline and ACL mobility service",
+          "sourceUrl": "https://www.webcamper.lu/fr/louer.html",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "pets_allowed",
+          "availability": "extra",
+          "note": "Dog supplement",
+          "sourceUrl": "https://www.webcamper.lu/fr/louer.html",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ],
+      "vehicles": [
+        {
+          "name": "VW California Beach T7",
+          "slug": "vw-california-beach-t7",
+          "berths": 4,
+          "beltedSeats": 4,
+          "sourceUrl": "https://www.webcamper.lu/de/unsere-camper.html",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Knaus Boxlife 600",
+          "slug": "knaus-boxlife-600",
+          "berths": 4,
+          "beltedSeats": 4,
+          "sourceUrl": "https://www.webcamper.lu/de/unsere-camper.html",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Weinsberg CaraHome 600 DKG",
+          "slug": "weinsberg-carahome-600-dkg",
+          "berths": 6,
+          "beltedSeats": 6,
+          "sourceUrl": "https://www.webcamper.lu/de/unsere-camper.html",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ]
+    },
+    {
+      "slug": "jysk-caravan",
+      "name": "Jysk Caravan Center",
+      "homeCountry": "DK",
+      "countries": [
+        "DK"
+      ],
+      "website": "https://jysk-caravan.dk",
+      "email": "salg@jysk-caravan.dk",
+      "phone": "+45 98 31 98 31",
+      "declaredDepotCount": 1,
+      "declaredFleetSize": null,
+      "sourceUrl": "https://jysk-caravan.dk/udlejning-af-autocamper/",
+      "sourceCheckedOn": "2026-11-03",
+      "intro": "Caravan dealer in Støvring in northern Jutland whose rental page shows an availability calendar of twelve motorhomes and names Ahorn, Hobby and other models; bedding is not supplied.",
+      "whatToKnow": "The rental page lists fifteen model names 'or similar' while the calendar shows twelve vehicles, so no fleet size is recorded.",
+      "reviewProfiles": [
+        {
+          "source": "trustpilot",
+          "profileUrl": "https://www.trustpilot.com/review/www.jysk-caravan.dk"
+        }
+      ],
+      "services": [
+        {
+          "code": "unlimited_km",
+          "availability": "unavailable",
+          "note": "2,000 km per week in high season, 1,000 km per week otherwise",
+          "sourceUrl": "https://jysk-caravan.dk/udlejning-af-autocamper/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "additional_driver",
+          "availability": "included",
+          "note": "Allowed from age 25 if named on the contract",
+          "sourceUrl": "https://jysk-caravan.dk/udlejning-af-autocamper/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "pets_allowed",
+          "availability": "extra",
+          "note": "Small dogs only, in a transport box",
+          "sourceUrl": "https://jysk-caravan.dk/udlejning-af-autocamper/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "bedding",
+          "availability": "unavailable",
+          "note": "Bed linen, duvets and pillows are not supplied",
+          "sourceUrl": "https://jysk-caravan.dk/udlejning-af-autocamper/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "bike_rack",
+          "availability": "extra",
+          "note": "Up to four bikes or two e-bikes",
+          "sourceUrl": "https://jysk-caravan.dk/udlejning-af-autocamper/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "awning",
+          "availability": "extra",
+          "note": "Side or front awning",
+          "sourceUrl": "https://jysk-caravan.dk/udlejning-af-autocamper/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ],
+      "vehicles": [
+        {
+          "name": "Ahorn Eco 683",
+          "slug": "ahorn-eco-683",
+          "berths": 6,
+          "beltedSeats": 6,
+          "sourceUrl": "https://jysk-caravan.dk/udlejning-af-autocamper/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Ahorn Camp T690",
+          "slug": "ahorn-camp-t690",
+          "berths": 4,
+          "beltedSeats": 4,
+          "sourceUrl": "https://jysk-caravan.dk/udlejning-af-autocamper/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Hobby Optima Ontour Edition V65 GE",
+          "slug": "hobby-optima-ontour-edition-v65-ge",
+          "berths": 2,
+          "beltedSeats": 4,
+          "sourceUrl": "https://jysk-caravan.dk/udlejning-af-autocamper/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ]
+    },
+    {
+      "slug": "camper-danmark",
+      "name": "Camper Danmark",
+      "homeCountry": "DK",
+      "countries": [
+        "DK"
+      ],
+      "website": "https://camperdanmark.dk",
+      "email": "odm@camperdanmark.dk",
+      "phone": "+45 70 60 40 99",
+      "declaredDepotCount": 1,
+      "declaredFleetSize": null,
+      "sourceUrl": "https://camperdanmark.dk/vores-campere/",
+      "sourceCheckedOn": "2026-11-03",
+      "intro": "Motorhome rental company in Kongerslev in northern Jutland with six named vehicles from Pilote, Pössl and Roller Team, each given a nickname; roadside assistance in Denmark and the EU is included.",
+      "whatToKnow": "The site answers HTTP 454 to a desktop Chrome user agent and HTTP 200 to a plain 'Mozilla/5.0' user agent; checked both on the collection date.",
+      "reviewProfiles": [],
+      "services": [
+        {
+          "code": "unlimited_km",
+          "availability": "included",
+          "note": "2,000 km per week; free kilometres on longer rentals",
+          "sourceUrl": "https://camperdanmark.dk/vores-campere/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "roadside_assistance",
+          "availability": "included",
+          "note": "Roadside help in Denmark and the EU",
+          "sourceUrl": "https://camperdanmark.dk/vores-campere/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "kitchen_kit",
+          "availability": "included",
+          "note": "Kitchen equipment listed as included",
+          "sourceUrl": "https://camperdanmark.dk/vores-campere/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "excess_reduction",
+          "availability": "extra",
+          "note": "Optional excess cover",
+          "sourceUrl": "https://camperdanmark.dk/vores-campere/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "bedding",
+          "availability": "extra",
+          "note": "Duvet, pillow and linen",
+          "sourceUrl": "https://camperdanmark.dk/vores-campere/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "code": "pets_allowed",
+          "availability": "extra",
+          "note": "Dog add-on, not offered on every vehicle",
+          "sourceUrl": "https://camperdanmark.dk/vores-campere/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ],
+      "vehicles": [
+        {
+          "name": "Pilote Pacific 696 Evidence",
+          "slug": "pilote-pacific-696-evidence",
+          "berths": 4,
+          "beltedSeats": 4,
+          "lengthCm": 699,
+          "sourceUrl": "https://camperdanmark.dk/vores-campere/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Pössl Roadstar",
+          "slug": "p-ssl-roadstar",
+          "berths": 3,
+          "beltedSeats": 4,
+          "lengthCm": 599,
+          "sourceUrl": "https://camperdanmark.dk/vores-campere/",
+          "sourceCheckedOn": "2026-11-03"
+        },
+        {
+          "name": "Roller Team Livingstone Sport Duo",
+          "slug": "roller-team-livingstone-sport-duo",
+          "berths": 2,
+          "beltedSeats": 4,
+          "lengthCm": 640,
+          "sourceUrl": "https://camperdanmark.dk/vores-campere/",
+          "sourceCheckedOn": "2026-11-03"
+        }
+      ]
+    }
+  ]
+}
