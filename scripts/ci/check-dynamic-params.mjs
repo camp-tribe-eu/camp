@@ -16,7 +16,24 @@
 //
 // Тому сторож стежить за ОБОМА боками: і щоб `false` не прибрали, і щоб
 // мітку не повернули, не знявши причини.
-import { readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+import { readFileSync, realpathSync } from 'node:fs';
+
+// 🔴 CAMP-303. РОБОТА ЗА ТОЧКОЮ ВХОДУ, БО ФАЙЛ МАЄ ЕКСПОРТИ.
+//
+// Без цієї огорожі `process.exit()` на рівні модуля завершував процес
+// КОЖНОГО, хто імпортує файл. Сторож точок входу мовчав, бо питав «а чи
+// ВЖЕ хтось імпортує» — тобто шкода ставала видимою лише після того, як
+// зʼявлявся перший імпорт, а не тоді, коли її заклали.
+const invokedDirectly = (() => {
+  const entry = process.argv[1];
+  if (entry === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(entry)).href;
+  } catch {
+    return false;
+  }
+})();
 
 const SELF_TEST = process.argv.includes('--self-test');
 
@@ -39,7 +56,7 @@ export function audit({ tagsSource } = {}) {
   return problems;
 }
 
-if (SELF_TEST) {
+if (invokedDirectly && SELF_TEST) {
   const cases = [
     ['порожній перелік — чисто', { tagsSource: 'export const ALLOWED_TAGS = new Map([\n]);' }, 0, null],
     ['мітку повернули — ловиться', { tagsSource: 'ALLOWED_TAGS = new Map([\n  ["navigation", NAV_TAG],\n]);' }, 1, 'navigation'],
@@ -65,4 +82,4 @@ for (const p of problems) console.error(`✗ ${p}`);
 if (problems.length === 0) {
   console.log('✓ check-dynamic-params: ALLOWED_TAGS порожній — жодна мітка не може покласти каталог');
 }
-process.exit(problems.length === 0 ? 0 : 1);
+if (invokedDirectly) process.exit(problems.length === 0 ? 0 : 1);

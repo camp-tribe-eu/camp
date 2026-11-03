@@ -14,6 +14,8 @@
 // 🔴 І НІКОЛИ НЕ АРГУМЕНТОМ КОМАНДИ. 26.10.2026 я злив ключ саме так:
 // поклав у `-H` і надрукував, «який спосіб пробую». Аргументи видно і в
 // `ps`, і в історії оболонки, і у виводі. Звідси — тільки оточення.
+import { realpathSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { createWriteStream, createReadStream } from 'node:fs';
 import { open, rename, rm, stat } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
@@ -222,7 +224,23 @@ async function main(argv) {
   console.log(`фід на місці: ${target}, ${(bytes / 1e6).toFixed(1)} МБ`);
 }
 
-main(process.argv.slice(2)).catch((e) => {
+// 🔴 CAMP-303. ВИХІД ІЗ ПРОЦЕСУ — ЗА ТОЧКОЮ ВХОДУ, БО ФАЙЛ МАЄ ЕКСПОРТИ.
+//
+// `process.exit()` на рівні модуля завершував процес КОЖНОГО, хто
+// імпортує файл. Сторож точок входу мовчав, бо питав «а чи ВЖЕ хтось
+// імпортує»: шкода ставала видимою лише після першого імпорту.
+const invokedDirectly = (() => {
+  const entry = process.argv[1];
+  if (entry === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(entry)).href;
+  } catch {
+    return false;
+  }
+})();
+
+if (invokedDirectly)
+  main(process.argv.slice(2)).catch((e) => {
   console.error(`✗ ${e.message}`);
   process.exit(1);
 });

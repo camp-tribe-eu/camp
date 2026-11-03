@@ -1,4 +1,21 @@
 #!/usr/bin/env node
+import { pathToFileURL } from 'node:url';
+import { realpathSync } from 'node:fs';
+
+// 🔴 CAMP-303. ВИХІД ІЗ ПРОЦЕСУ — ЗА ТОЧКОЮ ВХОДУ, БО ФАЙЛ МАЄ ЕКСПОРТИ.
+//
+// `process.exit()` на рівні модуля завершував процес КОЖНОГО, хто
+// імпортує файл. Сторож точок входу мовчав, бо питав «а чи ВЖЕ хтось
+// імпортує»: шкода ставала видимою лише після першого імпорту.
+const invokedDirectly = (() => {
+  const entry = process.argv[1];
+  if (entry === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(entry)).href;
+  } catch {
+    return false;
+  }
+})();
 // Гачок, який відповідає 200 і нічого не скидає, — це мовчазний провал.
 //
 // 🔴 ЧОМУ ЦЕЙ СТОРОЖ, І ЧОМУ НЕ «ЧИ Є ЕНДПОЙНТ». CAMP-363 називає
@@ -175,7 +192,7 @@ export function audit(probe) {
 }
 
 // ── самотест ───────────────────────────────────────────────────────────
-if (SELF_TEST) {
+if (invokedDirectly && SELF_TEST) {
   // Правильна відповідь роззброєного гачка — 400 (див. EXPECTED вище).
   // Правильна відповідь: 400 від НАШОГО обробника з порожнім allowed.
   const ok = { name: '__camptribe_probe__', status: 400, allowed: [] };
@@ -356,4 +373,6 @@ async function main() {
   process.exit(problems.length === 0 ? 0 : 1);
 }
 
-main();
+
+
+if (invokedDirectly) main();

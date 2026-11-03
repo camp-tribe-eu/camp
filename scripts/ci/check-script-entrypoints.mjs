@@ -770,8 +770,54 @@ export function reachesOutside(source, fileName = 'file.ts') {
  * three blocking defects lived. Density of tests around one layer hid
  * zero coverage of the next.
  */
-export function verdict({ file, work, importedBy, database, external }) {
+/**
+ * 🔴 CAMP-303. ЗАХОПЛЕННЯ ЧУЖОГО ПРОЦЕСУ — НЕ «РОБОТА», І РАХУЄТЬСЯ ОКРЕМО.
+ *
+ * Решта правил нижче свідомо питають «а чи це комусь шкодить»: модульна
+ * робота стає знахідкою, лише якщо файл УЖЕ хтось імпортує й він ходить
+ * назовні, або якщо він пише в базу. «Точка входу, якої ніхто не
+ * імпортує, — це нормально» стоїть у DECISIONS окремим випадком, і це
+ * правильне рішення: чистота заради чистоти не варта червоного CI.
+ *
+ * Але `process.exit()` і `process.argv` на рівні модуля — інша подія.
+ * Вони не ДОДАЮТЬ роботи імпортерові, вони ЗАБИРАЮТЬ у нього процес:
+ * перший його завершує, другий розбирає чужі аргументи як свої. Шкода
+ * настає в ту мить, коли зʼявиться перший імпорт, — а не тоді, коли ми
+ * про неї дізнаємось.
+ *
+ * Саме так CAMP-275 і сталась: `chooseAction(process.argv…)` плюс
+ * `process.exit(run())` на рівні модуля у файлі, що експортує функцію.
+ * Сторож сказав rc=0, бо тоді файл ще ніхто не імпортував.
+ *
+ * 🔴 Заміряно 03.11.2026, перш ніж це додати: таких файлів **пʼять** із
+ * 552, що мають експорти. Тобто площа ураження відома й мала — інакше
+ * це був би запобіжник, дорожчий за дефект.
+ */
+const TAKES_OVER = /\bprocess\s*\.\s*(exit|argv)\b/;
+
+export function verdict({
+  file,
+  work,
+  importedBy,
+  database,
+  external,
+  hasExports = false,
+}) {
   if (work.length === 0) return null;
+  const takeover = work.find((w) => TAKES_OVER.test(w.name));
+  if (takeover && hasExports) {
+    return {
+      file,
+      line: takeover.line,
+      why:
+        `${takeover.name} runs when this file is imported, and this file ` +
+        'has exports. That is not work added to the importer — it is the ' +
+        'importer’s process taken away: `process.exit` ends it, ' +
+        '`process.argv` reads its arguments as ours. CAMP-275 is exactly ' +
+        'this shape, and the guard said rc=0 because nothing imported the ' +
+        'file YET. Put it behind `if (invokedDirectly) { … }`.',
+    };
+  }
   if (database) {
     return {
       file,
@@ -802,6 +848,24 @@ export function verdict({ file, work, importedBy, database, external }) {
   return null;
 }
 
+/**
+ * 🔴 CAMP-303. ЩО ДРУКУЄТЬСЯ — ТЕ Й ПЕРЕВІРЯЄТЬСЯ.
+ *
+ * Рядок винесено в константу не заради охайності, а щоб його можна було
+ * ЗВІРИТИ з вироком випадком нижче. Доки він був літералом усередині
+ * `main()`, розійтися з перевіркою він міг мовчки — і розійшовся:
+ * «nothing does work that anything can import» описувало перевірку,
+ * якої немає.
+ *
+ * Кожне слово тут відповідає одній гілці `verdict()`:
+ *   process  → захоплення процесу імпортера (takeover)
+ *   database → запис у базу
+ *   imports  → ходить назовні, і його вже хтось імпортує
+ */
+export const CLAIM =
+  'nothing takes the importer’s process, writes to a database, or reaches ' +
+  'outside while something imports it';
+
 const DECISIONS = [
   ['a quiet file is fine however many import it',
     { file: 'a.ts', work: [], importedBy: ['b.ts', 'c.ts'], database: true, external: true }, false],
@@ -819,6 +883,28 @@ const DECISIONS = [
   ['…but the same file reaching outside is',
     { file: 'map-sources.ts', work: [{ line: 79, name: 'writeFileSync(…)' }],
       importedBy: ['a.tsx'], database: false, external: true }, true],
+
+  // 🔴 CAMP-303. ДВІ ФОРМИ З ТАБЛИЦІ КАРТКИ, ПОІМЕННО.
+  //
+  // Обидві давали rc=0 і файл не називався: нічого його ще не
+  // імпортувало, бази він не чіпав. А він при цьому експортував
+  // функцію, тобто був імпортовним за побудовою.
+  ['🔴 process.exit на рівні модуля у файлі з експортами — знахідка, хоч його ніхто не імпортує',
+    { file: 'check-new.mjs', work: [{ line: 12, name: 'process.exit(run())' }],
+      importedBy: [], database: false, external: false, hasExports: true }, true],
+  ['🔴 і process.argv так само: чужі аргументи розібрані як свої',
+    { file: 'check-new.mjs', work: [{ line: 9, name: 'chooseAction(process.argv.slice(2), …)' }],
+      importedBy: [], database: false, external: false, hasExports: true }, true],
+
+  // 🔴 І МЕЖА З ДРУГОГО БОКУ: справжня точка входу БЕЗ експортів нікого
+  // не стосується. Інакше це правило зробило б знахідкою кожен скрипт,
+  // який чесно виходить кодом, — тобто коштувало б дорожче за дефект.
+  ['точка входу без експортів виходить кодом і це не знахідка',
+    { file: 'run-once.mjs', work: [{ line: 40, name: 'process.exit(main())' }],
+      importedBy: [], database: false, external: false, hasExports: false }, false],
+  ['читання process.env роботою процесу не є',
+    { file: 'conf.ts', work: [{ line: 3, name: 'process.env.NODE_ENV' }],
+      importedBy: [], database: false, external: false, hasExports: true }, false],
 ];
 
 // 🔴 Guarded like everything it polices. Review found this file killed
@@ -871,6 +957,23 @@ if (invokedDirectly && argv.includes('--self-test')) {
   // contributed zero files; and specs were filtered out of the list the
   // exemption check searched, so the one class of file that caused
   // CAMP-202 was the one it could not see.
+  // 🔴 CAMP-303. РЯДОК ВИВОДУ Й ВИРОК МУСЯТЬ ГОВОРИТИ ПРО ОДНЕ.
+  //
+  // Мутація, що розводить їх (повернути «does work that anything can
+  // import»), червонить саме цей випадок. Без нього гасло могло знову
+  // пообіцяти більше, ніж міряє вирок, — а саме так CAMP-275 і
+  // прослизнула повз.
+  const CLAIM_PARTS = [
+    ['захоплення процесу названо', /process/.test(CLAIM)],
+    ['запис у базу названо', /database/.test(CLAIM)],
+    ['«його вже хтось імпортує» названо', /imports? it|something imports/.test(CLAIM)],
+    [
+      '🔴 і гасло НЕ обіцяє перевірки, якої немає',
+      !/does work that anything can import/.test(CLAIM),
+    ],
+  ];
+  for (const [what, got] of CLAIM_PARTS) say(got, what, '');
+
   const SELECTION = [
     ['an .mjs is a file we read', isReadable('drop-non-eu.mjs'), true],
     ['so is a .cjs', isReadable('x.cjs'), true],
@@ -884,10 +987,15 @@ if (invokedDirectly && argv.includes('--self-test')) {
     say(got === expected, what, ` (expected ${expected}, got ${got})`);
   }
 
-  const total = IMPORT_FORMS.length + SELF_TEST.length + DECISIONS.length + SELECTION.length;
+  const total =
+    IMPORT_FORMS.length +
+    SELF_TEST.length +
+    DECISIONS.length +
+    SELECTION.length +
+    CLAIM_PARTS.length;
   // 🔴 ASSERTED, not merely printed. Review deleted one case and the
   // line said "62 cases" instead of 63 — exit 0, grep satisfied.
-  const EXPECTED_CASES = 63;
+  const EXPECTED_CASES = 71;
   if (total !== EXPECTED_CASES) {
     failed++;
     console.log(`✗ ${total} cases ran, expected ${EXPECTED_CASES}`);
@@ -934,6 +1042,9 @@ if (invokedDirectly) {
       importedBy: importers(all, file),
       database: touchesDatabase(source, file),
       external: reachesOutside(source, file),
+      // 🔴 CAMP-303: «має експорти» означає «його МОЖНА імпортувати».
+      // Решта правил питають, чи вже імпортують; це — чи взагалі можна.
+      hasExports: /^export\s/m.test(source),
     });
     if (!found) continue;
     bad++;
@@ -944,8 +1055,20 @@ if (invokedDirectly) {
   console.log(
     bad
       ? `\n✗ ${bad} file${bad === 1 ? ' does' : 's do'} work when imported`
-      : `✓ ${subjects.length} files (of ${all.length} read): nothing does ` +
-        'work that anything can import',
+      // 🔴 CAMP-303. РЯДОК КАЗАВ БІЛЬШЕ, НІЖ ПЕРЕВІРЯЄТЬСЯ.
+      //
+      // Тут стояло «nothing does work that anything can import» — а
+      // вирок нижче питає вужче: робота на рівні модуля стає знахідкою,
+      // лише якщо файл УЖЕ хтось імпортує й він ходить назовні, або
+      // якщо він пише в базу, або (з 03.11.2026) якщо він забирає
+      // процес імпортера.
+      //
+      // Різниця не теоретична: CAMP-275 поклала `chooseAction(argv)` і
+      // `process.exit(run())` на рівень модуля у файлі з експортами,
+      // сторож сказав rc=0 — і я повірив гаслу, а не вироку.
+      //
+      // Тепер рядок називає саме те, що зміряно.
+      : `✓ ${subjects.length} files (of ${all.length} read): ${CLAIM}`,
   );
   exit(bad ? 1 : 0);
 }

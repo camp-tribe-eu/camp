@@ -9,8 +9,24 @@
 // Сторож не вміє САМ вирішити, чи дані персональні: це судження. Тому
 // кожна сутність мусить бути класифікована тут явно. Нова сутність без
 // класифікації валить перевірку — і це навмисно: людина має вирішити.
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, realpathSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { join } from "node:path";
+
+// 🔴 CAMP-303. САМОПЕРЕВІРКА Й ВИХІД — ЗА ТОЧКОЮ ВХОДУ.
+//
+// `process.exit()` на рівні модуля завершував процес КОЖНОГО, хто
+// імпортує файл. Сторож точок входу мовчав, бо питав «а чи ВЖЕ хтось
+// імпортує»: шкода ставала видимою лише після першого імпорту.
+const invokedDirectly = (() => {
+  const entry = process.argv[1];
+  if (entry === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(entry)).href;
+  } catch {
+    return false;
+  }
+})();
 
 const SELF_TEST = process.argv.includes("--self-test");
 
@@ -133,7 +149,7 @@ if (SELF_TEST) {
   console.log(
     `check-gdpr-register self-test: ran ${passed + failed}, passed ${passed}, failed ${failed}`,
   );
-  process.exit(failed === 0 ? 0 : 1);
+  if (invokedDirectly) process.exit(failed === 0 ? 0 : 1);
 }
 
 const found = readdirSync("apps/api/src/entities")
@@ -148,7 +164,7 @@ if (problems.length > 0) {
     "\n  docs/GDPR-REGISTER.md описує, що ми справді обробляємо. Розбіжність тут —",
   );
   console.error("  це не неохайність, а неправда перед наглядовим органом.");
-  process.exit(1);
+  if (invokedDirectly) process.exit(1);
 }
 
 console.log(
