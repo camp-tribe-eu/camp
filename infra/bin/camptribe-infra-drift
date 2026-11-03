@@ -111,7 +111,7 @@ self_test() {
                 'fail2ban|/etc/fail2ban/jail.d'; do
       local dir="${pair%%|*}" dest="${pair##*|}"
       grep -q -- "\*/$dir/\*" "$deploy" && grep -q -- "$dest" "$deploy"
-      t "🔴 правило «$dir» є і в deploy-infra.sh" "$?" '0'
+      t "🔴 правило «${dir}» є і в deploy-infra.sh" "$?" '0'
     done
   else
     t '🔴 deploy-infra.sh знайдено' 'ні' 'так'
