@@ -526,12 +526,15 @@ jobs:
       # the live search index is not cached where it looks. CI does not
       # set RANKING_INDEX, so those five have never run here.
       #
-      # ⚠️ Only the guard's LOGIC runs in this job. The gate itself is
-      # not yet on this workflow's e2e suite, because seeding a budget
-      # needs a full e2e report and there are 23 `test.skip` sites in
-      # tests/e2e, most of them "the fixture holds no X" — which is this
-      # card's subject from a third direction. The scale workflow enforces
-      # it at zero today; docs/scale-check.md says what is left.
+      # ✅ 03.11.2026: ворота тепер є і на e2e — крок «The number of e2e
+      # tests that did not run has not grown» нижче, бюджет 128, заміряний
+      # зі справжнього звіту. Тут лишається перевірка ЛОГІКИ сторожа.
+      # Scale-воркфлоу тримає свій нуль; docs/scale-check.md каже решту.
+      #
+      # 🔴 І тутешнє «23 `test.skip` sites» було неправдою: тим самим
+      # інструментом на тому ж коміті їх 27, а сьогодні 36. Число в
+      # коментарі не вміє старіти вголос — тепер рахує
+      # scripts/ci/check-e2e-skips.mjs.
       # 🔴 CAMP-285/286: the step reads the self-test's own output.
       # `set -o pipefail` because Actions runs `bash -e {0}` WITHOUT it,
       # so a failing node on the left of a pipe is invisible. The grepped
@@ -2187,6 +2190,28 @@ jobs:
       - name: No test passed only on a retry
         if: always()
         run: node scripts/ci/check-flaky.mjs apps/web/playwright-report/report.json
+
+      # 🔴 CAMP-134, ВОРОТА, ЯКИХ БРАКУВАЛО. `check-skips.mjs` існував і
+      # його ЛОГІКА вже проганялась вище — але до звіту e2e він не був
+      # привʼязаний ніде, бо «seeding a budget needs a full e2e report».
+      # Звіт є. Заміряно на прогоні 41715155417 (PR #449, e2e зелений):
+      #
+      #   3934 tests, 128 of them skipped
+      #
+      #   88  немає WebGL2 на firefox-desktop (середовище; дані не зарадять)
+      #   14  причини не названо
+      #   10  «server behaviour, not a rendering difference»
+      #   10  немає кешу індексу — шлях за замовчуванням указує в теку
+      #       СЕСІЇ НА НОУТІ, якої вже немає, а CI RANKING_INDEX не задає
+      #       взагалі: ці тести не бігли ніде й ніколи (CAMP-438)
+      #    6  стан сайту: «while the whole site is closed» / «once open»
+      #
+      # Бюджет 128 — це не схвалення, а замір. Він може лише меншати:
+      # менше пропусків проходить, більше — червонить. Опускати свідомо,
+      # окремим комітом, що називає, який саме пропуск зник.
+      - name: The number of e2e tests that did not run has not grown
+        if: always()
+        run: node scripts/ci/check-skips.mjs apps/web/playwright-report/report.json --max 128
 
       # CAMP-60, debt #2. The API from build-site is still running. Ten
       # seconds at twenty concurrent: this asserts the API does not fall

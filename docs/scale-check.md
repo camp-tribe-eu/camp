@@ -96,6 +96,41 @@ guard, so the old figure came from a ruler nobody recorded — most likely
 comment and misses nothing else. On one ruler the real story is milder
 than the prose implied: the suite doubled, the skips grew by nine.
 
+**And the gate the paragraph actually asked for now exists too.** The old
+text said the scale gate "is not yet on `ci.yml`'s e2e suite" because
+"budgeting those needs a full e2e report to seed from". The report was
+always one artifact download away. Measured from run 41715155417 (PR
+#449, e2e green):
+
+```
+3934 tests, 128 of them skipped
+```
+
+| why they stood down | n |
+|---|---|
+| no WebGL2 on firefox-desktop | 88 |
+| no reason given | 14 |
+| "server behaviour, not a rendering difference" | 10 |
+| no cached search index — see below | 10 |
+| site-state ("while the whole site is closed") | 6 |
+
+`ci.yml` now runs `check-skips.mjs … --max 128` on the e2e report. The
+number is a measurement, not an endorsement: fewer passes, more is red.
+
+🔴 **Those ten are a real defect, not an environment.**
+`ranking-quality.spec.ts:30` defaults its index path to a *Claude Code
+session folder on one laptop* — a UUID that no longer exists even there —
+and CI never sets `RANKING_INDEX`. So those tests have never run
+anywhere, on any machine, and the suite has always said "passed". Filed
+as CAMP-438; not fixed here, because fixing it means producing the index
+in CI, which is its own piece of work.
+
+Two guards, two different questions. This one asks *how many stood down
+in the run we just did*; `check-e2e-skips.mjs` asks *how many places in
+the source could*. A source site that never fires is invisible to the
+first; a run that skips for a reason with no `test.skip` in source — a
+`skipWithoutWebGL` helper, say — is invisible to the second.
+
 The budget lives in `scripts/ci/e2e-skip-budget.json` and may only fall.
 Lowering it takes `--update` plus a reason in the commit, which is the
 same shrinking-list shape as `check-selftest-steps.mjs`. The guard prints
