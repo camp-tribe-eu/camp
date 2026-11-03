@@ -23,6 +23,8 @@ interface VehicleRow {
 interface ProviderPage {
   slug: string;
   name: string;
+  intro: string | null;
+  whatToKnow: string | null;
   legalName: string | null;
   registrationNumber: string | null;
   homeCountry: string;
@@ -91,6 +93,19 @@ export default async function ProviderPageView({
         <Link href="/camper-rental/providers">← усі компанії</Link>
       </p>
       <h1 className="mt-4 text-3xl font-bold">{p.name}</h1>
+
+      {/* 🔴 Абзац — це те, заради чого каталог існує. Без нього сторінка
+          компанії нічим не відрізняється від рядка таблиці, і читач не
+          дізнається, чим ця компанія відрізняється від сусідньої. Сівалка
+          не пропустить провайдера без вступу. */}
+      {p.intro && <p className="mt-4 max-w-2xl">{p.intro}</p>}
+
+      {p.whatToKnow && (
+        <section className="mt-6">
+          <h2 className="text-xl font-semibold">Що варто знати</h2>
+          <p className="mt-2 max-w-2xl">{p.whatToKnow}</p>
+        </section>
+      )}
 
       <section className="mt-6">
         <h2 className="text-xl font-semibold">Контакти</h2>

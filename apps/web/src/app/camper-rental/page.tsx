@@ -296,6 +296,31 @@ export default function CamperRentalHub() {
         </ul>
       </section>
 
+      {/* 🔴 CAMP-427: СТОРІНКА, НА ЯКУ НІЩО НЕ ВЕДЕ, НЕ ІСНУЄ. Каталог
+          компаній був доступний лише тому, хто набере адресу руками:
+          жодного вхідного посилання в усьому `apps/web/src`, тобто ані
+          читач, ані пошуковик його не знайшли б. */}
+      <section
+        aria-labelledby="providers-heading"
+        className="mt-12 border-t border-line-2 pt-8"
+      >
+        <h2
+          id="providers-heading"
+          className="text-xl font-semibold text-heading"
+        >
+          У кого брати
+        </h2>
+        <p className="mt-2 max-w-2xl">
+          Десять найбільших компаній прокату в Союзі: що входить у ціну, що
+          коштує окремо, який парк. Цін немає навмисно — вони змінюються
+          щотижня; числа депо й парку заявлені самими компаніями, і поруч
+          стоїть джерело з датою перевірки.
+        </p>
+        <p className="mt-3">
+          <Link href="/camper-rental/providers">Подивитись компанії →</Link>
+        </p>
+      </section>
+
       <RentalOfferSlot offers={offers} where="Europe" />
 
       <section
