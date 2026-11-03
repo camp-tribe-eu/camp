@@ -262,7 +262,6 @@ describe('planReading', () => {
   });
 });
 
-
 // CAMP-439: зупинка растра в EEA — не поломка нашого збирача.
 describe('failsTheUnit', () => {
   it('🔴 стоячий растр НЕ валить юніт — про нього дзвонить сторож свіжості', () => {
@@ -272,9 +271,9 @@ describe('failsTheUnit', () => {
   });
 
   it('🔴 будь-яка інша біда з растром валить, як і раніше', () => {
-    expect(failsTheUnit(new Error('the modelled tally does not reconcile'))).toBe(
-      true,
-    );
+    expect(
+      failsTheUnit(new Error('the modelled tally does not reconcile')),
+    ).toBe(true);
   });
 
   // 🔴 Вирішує тип, а не слова. Якби ловили за текстом, перефразування
