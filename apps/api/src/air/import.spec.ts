@@ -1,4 +1,6 @@
 import {
+  RasterNotAdvancing,
+  failsTheUnit,
   emptyReadingTally,
   emptyStationTally,
   planReading,
@@ -257,5 +259,38 @@ describe('planReading', () => {
     planReading('D', { outcome: 'ok', body: {} }, NOW, t);
     expect(readingTallyReconciles(t, 4)).toBe(true);
     expect(readingTallyReconciles(t, 5)).toBe(false);
+  });
+});
+
+// CAMP-439: зупинка растра в EEA — не поломка нашого збирача.
+describe('failsTheUnit', () => {
+  it('🔴 стоячий растр НЕ валить юніт — про нього дзвонить сторож свіжості', () => {
+    expect(failsTheUnit(new RasterNotAdvancing('holds 10-25 to 10-28'))).toBe(
+      false,
+    );
+  });
+
+  it('🔴 будь-яка інша біда з растром валить, як і раніше', () => {
+    expect(
+      failsTheUnit(new Error('the modelled tally does not reconcile')),
+    ).toBe(true);
+  });
+
+  // 🔴 Вирішує тип, а не слова. Якби ловили за текстом, перефразування
+  // помилки тихо повернуло б щоденні листи, а збіг слів у чужій помилці
+  // проковтнув би справжню поломку.
+  it('🔴 плаский Error із ТИМ САМИМ текстом усе одно валить', () => {
+    expect(
+      failsTheUnit(
+        new Error(
+          'the raster holds 2026-10-25T00:00:00.000Z to 2026-10-28T12:00:00.000Z',
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it('не-помилка теж валить, а не мовчить', () => {
+    expect(failsTheUnit('щось')).toBe(true);
+    expect(failsTheUnit(undefined)).toBe(true);
   });
 });
