@@ -514,9 +514,37 @@ jobs:
           PLANNED: ${{ needs.plan.outputs.count }}
           RPOI_GOT: ${{ steps.check.outputs.rpoi_got }}
           RPOI_TOTAL: ${{ steps.check.outputs.rpoi_total }}
+          SUBSET: ${{ github.event_name == 'workflow_dispatch' && inputs.regions != '' }}
         run: |
           set -euo pipefail
-          TAG="osm-$(date -u +%Y-%m-%d)"
+
+          # 🔴 ЗАПУСК НА ПІДМНОЖИНУ НЕ СТВОРЮЄ НОВОГО РЕЛІЗУ.
+          #
+          # Сталося 03.11.2026. Тижневий прогін лишив реліз без Франції
+          # й Німеччини; я запустив воркфлоу руками на ці дві країни —
+          # і він опублікував НОВИЙ реліз `osm-2026-11-03` рівно з
+          # однією Німеччиною всередині.
+          #
+          # `import-release.mjs` бере НАЙНОВІШИЙ реліз за датою в тезі
+          # (`latestTag`) і позначки `complete=partial` не читає. Тобто
+          # нічний імпорт узяв би набір із однієї країни замість
+          # учорашнього з двадцяти пʼяти — і впав би на другій.
+          #
+          # Тобто ручний запуск, задуманий ЗАПОВНИТИ дірку, витісняв
+          # повний набір. Тепер підмножина доливається в найновіший
+          # наявний реліз, а новий дата-тег створює лише повний прогін
+          # (за розкладом або `workflow_dispatch` без `regions`).
+          if [ "$SUBSET" = 'true' ]; then
+            TAG="$(gh release list --limit 20 --json tagName                      --jq '[.[].tagName | select(test("^osm-\\d{4}-\\d{2}-\\d{2}$"))] | first // ""')"
+            if [ -z "$TAG" ]; then
+              echo "::warning::підмножина, але жодного релізу osm-* ще немає — створюю новий"
+              TAG="osm-$(date -u +%Y-%m-%d)"
+            else
+              echo "підмножина доливається в наявний реліз $TAG, нового не створюю"
+            fi
+          else
+            TAG="osm-$(date -u +%Y-%m-%d)"
+          fi
 
           {
             # 🔴 The build date is NOT the data date, and saying so was a
@@ -606,7 +634,35 @@ jobs:
           # A re-run on the same day updates the day's release instead of
           # failing on the existing tag.
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release edit "$TAG" --notes-file notes.md
+            # 🔴 ПІДМНОЖИНА ДОПИСУЄ НОТАТКИ, А НЕ ПЕРЕПИСУЄ ЇХ.
+            #
+            # `notes.md` будується з `out/*.count`, тобто рівно з того,
+            # що зібрав ЦЕЙ прогін. Для повного прогону це вся правда;
+            # для доливу двох країн у реліз із двадцяти семи це було б
+            # твердження, що в релізі дві країни — при тому, що файли
+            # решти двадцяти пʼяти лежать на місці (`upload --clobber`
+            # замінює лише названі).
+            #
+            # Тобто дані були б правильні, а нотатки брехали б — і
+            # читає людина саме нотатки.
+            if [ "$SUBSET" = 'true' ]; then
+              gh release view "$TAG" --json body --jq .body > old-notes.md
+              {
+                cat old-notes.md
+                echo
+                echo "---"
+                echo
+                echo "### Долито $(date -u "+%Y-%m-%d %H:%M") UTC"
+                echo
+                echo "Запуск на підмножину додав у цей реліз: **$(sort out/*.count | awk '{printf "%s ", $1}')**."
+                echo
+                echo "Таблиця вище описує прогін, яким реліз створено, і цих регіонів може не називати."
+                echo "Повний перелік того, що в релізі зараз, — у вкладеннях."
+              } > merged-notes.md
+              gh release edit "$TAG" --notes-file merged-notes.md
+            else
+              gh release edit "$TAG" --notes-file notes.md
+            fi
             gh release upload "$TAG" "${ASSETS[@]}" --clobber
           else
             # 🔴 Pre-release on purpose. These are weekly data snapshots;
