@@ -99,9 +99,22 @@ const modeIndex = args.indexOf('--mode');
  * round that is.
  */
 const MODE = modeIndex >= 0 ? args[modeIndex + 1] : 'public';
-if (MODE !== 'public' && MODE !== 'closed') {
-  console.error('--mode must be "public" or "closed"');
-  process.exit(2);
+
+// 🔴 CAMP-303. ПЕРЕВІРКА РЕЖИМУ ПЕРЕЇХАЛА ЗА ТОЧКУ ВХОДУ.
+//
+// Вона стояла тут, на рівні модуля, разом із `process.exit(2)`. Тобто
+// будь-який імпорт цього файлу з чужим `argv` завершував процес
+// імпортера — а файл експортує чотири функції саме для того, щоб його
+// імпортували (самоперевірка їх і кличе).
+//
+// Сторож точок входу про це мовчав: його правило питає «а чи ВЖЕ хтось
+// імпортує», і поки імпортера не було, шкода була невидима. Саме цей
+// файл і став пʼятим у заміру, яким CAMP-303 розширено.
+function assertMode() {
+  if (MODE !== 'public' && MODE !== 'closed') {
+    console.error('--mode must be "public" or "closed"');
+    process.exit(2);
+  }
 }
 const expectIndexable = MODE === 'public';
 const dirIndex = args.indexOf('--dir');
@@ -264,6 +277,7 @@ function selfTest() {
 }
 
 function live() {
+  assertMode();
 
   const indexPath = path.join(ROOT, 'sitemap.xml.body');
   const indexXml = read(indexPath) ?? read(path.join(ROOT, 'sitemap.xml'));
