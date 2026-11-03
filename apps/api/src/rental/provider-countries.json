@@ -1,0 +1,184 @@
+{
+  "_meta": {
+    "collectedOn": "2026-11-03",
+    "rule": "EU-27 ISO-3166-1 alpha-2 codes of countries where the company itself lists a station/depot (or, for peer-to-peer platforms, offers listings) on its own website on sourceCheckedOn; non-EU countries seen there are only counted in nonEuCountries; nothing inferred."
+  },
+  "providers": [
+    {
+      "slug": "mcrent",
+      "countries": [
+        "AT",
+        "DE",
+        "EE",
+        "ES",
+        "FI",
+        "FR",
+        "IE",
+        "IT",
+        "NL",
+        "PL",
+        "PT",
+        "SE"
+      ],
+      "nonEuCountries": 5,
+      "stationCount": 96,
+      "sourceUrl": "https://www.mcrent.eu/appl/rest/stations",
+      "sourceCheckedOn": "2026-11-03",
+      "note": "Station REST endpoint (read with header X-Locale: en) returns 96 stations in 17 distinct country codes, while the About page slide says '16 countries' and 'more than 100 stations'."
+    },
+    {
+      "slug": "roadsurfer",
+      "countries": [
+        "AT",
+        "BE",
+        "DE",
+        "ES",
+        "FR",
+        "IE",
+        "IT",
+        "NL",
+        "PT",
+        "SE"
+      ],
+      "nonEuCountries": 5,
+      "stationCount": 91,
+      "sourceUrl": "https://roadsurfer.com/rv-rental/",
+      "sourceCheckedOn": "2026-11-03",
+      "note": "The 'RV Rental Locations' block lists 91 stations under 16 labels; England and Scotland are separate labels but one ISO country (GB), so 15 countries, while the About page says '16 countries' and 'around 100 locations'. The rv-rental-europe page names Denmark among countries with roadsurfer rentals, but no Danish station is listed."
+    },
+    {
+      "slug": "indie-campers",
+      "countries": [
+        "AT",
+        "BE",
+        "DE",
+        "DK",
+        "ES",
+        "FI",
+        "FR",
+        "GR",
+        "HR",
+        "IE",
+        "IT",
+        "NL",
+        "PL",
+        "PT",
+        "SE"
+      ],
+      "nonEuCountries": 8,
+      "stationCount": 107,
+      "sourceUrl": "https://indiecampers.com/discover/en-us/stories/fact-sheet",
+      "sourceCheckedOn": "2026-11-03",
+      "note": "Owned-fleet depot list ('Global Pick-up Locations (Depots)') on the fact sheet: 107 entries in 23 countries; the Italy list contains both 'Bergamo' and 'Milan Bergamo', so the true count may be 106. The where-we-are page additionally lists marketplace-served cities (e.g. Belfast) which are not depots and were not taken."
+    },
+    {
+      "slug": "rent-easy",
+      "countries": [
+        "CY",
+        "CZ",
+        "DE",
+        "FR",
+        "GR",
+        "IT",
+        "NL",
+        "PL",
+        "PT",
+        "RO",
+        "SE"
+      ],
+      "nonEuCountries": 2,
+      "stationCount": 42,
+      "sourceUrl": "https://www.rent-easy.de/appl/rest/stations",
+      "sourceCheckedOn": "2026-11-03",
+      "note": "Station REST endpoint (read with header X-Locale: en) returns 42 stations in 13 countries, while the homepage says 'over 50 stations'. Brand is merging into McRent on 2026-11-16."
+    },
+    {
+      "slug": "blacksheep-van",
+      "countries": [
+        "FR",
+        "GR",
+        "IE"
+      ],
+      "nonEuCountries": 2,
+      "stationCount": 30,
+      "sourceUrl": "https://www.blacksheep-van.com/en/our-agencies/",
+      "sourceCheckedOn": "2026-11-03",
+      "note": "Agencies page lists 30 agencies in FR (24, incl. Reunion Island), CH (2), IE (2), GR (1) and CA (1). The 'Qui sommes-nous' page instead claims 'more than 50 agencies' in France, Belgium, Switzerland, Italy, Ireland and Portugal; BE, IT and PT have no agency on the agencies page, GR is absent from the about text."
+    },
+    {
+      "slug": "drm",
+      "countries": [
+        "DE"
+      ],
+      "nonEuCountries": 0,
+      "stationCount": 15,
+      "sourceUrl": "https://www.drm.de/en/locations",
+      "sourceCheckedOn": "2026-11-03",
+      "note": "Locations page lists 15 stations, all with German postal addresses, while the same page says '14+ stations'. One entry is labelled 'DRM Leeds' but carries a Leipzig address."
+    },
+    {
+      "slug": "crossrent",
+      "countries": [
+        "DE",
+        "SE"
+      ],
+      "nonEuCountries": 1,
+      "stationCount": 14,
+      "sourceUrl": "https://www.cross-rent.de/appl/rest/stations",
+      "sourceCheckedOn": "2026-11-03",
+      "note": "Station REST endpoint (read with header X-Locale: en) returns 14 stations: DE 12, SE 1, GB 1. The holding page (dated 10/2022) claimed 23 stations incl. one in CH; no CH station is present today."
+    },
+    {
+      "slug": "touring-cars",
+      "countries": [
+        "EE",
+        "ES",
+        "FI",
+        "NL",
+        "SE"
+      ],
+      "nonEuCountries": 3,
+      "stationCount": 10,
+      "sourceUrl": "https://www.touringcars.com/en/rental-locations/",
+      "sourceCheckedOn": "2026-11-03",
+      "note": "Rental-locations page lists 10 offices in 8 countries: FI 2, NO 2, IS 1, SE 1, NL 1, ES 1, EE 1, GB 1."
+    },
+    {
+      "slug": "yescapa",
+      "countries": [
+        "AT",
+        "BE",
+        "DE",
+        "ES",
+        "FI",
+        "FR",
+        "GR",
+        "HR",
+        "IE",
+        "IT",
+        "NL",
+        "PT",
+        "SE",
+        "SI"
+      ],
+      "nonEuCountries": 7,
+      "stationCount": null,
+      "sourceUrl": "https://www.yescapa.com/",
+      "sourceCheckedOn": "2026-11-03",
+      "note": "Peer-to-peer platform without depots: countries are those listed on the homepage under 'RV rental in Europe' (18 countries) and 'around the world' (CA, US, AU), i.e. where private-owner listings are offered."
+    },
+    {
+      "slug": "paulcamper",
+      "countries": [
+        "AT",
+        "DE",
+        "NL"
+      ],
+      "nonEuCountries": 0,
+      "stationCount": null,
+      "sourceUrl": "https://www.paulcamper.de/",
+      "sourceCheckedOn": "2026-11-03",
+      "note": "Peer-to-peer platform without depots: countries are those with a PaulCamper site (paulcamper.de/.at/.nl). The homepage says 'at home in six countries' but lists six besides Germany (seven in total); ES, GB, AU and NZ are served through the sister brand Camplify on separate domains and are not counted here."
+    }
+  ]
+}
