@@ -75,6 +75,6 @@ export class SpotClaim {
   @Column({ type: 'int', default: 0 })
   attempts: number;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }

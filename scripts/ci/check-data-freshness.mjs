@@ -221,9 +221,11 @@ export function fileSources() {
  */
 export const DB_SOURCES = Object.freeze([
   { name: 'camping_spots (OSM кемпінги)', card: 'CAMP-28',
-    table: 'camping_spots', column: 'last_seen_at', budgetHours: 10 * 24 },
+    table: 'camping_spots', column: 'last_seen_at', budgetHours: 10 * 24,
+    unit: 'camptribe-osm-import' },
   { name: 'osm_route_poi (POI маршрутів)', card: 'CAMP-113',
-    table: 'osm_route_poi', column: 'last_seen_at', budgetHours: 10 * 24 },
+    table: 'osm_route_poi', column: 'last_seen_at', budgetHours: 10 * 24,
+    unit: 'camptribe-route-poi-import' },
   // 🔴 `groupBy: 'source'` — вік таблиці це вік НАЙСТАРІШОГО з трьох
   // джерел, а не найсвіжішого. Імпортер пише кожне джерело окремо й не
   // падає, коли одне недосяжне (28.10.2026 mimit.gov.it не відповідав з
@@ -255,24 +257,36 @@ export const DB_SOURCES = Object.freeze([
         until: '2026-12-01',
         why: 'www.mimit.gov.it недосяжний із двох незалежних мереж із ~13.10.2026; DNS живий, адреса не змінювалась; те саме повідомляють сторонні проєкти',
       },
-    } },
+    },
+    unit: 'camptribe-fuel-prices' },
   { name: 'spot_tariffs (тарифи DATAtourisme)', card: 'CAMP-147',
-    table: 'spot_tariffs', column: 'created_at', budgetHours: 10 * 24 },
+    table: 'spot_tariffs', column: 'created_at', budgetHours: 10 * 24,
+    unit: null,
+    manual: 'ланцюг DATAtourisme (809,7 МБ за 14 с) доведено на машині, але юніта немає — CAMP-400, пункт 2' },
   { name: 'spot_links (звʼязки OSM↔DATAtourisme)', card: 'CAMP-144',
-    table: 'spot_links', column: 'created_at', budgetHours: 10 * 24 },
+    table: 'spot_links', column: 'created_at', budgetHours: 10 * 24,
+    unit: 'camptribe-reconcile-sources' },
   { name: 'webcams (камери Windy)', card: 'CAMP-190',
-    table: 'webcams', column: 'fetched_at', budgetHours: 10 * 24 },
+    table: 'webcams', column: 'fetched_at', budgetHours: 10 * 24,
+    unit: null,
+    manual: 'збирач Windy запускається руками; юніта немає — CAMP-400, пункт 2' },
   { name: 'bathing_waters (купання EEA)', card: 'CAMP-168',
     table: 'bathing_waters', column: 'created_at',
-    budgetHours: () => budgetFromSource('apps/web/src/lib/sources.ts', 'ANNUAL_HEALTHY_DAYS') * 24 },
+    budgetHours: () => budgetFromSource('apps/web/src/lib/sources.ts', 'ANNUAL_HEALTHY_DAYS') * 24,
+    unit: 'camptribe-bathing-waters' },
   { name: 'air_quality_stations (повітря EEA, станції)', card: 'CAMP-164',
     table: 'air_quality_stations', column: 'read_at',
-    budgetHours: () => budgetFromSource('apps/web/src/lib/air-quality.ts', 'AIR_FRESH_FOR_HOURS') },
+    budgetHours: () => budgetFromSource('apps/web/src/lib/air-quality.ts', 'AIR_FRESH_FOR_HOURS'),
+    unit: 'camptribe-air-quality' },
   { name: 'air_quality_modelled (повітря EEA, модель)', card: 'CAMP-439',
     table: 'air_quality_modelled', column: 'read_at',
-    // Станції й растр приносить ОДИН юніт, camptribe-air-quality.
+    // 🔴 Той самий `unit`, що в станцій, — і це не повторення, а СУТЬ:
+    // обидва джерела приносить один `camptribe-air-quality`, тому
+    // живі станції доводять, що імпортер запускався, а порожній растр
+    // при них — зупинка, а не «ще не налаштовано».
     provenBy: 'air_quality_stations (повітря EEA, станції)',
-    budgetHours: () => budgetFromSource('apps/web/src/lib/air-quality.ts', 'AIR_FRESH_FOR_HOURS') },
+    budgetHours: () => budgetFromSource('apps/web/src/lib/air-quality.ts', 'AIR_FRESH_FOR_HOURS'),
+    unit: 'camptribe-air-quality' },
 ]);
 
 const ISO = `'YYYY-MM-DD"T"HH24:MI:SS"Z"'`;

@@ -1,0 +1,35 @@
+# CAMP-144 / CAMP-400: звʼязки OSM ↔ DATAtourisme, щотижня.
+#
+# 🔴 ЦЕЙ ЮНІТ МАВ БУТИ ДАВНО, І ПРО ЦЕ НАПИСАНО В НАС ЖЕ.
+# `docs/data-path-to-production.md` дослівно: «`spot_links` —
+# `reconcile-sources.js --apply` — **юніта ще немає**», і там же рецепт:
+# «за зразком `camptribe-fuel-prices.service`, після `camptribe-osm-import`».
+#
+# Заміряно 03.11.2026: `spot_links` 4 459 рядків, **22,7 доби** від
+# 2026-10-12, бюджет 10 діб. Тобто сторож свіжості червонів щоранку з
+# 22.10, а рецепт юніта лежав написаний.
+#
+# 🔴 ЧОМУ БЕЗ НАГЛЯДУ ЦЕ БЕЗПЕЧНО — І ЦЕ ЗАМІР, А НЕ ВІРА.
+# З 01.11.2026 `--apply` пише лише пару, де збігаються ТРИ осі: назва,
+# відстань і домен сайту чи пошти. На тих самих 76 парах 28.10: 55
+# пишуться, 21 лишається дублями без позначки. Тобто скрипт радше НЕ
+# звʼяже, ніж звʼяже помилково, а хибний звʼязок — це дві сторінки, що
+# стали однією.
+[Unit]
+Description=CampTribe OSM↔DATAtourisme source reconcile
+After=postgresql.service network-online.target
+Wants=network-online.target
+OnFailure=camptribe-failed@%n.service
+
+[Service]
+Type=oneshot
+User=camptribe
+Group=camptribe
+WorkingDirectory=/srv/camptribe/current/apps/api
+EnvironmentFile=/srv/camptribe/current/apps/api/.env
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=1h
+ExecStart=/usr/bin/node dist/spots/reconcile-sources.js --apply
+# Слід знімається лише після УСПІШНОГО прогону.
+ExecStartPost=/bin/rm -f /srv/camptribe/failed/camptribe-reconcile-sources.service
