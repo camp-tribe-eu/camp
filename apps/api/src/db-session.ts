@@ -38,3 +38,27 @@ export const PG_SESSION_OPTIONS = '-c timezone=UTC';
 
 /** `extra` для TypeORM: одне означення на всі точки підключення. */
 export const PG_EXTRA = Object.freeze({ options: PG_SESSION_OPTIONS });
+
+/**
+ * Усе, чим обидва пули зʼєднуються з базою — ОДНИМ переліком.
+ *
+ * 🔴 ЦЕ ЗАКРИВАЄ ДІРКУ, ЯКУ КАРТКА CAMP-433 НАЗВАЛА, А ТЕСТ НЕ ЛОВИВ.
+ *
+ * «Спосіб перевірки» вимагав дослівно: прибрати `extra: PG_EXTRA` з
+ * `data-source.ts` — спек має почервоніти; прибрати з `app.module.ts` —
+ * теж; два місця, дві мутації, два червоних.
+ *
+ * Заміряно 03.11.2026: ОБИДВІ мутації вижили. `db-session.db.spec.ts`
+ * лишався зеленим (3 passed) в обох випадках, бо він відкриває ВЛАСНИЙ
+ * `Client` із `options: PG_SESSION_OPTIONS` і до справжніх пулів не
+ * торкається. Тобто доводив, що константа працює, а не що її вживають.
+ *
+ * Два місця з однаковим рядком не звіряються — вони розходяться. Тепер
+ * місце одне, і `pools.db.spec.ts` читає цей обʼєкт із СПРАВЖНЬОГО
+ * `AppDataSource.options`, а не з тексту файла.
+ */
+export const PG_CONNECTION = Object.freeze({
+  type: 'postgres' as const,
+  url: process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev',
+  extra: PG_EXTRA,
+});
