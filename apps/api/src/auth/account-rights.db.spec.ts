@@ -417,12 +417,37 @@ describe('🔴 the export (Art. 15): a file that opens', () => {
     expect(data.reviews).toEqual([
       expect.objectContaining({ body: 'Quiet, clean, shaded.', rating: 4 }),
     ]);
-    // Every instant is ISO 8601 with its zone.
-    expect(data.account.emailConfirmedAt ?? data.account.createdAt).toMatch(
-      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/,
+    // 🔴 CAMP-338. КОМЕНТАР ОБІЦЯВ БІЛЬШЕ, НІЖ ПЕРЕВІРЯВ.
+    //
+    // Тут стояло «Every instant is ISO 8601 with its zone», а перевірка
+    // вимагала зони лише від `sessions[0].createdAt`. Решта міток —
+    // зокрема `account.createdAt`, `trips[].createdAt`, дати подань
+    // фото й відгуків — приходили БЕЗ зони, бо колонки наївні.
+    //
+    // Заміряно 16.10.2026 у справжньому архіві: `15:41:06.060` без зони
+    // поруч із `13:41:06.068Z` — та сама мить, різниця дві години.
+    //
+    // Тому перевіряється КОЖЕН рядок, схожий на мить, а не один.
+    const instants: string[] = [];
+    const walk = (node: unknown): void => {
+      if (Array.isArray(node)) return node.forEach(walk);
+      if (node && typeof node === 'object') {
+        return Object.values(node as Record<string, unknown>).forEach(walk);
+      }
+      if (
+        typeof node === 'string' &&
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(node)
+      ) {
+        instants.push(node);
+      }
+    };
+    walk(data);
+    // Знаменник названий: порожній перелік теж «увесь із зоною».
+    expect(instants.length).toBeGreaterThan(3);
+    expect(instants.filter((s) => !/(Z|[+-]\d{2}:?\d{2})$/.test(s))).toEqual(
+      [],
     );
     expect(data.sessions).toHaveLength(1);
-    expect(data.sessions[0].createdAt).toMatch(/Z$/);
   });
 
   it('carries no secret: not the password hash, nor the hash of a session or a link', async () => {
