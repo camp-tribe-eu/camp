@@ -20,6 +20,7 @@ const p = (over: Partial<Provider>): Provider => ({
   vehicleCount: 0,
   reviewProfiles: [],
   serviceCodes: [],
+  countries: ["DE"],
   ...over,
 });
 
@@ -43,8 +44,18 @@ test.describe("звуження каталогу", () => {
 
   test("перелік країн і сервісів береться з даних, а не з константи", () => {
     const all = [
-      p({ slug: "a", homeCountry: "FR", serviceCodes: ["gps"] }),
-      p({ slug: "b", homeCountry: "DE", serviceCodes: ["gps", "awning"] }),
+      p({
+        slug: "a",
+        homeCountry: "FR",
+        countries: ["FR"],
+        serviceCodes: ["gps"],
+      }),
+      p({
+        slug: "b",
+        homeCountry: "DE",
+        countries: ["DE"],
+        serviceCodes: ["gps", "awning"],
+      }),
     ];
     expect(countriesOf(all)).toEqual(["DE", "FR"]);
     expect(serviceCodesOf(all)).toEqual(["awning", "gps"]);

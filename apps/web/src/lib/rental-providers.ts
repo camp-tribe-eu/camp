@@ -38,6 +38,12 @@ export interface Provider {
   reviewProfiles: ReviewProfile[];
   /** Коди сервісів, які компанія дає (`included` або `extra`). */
   serviceCodes: string[];
+  /**
+   * 🔴 Країни, де компанія ВИДАЄ МАШИНИ, а не де зареєстрована. Саме за
+   * цим звужує фільтр: читачеві в Нідерландах байдуже, що компанія
+   * німецька, якщо депо є в Амстердамі.
+   */
+  countries: string[];
 }
 
 export const SORT_KEYS = ["name", "depots", "fleet", "oldest"] as const;
@@ -65,7 +71,7 @@ export const NO_FILTERS: CatalogueFilters = { country: null, services: [] };
  * просто був би довшим, ніж має бути.
  */
 export function matches(p: Provider, f: CatalogueFilters): boolean {
-  if (f.country && p.homeCountry !== f.country) return false;
+  if (f.country && !p.countries.includes(f.country)) return false;
   return f.services.every((code) => p.serviceCodes.includes(code));
 }
 
@@ -110,7 +116,7 @@ export function arrange(
 
 /** Країни, які справді є в каталозі — перелік не вигадується. */
 export const countriesOf = (all: Provider[]): string[] =>
-  [...new Set(all.map((p) => p.homeCountry))].sort();
+  [...new Set(all.flatMap((p) => p.countries))].sort();
 
 /** Коди сервісів, які справді трапляються — так само. */
 export const serviceCodesOf = (all: Provider[]): string[] =>

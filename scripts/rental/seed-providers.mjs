@@ -31,6 +31,19 @@ export const SEED = join(
   "providers.seed.json",
 );
 
+/**
+ * Країни, де компанія справді видає машини — окремим файлом, бо збирались
+ * окремим заміром і мають власні джерела на кожен рядок.
+ */
+export const COUNTRIES = join(
+  ROOT,
+  "apps",
+  "api",
+  "src",
+  "rental",
+  "provider-countries.json",
+);
+
 const AVAILABILITY = new Set(["included", "extra", "unavailable"]);
 const SOURCES = new Set(["trustpilot", "google"]);
 
@@ -108,6 +121,9 @@ async function main() {
   // Файл може бути масивом або `{ _meta, providers }` — збирач віддає друге.
   const raw = JSON.parse(readFileSync(SEED, "utf8"));
   const list = Array.isArray(raw) ? raw : raw?.providers;
+  const byCountrySlug = new Map(
+    (JSON.parse(readFileSync(COUNTRIES, 'utf8'))?.providers ?? []).map((p) => [p.slug, p]),
+  );
   const bad = faults(list);
   if (bad.length) {
     for (const b of bad) console.error(`✗ ${b}`);
@@ -125,6 +141,10 @@ async function main() {
       0,
     ),
     translations: list.length,
+    countries: list.reduce((n, p) => {
+      const geo = byCountrySlug.get(p.slug);
+      return n + new Set([p.homeCountry, ...(geo?.countries ?? [])]).size;
+    }, 0),
   };
   if (argv.includes("--dry-run")) {
     console.log(
@@ -188,6 +208,22 @@ async function main() {
          VALUES ($1, 'en', $2, $3)`,
         [id, p.intro, p.whatToKnow ?? null],
       );
+      // 🔴 Країна прописки ЗАВЖДИ входить у перелік країн роботи. Замір
+      // 03.11.2026 показав 10 із 10 збігів, але покладатись на це не
+      // можна: компанія може бути зареєстрована там, де не здає. Тому
+      // додаємо примусово — інакше сторінка її країни про неї мовчала б.
+      const geo = byCountrySlug.get(p.slug);
+      const countries = new Set([
+        p.homeCountry,
+        ...((geo?.countries ?? []).map((x) => String(x).toUpperCase())),
+      ]);
+      for (const code of countries) {
+        await db.query(
+          `INSERT INTO rental_provider_countries (provider_id, country, source_url, source_checked_on)
+           VALUES ($1,$2,$3,$4)`,
+          [id, code, geo?.sourceUrl ?? null, geo?.sourceCheckedOn ?? null],
+        );
+      }
       for (const s of p.services ?? []) {
         await db.query(
           `INSERT INTO rental_provider_services (provider_id, code, availability, note, source_url, source_checked_on)
