@@ -63,14 +63,14 @@ const ORG_ID = `${SITE}/#organization`;
 // nodes sharing an `@id` and disagreeing about `url` is one entity with
 // two addresses the moment a consumer merges them, which is what an
 // `@id` is for.
-const publisherNode = () => ({
+export const publisherNode = () => ({
   '@type': 'Organization',
   '@id': ORG_ID,
   name: SITE_NAME,
   url: abs('/'),
 });
 
-const websiteNode = () => ({
+export const websiteNode = () => ({
   '@type': 'WebSite',
   '@id': WEBSITE_ID,
   name: SITE_NAME,

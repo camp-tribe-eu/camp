@@ -17,7 +17,7 @@ export const metadata: Metadata = {
 export default async function ProvidersPage() {
   const all = await listProviders();
   return (
-    <main className="mx-auto max-w-5xl px-4 py-10">
+    <main className="mx-auto max-w-wrap px-4 py-10 xl:px-6">
       {/* 🔴 Структуровані дані на КОЖНІЙ сторінці — вимога сторожа
           `check-structured-data`, і він спіймав цю сторінку порожньою.
           CollectionPage зі списком компаній описує рівно те, чим сторінка

@@ -3,13 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
+  NO_FILTERS,
+  SORT_KEYS,
+  SORT_LABEL,
   arrange,
   countriesOf,
   filtersFromQuery,
-  NO_FILTERS,
   serviceCodesOf,
-  SORT_KEYS,
-  SORT_LABEL,
+  serviceLabel,
   type CatalogueFilters,
   type Provider,
   type SortKey,
@@ -28,26 +29,6 @@ import {
 // як підпис посилання — назва це вказівник, куди веде лінк, а не їхній
 // контент. Коли дозвіл прийде, цифра стане доданим полем, а не
 // переробкою цього файлу.
-
-const SERVICE_LABEL: Record<string, string> = {
-  unlimited_km: "unlimited mileage",
-  one_way: "one way",
-  pets_allowed: "pets allowed",
-  bedding: "bedding",
-  bike_rack: "bike rack",
-  winter_tyres: "winter tyres",
-  excess_reduction: "excess reduction",
-  additional_driver: "additional driver",
-  airport_transfer: "airport transfer",
-  awning: "awning",
-  camping_table_chairs: "table and chairs",
-  gps: "sat nav",
-  child_seat: "child seat",
-  cleaning_service: "cleaning",
-  young_driver: "young driver",
-};
-
-const label = (code: string) => SERVICE_LABEL[code] ?? code.replace(/_/g, " ");
 
 const SOURCE_LABEL: Record<string, string> = {
   trustpilot: "Trustpilot",
@@ -86,11 +67,18 @@ export default function ProviderCatalogue({ all }: { all: Provider[] }) {
   return (
     <div data-testid="provider-catalogue">
       <div className="flex flex-wrap items-end gap-4">
+        {/* 🔴 «Hands over vehicles in», а не «home country».
+            Підпис казав «країна компанії», а фільтр читав `p.countries` —
+            країни, де компанія ВИДАЄ МАШИНИ. Читач у Нідерландах обирав
+            NL, очікуючи голландські компанії, і отримував німецьку з депо
+            в Амстердамі — тобто саме те, що йому й потрібно, але не те,
+            що йому пообіцяли. Рішення вже записане в CAMP-421
+            («зареєстрована в» → «видає машини в»); сюди воно не дійшло. */}
         <label className="flex flex-col gap-1 text-sm">
-          <span>Company’s home country</span>
+          <span>Hands over vehicles in</span>
           <select
             data-testid="filter-country"
-            className="rounded border border-neutral-300 bg-white px-3 py-2"
+            className="rounded border border-line bg-surface px-3 py-2 text-ink"
             value={filters.country ?? ""}
             onChange={(e) =>
               setFilters((f) => ({ ...f, country: e.target.value || null }))
@@ -109,7 +97,7 @@ export default function ProviderCatalogue({ all }: { all: Provider[] }) {
           <span>Sort by</span>
           <select
             data-testid="sort"
-            className="rounded border border-neutral-300 bg-white px-3 py-2"
+            className="rounded border border-line bg-surface px-3 py-2 text-ink"
             value={sort}
             onChange={(e) => setSort(e.target.value as SortKey)}
           >
@@ -130,10 +118,10 @@ export default function ProviderCatalogue({ all }: { all: Provider[] }) {
             return (
               <label
                 key={code}
-                className={`cursor-pointer rounded-full border px-3 py-1 text-sm ${
+                className={`cursor-pointer rounded-full border px-3 py-1 text-sm transition-colors ${
                   on
-                    ? "border-neutral-900 bg-neutral-900 text-white"
-                    : "border-neutral-300 bg-white"
+                    ? "border-btn bg-btn text-btn-ink hover:bg-btn-hover"
+                    : "border-line bg-surface text-ink hover:border-line-2"
                 }`}
               >
                 <input
@@ -150,7 +138,7 @@ export default function ProviderCatalogue({ all }: { all: Provider[] }) {
                     }))
                   }
                 />
-                {label(code)}
+                {serviceLabel(code)}
               </label>
             );
           })}
@@ -174,7 +162,7 @@ export default function ProviderCatalogue({ all }: { all: Provider[] }) {
             <li
               key={p.slug}
               data-testid="provider-row"
-              className="rounded border border-neutral-200 p-4"
+              className="rounded-card border border-line bg-surface p-6 shadow-card"
             >
               <h3 className="text-lg font-semibold">
                 <Link href={`/camper-rental/providers/${p.slug}`}>
