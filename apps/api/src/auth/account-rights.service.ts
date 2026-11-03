@@ -65,7 +65,20 @@ const rowsOf = (result: unknown): Record<string, any>[] =>
 // WITHOUT a "Z", rather than claiming a zone nobody recorded.
 const tz = (c: string) =>
   `to_char(${c} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
-const naive = (c: string) => `to_char(${c}, 'YYYY-MM-DD"T"HH24:MI:SS.MS')`;
+// 🔴 CAMP-338. «Z» У ФОРМАТІ — ЦЕ ТВЕРДЖЕННЯ, І ВОНО ТЕПЕР ПРАВДИВЕ.
+//
+// Колонка наївна (`timestamp without time zone`), тож `to_char` друкує
+// збережене значення як є. Доки пояс сесії залежав від машини, дописати
+// «Z» означало б збрехати: на ноуті в CEST там лежав би місцевий час.
+//
+// `db-session.ts` закріплює пояс сесії в UTC, і `db-session.db.spec.ts`
+// це доводить абсолютним очікуванням (не «обидва однакові», а «саме ця
+// мить»). Тому «Z» тут — опис того, що справді записано.
+//
+// Без нього людина, яка відкриває свій архів за статтею 15, бачить
+// `2026-10-16T15:41:06.060` і не має як дізнатись, що це означає. Для
+// документа, чия мета — віддати людині її дані, це не косметика.
+const naive = (c: string) => `to_char(${c}, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
 
 /**
  * Export (GDPR 15) and erasure (GDPR 17) of one account. CAMP-229, part 3.

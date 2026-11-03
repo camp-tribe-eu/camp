@@ -1,3 +1,4 @@
+import { PG_EXTRA } from './db-session';
 import 'dotenv/config';
 import { DataSource } from 'typeorm';
 import { User } from './entities/user.entity';
@@ -41,6 +42,8 @@ import { ProblemReport } from './entities/problem-report.entity';
 export const AppDataSource = new DataSource({
   type: 'postgres',
   url: process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev',
+  // CAMP-338: пояс сесії задаємо ми, а не машина. Див. db-session.ts.
+  extra: PG_EXTRA,
   entities: [
     User,
     // CAMP-390: the journal of consents (GDPR Art. 7(1)), append-only.
