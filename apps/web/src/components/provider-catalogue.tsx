@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   arrange,
   countriesOf,
+  filtersFromQuery,
   NO_FILTERS,
   serviceCodesOf,
   SORT_KEYS,
@@ -56,6 +57,24 @@ const SOURCE_LABEL: Record<string, string> = {
 export default function ProviderCatalogue({ all }: { all: Provider[] }) {
   const [filters, setFilters] = useState<CatalogueFilters>(NO_FILTERS);
   const [sort, setSort] = useState<SortKey>("name");
+
+  // 🔴 ПОЧАТКОВИЙ ФІЛЬТР ІЗ АДРЕСИ — ПІСЛЯ МОНТУВАННЯ, А НЕ В useState.
+  //
+  // Сторінка статична: сервер рендерить її БЕЗ параметрів запиту, бо на
+  // момент збірки їх не існує. Прочитати `location.search` в ініціалізаторі
+  // `useState` означало б віддати клієнтом інше дерево, ніж прийшло з
+  // сервера, — класична розбіжність гідратації, яку React 19 у продакшні
+  // навіть не пояснює (CAMP-349). Тому читаємо в ефекті: один зайвий кадр
+  // без фільтра чесніший за зламану гідратацію.
+  //
+  // Значення з адреси проходить ті самі перевірки, що й клік: країна
+  // мусить бути серед тих, що справді є в каталозі, сервіс — серед кодів,
+  // які справді трапляються. Чуже значення з адреси просто ігнорується,
+  // а не звужує список до порожнього без пояснення.
+  useEffect(() => {
+    const next = filtersFromQuery(window.location.search, all);
+    if (next.country || next.services.length) setFilters(next);
+  }, [all]);
 
   const countries = useMemo(() => countriesOf(all), [all]);
   const services = useMemo(() => serviceCodesOf(all), [all]);

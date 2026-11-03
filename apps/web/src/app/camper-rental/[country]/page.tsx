@@ -1,12 +1,12 @@
-import type { Metadata } from 'next';
-import Link from 'next/link';
-import { notFound } from 'next/navigation';
-import RentalCountryData from '@/components/rental-country-data';
-import RentalDisclosure from '@/components/rental-disclosure';
-import RentalOfferSlot from '@/components/rental-offer-slot';
-import { abs, breadcrumbList, jsonLdProps } from '@/lib/jsonld';
-import { alternatesFor } from '@/lib/i18n';
-import { countryFuel, euros, longDate, FUEL } from '@/lib/fuel';
+import type { Metadata } from "next";
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import RentalCountryData from "@/components/rental-country-data";
+import RentalDisclosure from "@/components/rental-disclosure";
+import RentalOfferSlot from "@/components/rental-offer-slot";
+import { abs, breadcrumbList, jsonLdProps } from "@/lib/jsonld";
+import { alternatesFor } from "@/lib/i18n";
+import { countryFuel, euros, longDate, FUEL } from "@/lib/fuel";
 import {
   count,
   inProse,
@@ -14,7 +14,7 @@ import {
   publishableCountries,
   rentalCountry,
   rentalOffers,
-} from '@/lib/rental';
+} from "@/lib/rental";
 
 // CAMP-4 / CAMP-54 — one page per member state, and only where it earns
 // one.
@@ -86,28 +86,28 @@ export default async function RentalCountryPage({
       <script
         {...jsonLdProps(
           breadcrumbList([
-            { name: 'Camper rental', path: '/camper-rental' },
+            { name: "Camper rental", path: "/camper-rental" },
             { name: c.name, path },
           ]),
         )}
       />
       <script
         {...jsonLdProps({
-          '@context': 'https://schema.org',
-          '@type': 'WebPage',
-          '@id': `${abs(path)}#page`,
+          "@context": "https://schema.org",
+          "@type": "WebPage",
+          "@id": `${abs(path)}#page`,
           name: `Renting a camper in ${inProse(c)}`,
           description: c.angle,
           url: abs(path),
-          inLanguage: 'en',
-          about: { '@type': 'Place', name: c.name },
+          inLanguage: "en",
+          about: { "@type": "Place", name: c.name },
         })}
       />
 
       <nav aria-label="Breadcrumb" className="text-sm text-ink-2">
         <Link className="underline" href="/camper-rental">
           Camper rental
-        </Link>{' '}
+        </Link>{" "}
         / {c.name}
       </nav>
 
@@ -134,8 +134,8 @@ export default async function RentalCountryPage({
               </h3>
               <p className="mt-2 max-w-prose text-ink-2">{fact.body}</p>
               <p className="mt-3 text-sm text-ink-2">
-                Source:{' '}
-                {fact.source.url.startsWith('/') ? (
+                Source:{" "}
+                {fact.source.url.startsWith("/") ? (
                   <Link className="underline" href={fact.source.url}>
                     {fact.source.name}
                   </Link>
@@ -171,14 +171,13 @@ export default async function RentalCountryPage({
             What the driving costs
           </h2>
           <p className="mt-3 max-w-prose text-ink-2">
-            Diesel in {inProse(c)} costs{' '}
+            Diesel in {inProse(c)} costs{" "}
             <strong className="text-ink">{euros(fuel.diesel, 3)}</strong> a
-            litre in the week of {longDate(FUEL.bulletinDate)}, including
-            taxes, as published by the European Commission
-            {fuel.petrol !== null && <> — petrol {euros(fuel.petrol, 3)}</>}.
-            A rental camper is heavier and thirstier than the car you are
-            used to, and fuel will be the largest variable line in the
-            budget.{' '}
+            litre in the week of {longDate(FUEL.bulletinDate)}, including taxes,
+            as published by the European Commission
+            {fuel.petrol !== null && <> — petrol {euros(fuel.petrol, 3)}</>}. A
+            rental camper is heavier and thirstier than the car you are used to,
+            and fuel will be the largest variable line in the budget.{" "}
             <Link
               className="underline"
               href={`/tools/camper-trip-cost/${c.code}`}
@@ -190,6 +189,38 @@ export default async function RentalCountryPage({
         </section>
       )}
 
+      {/* 🔴 CAMP-427: звідси каталог звужений ПО ЦІЙ країні. Параметр
+          читає клієнтський фільтр після монтування й приймає лише ті
+          значення, які справді є в каталозі, — чужа адреса не зробить
+          порожній список без пояснення. */}
+      <section
+        aria-labelledby="providers-heading"
+        className="mt-12 border-t border-line-2 pt-8"
+      >
+        <h2
+          id="providers-heading"
+          className="text-xl font-semibold text-heading"
+        >
+          Who rents in {inProse(c)}
+        </h2>
+        <p className="mt-3 max-w-prose text-ink-2">
+          The companies we have read are listed with what each one includes,
+          what it charges extra for, and what it has in its fleet — with the
+          source and the date beside every figure.{" "}
+          <Link
+            className="underline"
+            href={`/camper-rental/providers?country=${c.code.toUpperCase()}`}
+          >
+            Companies based in {inProse(c)}
+          </Link>
+          , or{" "}
+          <Link className="underline" href="/camper-rental/providers">
+            all of them
+          </Link>
+          .
+        </p>
+      </section>
+
       <RentalOfferSlot offers={offers} where={inProse(c)} />
 
       <section
@@ -200,15 +231,15 @@ export default async function RentalCountryPage({
           Before you book
         </h2>
         <p className="mt-3 max-w-prose text-ink-2">
-          The questions that decide what a hire actually costs are the same
-          in every member state, and none of them is on the price page:{' '}
+          The questions that decide what a hire actually costs are the same in
+          every member state, and none of them is on the price page:{" "}
           <Link className="underline" href="/camper-rental">
             the excess, the mileage cap, the one-way fee and the plated mass
           </Link>
-          . For {inProse(c)} specifically, our{' '}
+          . For {inProse(c)} specifically, our{" "}
           <Link className="underline" href={`/camping/${c.code}`}>
             {count(row?.spots ?? 0)} campsite records
-          </Link>{' '}
+          </Link>{" "}
           are the other half of the plan.
         </p>
       </section>

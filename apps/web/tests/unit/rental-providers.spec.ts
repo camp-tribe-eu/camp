@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import {
   arrange,
+  filtersFromQuery,
   compare,
   countriesOf,
   matches,
@@ -84,5 +85,35 @@ test.describe("сортування", () => {
         (x) => x.slug,
       ),
     ).toEqual(["big", "small"]);
+  });
+});
+
+test.describe("фільтр з адреси", () => {
+  const all = [
+    p({ slug: "de", homeCountry: "DE", serviceCodes: ["one_way", "gps"] }),
+    p({ slug: "fr", homeCountry: "FR", serviceCodes: ["gps"] }),
+  ];
+
+  test("країна й сервіси з адреси застосовуються", () => {
+    expect(filtersFromQuery("?country=de&services=gps", all)).toEqual({
+      country: "DE",
+      services: ["gps"],
+    });
+  });
+
+  // 🔴 `?country=ZZ` із чужого посилання або з друкарської помилки дав би
+  // «0 із 10» без пояснення, і читач вирішив би, що каталог порожній.
+  test("🔴 країни, якої немає в каталозі, не існує для фільтра", () => {
+    expect(filtersFromQuery("?country=ZZ", all).country).toBeNull();
+  });
+
+  test("🔴 код сервісу, якого немає, відкидається, а решта лишається", () => {
+    expect(filtersFromQuery("?services=gps,nonsense", all).services).toEqual([
+      "gps",
+    ]);
+  });
+
+  test("порожня адреса — порожній фільтр", () => {
+    expect(filtersFromQuery("", all)).toEqual({ country: null, services: [] });
   });
 });
