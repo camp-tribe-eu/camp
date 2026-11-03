@@ -78,7 +78,7 @@ export default function ProviderCatalogue({ all }: { all: Provider[] }) {
           <span>Hands over vehicles in</span>
           <select
             data-testid="filter-country"
-            className="rounded border border-neutral-300 bg-white px-3 py-2"
+            className="rounded border border-line bg-surface px-3 py-2 text-ink"
             value={filters.country ?? ""}
             onChange={(e) =>
               setFilters((f) => ({ ...f, country: e.target.value || null }))
@@ -97,7 +97,7 @@ export default function ProviderCatalogue({ all }: { all: Provider[] }) {
           <span>Sort by</span>
           <select
             data-testid="sort"
-            className="rounded border border-neutral-300 bg-white px-3 py-2"
+            className="rounded border border-line bg-surface px-3 py-2 text-ink"
             value={sort}
             onChange={(e) => setSort(e.target.value as SortKey)}
           >
@@ -118,10 +118,10 @@ export default function ProviderCatalogue({ all }: { all: Provider[] }) {
             return (
               <label
                 key={code}
-                className={`cursor-pointer rounded-full border px-3 py-1 text-sm ${
+                className={`cursor-pointer rounded-full border px-3 py-1 text-sm transition-colors ${
                   on
-                    ? "border-neutral-900 bg-neutral-900 text-white"
-                    : "border-neutral-300 bg-white"
+                    ? "border-btn bg-btn text-btn-ink hover:bg-btn-hover"
+                    : "border-line bg-surface text-ink hover:border-line-2"
                 }`}
               >
                 <input
@@ -162,7 +162,7 @@ export default function ProviderCatalogue({ all }: { all: Provider[] }) {
             <li
               key={p.slug}
               data-testid="provider-row"
-              className="rounded border border-neutral-200 p-4"
+              className="rounded-card border border-line bg-surface p-6 shadow-card"
             >
               <h3 className="text-lg font-semibold">
                 <Link href={`/camper-rental/providers/${p.slug}`}>

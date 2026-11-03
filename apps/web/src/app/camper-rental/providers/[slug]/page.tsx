@@ -61,30 +61,32 @@ export default async function ProviderPageView({
   const path = providerPath(p.slug);
 
   return (
-    <main className="mx-auto max-w-4xl px-4 py-10">
+    <main className="mx-auto max-w-wrap px-4 py-10 xl:px-6">
       {/* CAMP-431 (пункт 4): граф компанії. Лише те, що є на сторінці —
           ні рейтингу, ні ціни, бо ні того, ні того ми не тримаємо. */}
       <script {...jsonLdProps(providerGraph(p, path))} />
       <p className="text-sm">
         <Link href="/camper-rental/providers">← all companies</Link>
       </p>
-      <h1 className="mt-4 text-3xl font-bold">{p.name}</h1>
+      <h1 className="mt-4 text-3xl font-bold leading-tight text-heading md:text-[42px]">
+        {p.name}
+      </h1>
 
       {/* 🔴 Абзац — це те, заради чого каталог існує. Без нього сторінка
           компанії нічим не відрізняється від рядка таблиці, і читач не
           дізнається, чим ця компанія відрізняється від сусідньої. Сівалка
           не пропустить провайдера без вступу. */}
-      {p.intro && <p className="mt-4 max-w-2xl">{p.intro}</p>}
+      {p.intro && <p className="mt-4 max-w-prose text-ink-2">{p.intro}</p>}
 
       {p.whatToKnow && (
         <section className="mt-6">
-          <h2 className="text-xl font-semibold">What to know</h2>
-          <p className="mt-2 max-w-2xl">{p.whatToKnow}</p>
+          <h2 className="text-2xl font-bold text-heading">What to know</h2>
+          <p className="mt-3 max-w-prose text-ink-2">{p.whatToKnow}</p>
         </section>
       )}
 
       <section className="mt-6">
-        <h2 className="text-xl font-semibold">Contacts</h2>
+        <h2 className="text-2xl font-bold text-heading">Contacts</h2>
         <dl className="mt-2 grid gap-1 text-sm">
           {p.legalName && (
             <div>
@@ -134,7 +136,7 @@ export default async function ProviderPageView({
       {/* 🔴 «За даними компанії» — не ввічливість, а точність: ці числа
           заявлені, а не зміряні нами, і читач має знати різницю. */}
       <section className="mt-6">
-        <h2 className="text-xl font-semibold">
+        <h2 className="text-2xl font-bold text-heading">
           Scale, as the company states it
         </h2>
         <p className="mt-2 text-sm">
@@ -161,7 +163,7 @@ export default async function ProviderPageView({
 
       {p.services.length > 0 && (
         <section className="mt-6">
-          <h2 className="text-xl font-semibold">Services</h2>
+          <h2 className="text-2xl font-bold text-heading">Services</h2>
           <ul className="mt-2 grid gap-1 text-sm" data-testid="services">
             {p.services.map((s) => (
               <li key={s.code}>
@@ -183,7 +185,7 @@ export default async function ProviderPageView({
 
       {p.vehicles.length > 0 && (
         <section className="mt-6">
-          <h2 className="text-xl font-semibold">Fleet</h2>
+          <h2 className="text-2xl font-bold text-heading">Fleet</h2>
           <ul className="mt-2 grid gap-1 text-sm" data-testid="vehicles">
             {p.vehicles.map((v) => (
               <li key={v.slug}>
@@ -203,7 +205,7 @@ export default async function ProviderPageView({
 
       {p.reviewProfiles.length > 0 && (
         <section className="mt-6">
-          <h2 className="text-xl font-semibold">Reviews</h2>
+          <h2 className="text-2xl font-bold text-heading">Reviews</h2>
           <p className="mt-2 text-sm" data-testid="review-links">
             {p.reviewProfiles.map((r, i) => (
               <span key={r.source}>
