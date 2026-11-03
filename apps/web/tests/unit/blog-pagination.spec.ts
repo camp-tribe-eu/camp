@@ -5,8 +5,7 @@ import {
   pageCount,
   pageSlice,
   parsePageNumber,
-  postList,
-} from "@/lib/posts";
+  } from "@/lib/posts";
 
 // CAMP-364 — пагінація каталогу блогу.
 //

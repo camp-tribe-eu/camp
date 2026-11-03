@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
 import CountryHub from '@/app/camping/[country]/page';
 import RegionPage from '@/app/camping/[country]/[region]/page';

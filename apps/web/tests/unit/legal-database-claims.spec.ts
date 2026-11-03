@@ -35,6 +35,8 @@ type Staging = {
  * файлі, ледве тест його імпортує за типами. Виконується той самий файл —
  * лише компілятор веба його не розбирає.
  */
+// Абзац вище пояснює, ЧОМУ тут `require`: це свідомий CommonJS-міст.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { dedupe, mergeUnnamed } = require('../../../api/src/osm/import-spots') as {
   dedupe: (rows: Staging[]) => Staging[];
   mergeUnnamed: (rows: Staging[]) => Staging[];

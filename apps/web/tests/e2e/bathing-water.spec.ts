@@ -522,7 +522,7 @@ function attributionText(section: string): string {
   const start = section.indexOf(open);
   expect(start, 'no attribution span in the served HTML').toBeGreaterThan(-1);
   let depth = 1;
-  let i = start + open.length;
+  const i = start + open.length;
   for (const m of section.slice(i).matchAll(/<(\/?)span\b[^>]*>/g)) {
     depth += m[1] ? -1 : 1;
     if (depth === 0) return stripTags(section.slice(i, i + m.index!));
