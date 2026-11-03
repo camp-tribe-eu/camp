@@ -60,6 +60,25 @@ export class NaiveTimestampsToUtc1794500000000 implements MigrationInterface {
     ['users', 'created_at'],
   ];
 
+  /**
+   * 🔴 СКІЛЬКИ ЦЕ ТРИМАЄ ЗАМОК — ЗАМІРЯНО, А НЕ ПРИКИНУТО.
+   *
+   * `ALTER COLUMN … TYPE` переписує таблицю під `ACCESS EXCLUSIVE`: поки
+   * він іде, таблиця недоступна навіть на читання. Найбільша тут —
+   * `camping_spots`, і саме її варто було зміряти, перш ніж вести це на
+   * прод.
+   *
+   * Заміряно на `camptribe_dev` 03.11.2026 (63 159 рядків, 373 МБ, та
+   * сама схема, що на проді):
+   *
+   *   BEGIN; ALTER … ; ROLLBACK;   →  1,9 с
+   *
+   * Решта тринадцять колонок — у таблицях на порядки менших. Тобто вся
+   * міграція це секунди замка, а не хвилини, і вона йде однією
+   * транзакцією разом із рештою: `camptribe-deploy --migrate` робить
+   * знімок бази перед нею й не перемикає `current`, якщо щось не
+   * прийнялось.
+   */
   public async up(queryRunner: QueryRunner): Promise<void> {
     for (const [table, column] of NaiveTimestampsToUtc1794500000000.COLUMNS) {
       await queryRunner.query(`
