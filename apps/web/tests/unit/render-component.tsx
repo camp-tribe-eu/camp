@@ -3,8 +3,8 @@ import {
   Fragment,
   type ReactElement,
   type ReactNode,
-} from 'react';
-import { renderToReadableStream, renderToStaticMarkup } from 'react-dom/server';
+} from "react";
+import { renderToReadableStream, renderToStaticMarkup } from "react-dom/server";
 
 // CAMP-147: render a React component to HTML inside a Playwright test.
 //
@@ -67,15 +67,18 @@ type PwNode = {
  * тотожним. Обидві форми мають `type` і `props`, тому все нижче працює
  * однаково — міняється лише те, що ми згодні вважати вузлом.
  *
- * 🔴 ЧОМУ ПІДТРИМУЄМО ОБИДВІ, А НЕ ПЕРЕХОДИМО НА ОДНУ. Доки lock-файл
- * пінить 1.63, а Dependabot пропонує 1.64, набір мусить бути зеленим на
- * ОБОХ — інакше оновлення стає подією, яку ніхто не наважується злити.
+ * 🔴 ЧОМУ ПІДТРИМУЄМО ОБИДВІ, А НЕ ПЕРЕХОДИМО НА ОДНУ. Станом на
+ * 03.11.2026 lock-файл пінить уже **1.64.1** (оновлення злито в #414),
+ * тобто форма `__pw_type` у нашому дереві більше не трапляється. Гілку
+ * лишаємо навмисно: вона коштує один `||`, а прибрати її означало б
+ * зробити відкат на 1.63 подією, яку доведеться лагодити під тиском.
+ * Коли 1.63 стане недосяжним відкатом, цей абзац і гілку прибрати разом.
  */
 const isPwNode = (v: unknown): v is PwNode =>
   !!v &&
-  typeof v === 'object' &&
-  ((v as PwNode).__pw_type === 'jsx' ||
-    typeof (v as { $$typeof?: unknown }).$$typeof === 'symbol');
+  typeof v === "object" &&
+  ((v as PwNode).__pw_type === "jsx" ||
+    typeof (v as { $$typeof?: unknown }).$$typeof === "symbol");
 
 /**
  * A function component, wrapped so React gets React elements back.
@@ -95,12 +98,12 @@ function wrapType(fn: (props: unknown) => unknown): (p: unknown) => ReactNode {
   const wrapper = (props: unknown): ReactNode => {
     const out = fn(props);
     return (
-      out && typeof (out as Promise<unknown>).then === 'function'
+      out && typeof (out as Promise<unknown>).then === "function"
         ? (out as Promise<unknown>).then(toReact)
         : toReact(out)
     ) as ReactNode;
   };
-  Object.defineProperty(wrapper, 'name', { value: fn.name || 'Component' });
+  Object.defineProperty(wrapper, "name", { value: fn.name || "Component" });
   wrappers.set(fn, wrapper);
   return wrapper;
 }
@@ -129,12 +132,12 @@ function toReact(node: unknown): unknown {
   // React's Fragment by any other name.
   const isFragment =
     !!node.type &&
-    typeof node.type === 'object' &&
-    '__pw_jsx_fragment' in (node.type as object);
+    typeof node.type === "object" &&
+    "__pw_jsx_fragment" in (node.type as object);
 
   const type = isFragment
     ? Fragment
-    : typeof node.type === 'function'
+    : typeof node.type === "function"
       ? wrapType(node.type as (props: unknown) => unknown)
       : (node.type as string);
 
@@ -142,6 +145,39 @@ function toReact(node: unknown): unknown {
     type,
     { ...rest, key: node.key as string | number | null | undefined },
     ...(kids.map(toReact) as ReactNode[]),
+  );
+}
+
+/**
+ * 🔴 КЛІЄНТСЬКИЙ КОМПОНЕНТ — ТОЙ, ЩО МАЄ `useState`, `useEffect`, `useMemo`.
+ *
+ * `renderComponent` нижче викликає компонент ЗВИЧАЙНОЮ ФУНКЦІЄЮ
+ * (`Component(props)`), тож перший же хук кидає «Invalid hook call»: поза
+ * рендером React немає диспетчера. Через це в проєкті закріпилось, що
+ * клієнтські острови юнітом не перевіряються, і межу записано
+ * в `catalogue-language.spec.ts`.
+ *
+ * Межа була про `renderComponent`, а не про харнес. Тут компонент іде
+ * через `createElement`, тобто його рендерить сам React, і хуки працюють:
+ * `useState` бере початкове значення, `useMemo` рахує, `useEffect` НЕ
+ * виконується — рівно як на сервері. Тобто видно перший кадр, той самий,
+ * що приходить читачеві до гідратації.
+ *
+ * 🔴 ЧОМУ ЦЕ СТАЛО МОЖЛИВИМ ТІЛЬКИ ЗАРАЗ. Playwright 1.63 компілював JSX
+ * власним runtime і віддавав `{__pw_type: 'jsx', …}` — такі вузли React
+ * усередині компонента не розуміє («Objects are not valid as a React
+ * child»). У 1.64.1 `jsx-runtime` з пакета прибрано, і JSX компілюється
+ * `react-jsx` із tsconfig. Заміряно зондом під 1.64.1: ключі вузла
+ * `$$typeof, type, key, props, _owner, _store`, `__pw_type: undefined`.
+ *
+ * Ціна різниці — 324 мс замість прогону e2e у справжньому браузері.
+ */
+export function renderClient<P extends object>(
+  Component: (props: P) => unknown,
+  props: P,
+): string {
+  return renderToStaticMarkup(
+    createElement(Component as (p: P) => ReactElement, props),
   );
 }
 
@@ -220,10 +256,13 @@ async function resolveAsync(node: unknown): Promise<unknown> {
   if (omitted.has(node.type)) return node;
   const fn = node.type as unknown;
   if (
-    typeof fn === 'function' &&
-    (fn as { constructor: { name: string } }).constructor.name === 'AsyncFunction'
+    typeof fn === "function" &&
+    (fn as { constructor: { name: string } }).constructor.name ===
+      "AsyncFunction"
   ) {
-    const out = await (fn as (p: unknown) => Promise<unknown>)(node.props ?? {});
+    const out = await (fn as (p: unknown) => Promise<unknown>)(
+      node.props ?? {},
+    );
     return resolveAsync(out);
   }
   const children = node.props?.children;
@@ -273,7 +312,10 @@ export function rendersNothing<P>(
   props: P,
 ): boolean {
   const out = Component(props);
-  return (out === null || out === undefined) && renderComponent(Component, props) === '';
+  return (
+    (out === null || out === undefined) &&
+    renderComponent(Component, props) === ""
+  );
 }
 
 /**
@@ -317,7 +359,7 @@ function assertPlaywrightJsxShape(): void {
 
   const markerOk = isPwNode(probe);
   const walkOk = markerOk && walkJsx(probe).length === 2;
-  const findOk = walkOk && !!byTestId(probe, 'probe-inner');
+  const findOk = walkOk && !!byTestId(probe, "probe-inner");
   if (findOk) return;
 
   // 🔴 ДРУКУЄМО ЗНАЧЕННЯ ПОЗНАЧКИ, А НЕ ПЕРЕЛІК КЛЮЧІВ.
@@ -326,18 +368,25 @@ function assertPlaywrightJsxShape(): void {
   // ЗНАЧЕННЯ повідомлення суперечило собі: «більше не позначає як
   // __pw_type: 'jsx' (отримано ключі: __pw_type, type, props, key)».
   // Доказ заперечував твердження. Назвала рецензія.
-  const o = probe && typeof probe === 'object' ? (probe as Record<string, unknown>) : null;
+  const o =
+    probe && typeof probe === "object"
+      ? (probe as Record<string, unknown>)
+      : null;
   const marker = o ? JSON.stringify(o.__pw_type) : typeof probe;
-  const keys = o ? Object.keys(o).join(', ') : '—';
-  const stage = !markerOk ? 'позначка' : !walkOk ? 'обхід дерева' : 'пошук за testId';
+  const keys = o ? Object.keys(o).join(", ") : "—";
+  const stage = !markerOk
+    ? "позначка"
+    : !walkOk
+      ? "обхід дерева"
+      : "пошук за testId";
 
   throw new Error(
     `render-component: форма JSX від Playwright змінилась — зламано на кроці «${stage}».\n` +
       `  __pw_type = ${marker}; ключі вузла: ${keys}\n` +
       `  вузлів у зонді: ${markerOk ? walkJsx(probe).length : 0} (очікували 2)\n` +
-      'Це НЕ дефект компонента й не дефект тесту, що впав поруч.\n' +
-      'Полагодити — у цьому файлі (`isPwNode`, `walkJsx`), і більше ' +
-      'ніде: решта місць ходить через них. Див. CAMP-351.',
+      "Це НЕ дефект компонента й не дефект тесту, що впав поруч.\n" +
+      "Полагодити — у цьому файлі (`isPwNode`, `walkJsx`), і більше " +
+      "ніде: решта місць ходить через них. Див. CAMP-351.",
   );
 }
 
@@ -364,6 +413,6 @@ export function walkJsx(node: unknown, out: PwNode[] = []): PwNode[] {
 /** Перший вузол із цим `data-testid` (або пропом `testId`). */
 export function byTestId(tree: unknown, id: string): PwNode | undefined {
   return walkJsx(tree).find(
-    (n) => n.props?.['data-testid'] === id || n.props?.testId === id,
+    (n) => n.props?.["data-testid"] === id || n.props?.testId === id,
   );
 }
