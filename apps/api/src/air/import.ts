@@ -357,6 +357,40 @@ const SPOTS_WITHOUT_STATION_SQL = `
         WHERE ST_DWithin(s.location::geography, st.location, ${AIR_RADIUS_M}))
    ORDER BY s.id`;
 
+/**
+ * 🔴 «Растр ЕЕА стоїть» — не те саме, що «оновлення растра зламалось».
+ *
+ * Заміряно 03.11.2026 (CAMP-439): `AQMobile_2025/MOSAIC_GLOBAL_AQI`
+ * тримає 2026-10-25 … 2026-10-28T12:00 і не рухається з 28.10.
+ * Перевірено й гіпотезу, яку підказує текст помилки: теки
+ * `AQMobile_2026` НЕ ІСНУЄ, і новішого AQI-мозаїка немає в жодній теці
+ * сервера. Тобто адреса чинна, а джерело зупинилось.
+ *
+ * Поки це тривало через падіння юніта, власник отримував лист двічі на
+ * добу (`camptribe-notify`, QUIET_HOURS = 12) про чужу зупинку, якої ми
+ * не полагодимо. Тривога, що дзвонить про незмінне, вчить не читати
+ * тривоги — і тоді вона мовчить саме тоді, коли треба.
+ *
+ * Тепер цей випадок НЕ валить юніт, але й не зникає: порожню
+ * `air_quality_modelled` при живій `air_quality_stations` сторож
+ * свіжості тепер читає як ЗУПИНКУ (`provenBy` у
+ * `check-data-freshness.mjs`) і дзвонить раз на добу о 06:00.
+ * Прибрати одне без другого — зробити растр безнаглядним.
+ */
+export class RasterNotAdvancing extends Error {}
+
+/**
+ * Чи має ця біда з растром повалити юніт.
+ *
+ * 🔴 Вирішує ТИП, а не текст повідомлення. Якби ми ловили за словами
+ * («the raster holds…»), то перефразування помилки тихо повернуло б
+ * щоденні листи — або, гірше, збіг слів у чужій помилці проковтнув би
+ * справжню поломку. Плаский `Error` із тим самим текстом ВАЛИТЬ юніт,
+ * і так і має бути: мовчить лише те, що ми свідомо назвали зупинкою.
+ */
+export const failsTheUnit = (err: unknown): boolean =>
+  !(err instanceof RasterNotAdvancing);
+
 async function refreshModelled(
   db: Client,
   now: Date,
@@ -365,7 +399,7 @@ async function refreshModelled(
   const hourMs = hourStart(now);
   const win = await rasterWindow(fetchImpl);
   if (hourMs < win.start || hourMs > win.end) {
-    throw new Error(
+    throw new RasterNotAdvancing(
       `the raster holds ${new Date(win.start).toISOString()} to ${new Date(win.end).toISOString()}, ` +
         `not ${new Date(hourMs).toISOString()} — has the EEA moved to a new AQMobile_<year> service?`,
     );
@@ -565,7 +599,20 @@ async function main() {
     console.error(
       `\n✗ the modelled raster was NOT refreshed: ${modelledError.message}`,
     );
-    process.exitCode = 1;
+    if (!failsTheUnit(modelledError)) {
+      // Не валимо юніт: див. коментар над RasterNotAdvancing. Але
+      // кажемо вголос, ХТО тепер про це дзвонить, щоб ніхто не прочитав
+      // цей рядок як «ми це ігноруємо».
+      console.error(
+        '  The stations are in and committed; only the EEA raster stands still.\n' +
+          '  This does NOT fail the unit. It is watched instead by the daily\n' +
+          '  freshness sentry: air_quality_modelled is empty while\n' +
+          '  air_quality_stations is fresh, which it reports as a stop\n' +
+          '  (provenBy, check-data-freshness.mjs) — once a day, not every run.',
+      );
+    } else {
+      process.exitCode = 1;
+    }
   }
   if (Object.keys(st.unrecognised).length) {
     console.error(

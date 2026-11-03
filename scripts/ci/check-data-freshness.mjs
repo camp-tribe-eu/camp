@@ -97,6 +97,39 @@ export function audit(sources, now) {
     // Порожня таблиця — імпортера не налаштували; стара — він зупинився.
     // Перше лагодить людина один раз, друге — повторний запуск.
     if (s.rows === 0) {
+      // 🔴 «НІКОЛИ НЕ ЗАПУСКАВСЯ» І «ЗАПУСКАВСЯ Й НІЧОГО НЕ ПРИНІС» —
+      // ТЕЖ РІЗНІ ВІДПОВІДІ, і друга досі читалась як перша.
+      //
+      // Заміряно на проді 03.11.2026 (CAMP-439). `camptribe-air-quality`
+      // відпрацював уперше: 4019 станцій записано, ✓ committed. Але
+      // модельний растр EEA стоїть із 28.10, збирач його не оновив — і
+      // `air_quality_modelled` лишилась порожньою. Сторож сказав
+      // «імпортер не запускався жодного разу» й НЕ подзвонив, хоч
+      // імпортер запускався чверть години тому.
+      //
+      // Тобто єдине, що про растр дзвонило, — падіння самого збирача.
+      // Прибрати те падіння (а воно дзвонить двічі на добу про шестиденну
+      // зупинку в EEA) означало б лишити растр без нагляду взагалі.
+      //
+      // `provenBy` називає СУСІДНЄ джерело того самого імпортера. Є в
+      // сусіда рядки — імпортер живий, і порожнеча тут це зупинка.
+      if (s.provenBy !== undefined) {
+        const proof = sources.find((x) => x.name === s.provenBy);
+        // Опечатка в `provenBy` не має тихо повертати стару поведінку:
+        // це було б сліпотою, зробленою правкою проти сліпоти.
+        if (!proof) {
+          say(s, 'bad-config',
+            `provenBy вказує на «${s.provenBy}», а такого джерела немає — ` +
+              'доказ запуску недосяжний, отже порожнеча тут недоведена');
+          continue;
+        }
+        if (proof.rows > 0) {
+          say(s, 'empty-though-ran',
+            `таблиця порожня, хоч «${proof.name}» має ${proof.rows} — ` +
+              'той самий імпортер запускався, отже це ЗУПИНКА, а не «ще не налаштовано»');
+          continue;
+        }
+      }
       say(s, 'never', 'таблиця порожня — імпортер не запускався жодного разу');
       continue;
     }
@@ -235,8 +268,10 @@ export const DB_SOURCES = Object.freeze([
   { name: 'air_quality_stations (повітря EEA, станції)', card: 'CAMP-164',
     table: 'air_quality_stations', column: 'read_at',
     budgetHours: () => budgetFromSource('apps/web/src/lib/air-quality.ts', 'AIR_FRESH_FOR_HOURS') },
-  { name: 'air_quality_modelled (повітря EEA, модель)', card: 'CAMP-164',
+  { name: 'air_quality_modelled (повітря EEA, модель)', card: 'CAMP-439',
     table: 'air_quality_modelled', column: 'read_at',
+    // Станції й растр приносить ОДИН юніт, camptribe-air-quality.
+    provenBy: 'air_quality_stations (повітря EEA, станції)',
     budgetHours: () => budgetFromSource('apps/web/src/lib/air-quality.ts', 'AIR_FRESH_FOR_HOURS') },
 ]);
 
@@ -448,6 +483,30 @@ function selfTest() {
     kind({ name: 'a', rows: 0, stamp: null, budgetHours: 240 }), 'never');
   t('🔴 рядки є, а мітки немає — це поломка імпортера, не «ніколи»',
     kind({ name: 'a', rows: 5, stamp: null, budgetHours: 240 }), 'no-stamp');
+
+  // ── CAMP-439: порожня таблиця живого імпортера ───────────────────
+  //
+  // Справжній стан проду 03.11.2026: станції 4019, растр 0, один юніт.
+  const STATIONS = { name: 'станції', rows: 4019, stamp: ok(0), budgetHours: 4 };
+  const RASTER = { name: 'растр', rows: 0, stamp: null, budgetHours: 4,
+                   provenBy: 'станції' };
+  t('🔴 порожня при живому сусіді — ЗУПИНКА, а не «не запускався»',
+    audit([STATIONS, RASTER], NOW).find((p) => p.name === 'растр')?.kind,
+    'empty-though-ran');
+  t('🔴 і вона ДЗВОНИТЬ у режимі таймера',
+    ringing(audit([STATIONS, RASTER], NOW), 'stale').filter((p) => p.name === 'растр').length, 1);
+  // 🔴 ЗВОРОТНА МУТАЦІЯ: правка мусить лишити корисне правило живим.
+  // Справді нове джерело — обидві таблиці порожні — далі мовчить.
+  t('🔴 обидві порожні — це досі «не запускався», і воно мовчить',
+    audit([{ ...STATIONS, rows: 0, stamp: null }, RASTER], NOW)
+      .find((p) => p.name === 'растр')?.kind, 'never');
+  t('і тоді таймер справді мовчить про обидва',
+    ringing(audit([{ ...STATIONS, rows: 0, stamp: null }, RASTER], NOW), 'stale').length, 0);
+  t('🔴 опечатка в provenBy — збій, а не тиха стара поведінка',
+    kind({ name: 'a', rows: 0, stamp: null, budgetHours: 4, provenBy: 'якого немає' }),
+    'bad-config');
+  t('джерело без provenBy поводиться як раніше',
+    kind({ name: 'a', rows: 0, stamp: null, budgetHours: 4 }), 'never');
   t('бюджет у годинах застосовується до годин (повітря: 5 год при 4)',
     kind({ name: 'a', rows: 5, stamp: ok(5), budgetHours: 4 }), 'stale');
 
@@ -591,7 +650,7 @@ function selfTest() {
 
   // 🔴 Лічильник стверджується, бо випадок, до якого не дійшло,
   // виглядає точно як випадок, що пройшов.
-  t('🔴 лічильник: усі випадки дійшли до кінця', p + f, 41);
+  t('🔴 лічильник: усі випадки дійшли до кінця', p + f, 47);
   console.log(`check-data-freshness self-test: ran ${p + f}, passed ${p}, failed ${f}`);
   return f === 0 ? 0 : 1;
 }
