@@ -106,7 +106,7 @@ export class PhotoSubmission {
   @Column({ name: 'reviewed_by_directus_id', type: 'uuid', nullable: true })
   reviewedByDirectusId?: string;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }
 
@@ -160,6 +160,6 @@ export class Review {
   @Column({ name: 'reviewed_by_directus_id', type: 'uuid', nullable: true })
   reviewedByDirectusId?: string;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }

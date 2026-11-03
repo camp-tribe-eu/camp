@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { needsLogin, pauseForLogin } from '@/lib/auth-wall';
 import {
   AMENITY_KEYS,
   hasChanges,
@@ -34,6 +36,12 @@ const draftOf = (l: Listing): Draft => ({
 
 export function OwnerListings() {
   const ready = useReady();
+  // 🔴 Через ref, як у кабінеті: інакше `router` стає залежністю ефекту,
+  // і запит на листинги повторюється щоразу, коли Next віддає новий
+  // обʼєкт навігації. Той самий прийом, та сама причина.
+  const router = useRouter();
+  const routerRef = useRef(router);
+  routerRef.current = router;
   const [listings, setListings] = useState<Listing[] | null>(null);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [busy, setBusy] = useState<string | null>(null);
@@ -46,9 +54,20 @@ export function OwnerListings() {
       if (res.kind === 'ok') {
         setListings(res.listings);
         setDrafts(Object.fromEntries(res.listings.map((l) => [l.slug, draftOf(l)])));
-      } else {
-        setListings([]);
+        return;
       }
+      // 🔴 CAMP-227. «НЕ ВВІЙШОВ» І «НІЧОГО НЕМАЄ» — РІЗНЕ, А ТУТ БУЛО
+      // ОДНЕ. Будь-яка невдача клалась у порожній список, і людина, яка
+      // просто не ввійшла, читала «ви ще не підтвердили жодного
+      // листингу» — твердження замість невідомості.
+      if (needsLogin(res.kind)) {
+        pauseForLogin(
+          { pathname: window.location.pathname, search: window.location.search },
+          (to) => routerRef.current.replace(to),
+        );
+        return;
+      }
+      setListings([]);
     });
     return () => {
       alive = false;

@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { loadCabinet, type CabinetState, type Profile } from '@/lib/cabinet';
-import { rememberReturn } from '@/lib/return-path';
+import { pauseForLogin } from '@/lib/auth-wall';
 import {
   CABINET_TITLE,
   CabinetErrorView,
@@ -58,11 +58,16 @@ export function AccountGate({
       if (cancelled) return;
       setState(next);
       if (next.kind === 'signed-out') {
-        // Адреса ЦІЄЇ сторінки: шлях і запит такими, якими їх бачить браузер.
-        // Що не годиться як місце повернення, `rememberReturn` не запише, і
-        // після входу людина піде на типове місце.
-        rememberReturn(window.location.pathname + window.location.search);
-        routerRef.current.replace('/login');
+        // 🔴 CAMP-227: ТЕПЕР ЧЕРЕЗ СПІЛЬНУ ФУНКЦІЮ, А НЕ СВОЇМ РЯДКОМ.
+        // Макет називає чотири точки стіни входу; цей рядок був першим
+        // і єдиним, а сторінки заявки й листингів не робили цього
+        // взагалі. Чотири копії одного рішення — чотири місця, де його
+        // можна забути. Що не годиться як місце повернення,
+        // `rememberReturn` не запише, і людина піде на типове місце.
+        pauseForLogin(
+          { pathname: window.location.pathname, search: window.location.search },
+          (to) => routerRef.current.replace(to),
+        );
       }
     });
     return () => {

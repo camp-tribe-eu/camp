@@ -1,0 +1,15 @@
+[Unit]
+Description=CampTribe infrastructure drift check, daily
+
+[Timer]
+# 🔴 О 05:45, ТОБТО ПЕРЕД сторожем свіжості (06:00).
+#
+# Порядок не випадковий: якщо юніта імпорту немає на машині, власник має
+# прочитати «юніта немає» ПЕРЕД листом «дані протухли». Інакше він
+# щоранку читає наслідок і щоранку не знає причини — рівно те, що
+# сталося з osm_route_poi.
+OnCalendar=*-*-* 05:45:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

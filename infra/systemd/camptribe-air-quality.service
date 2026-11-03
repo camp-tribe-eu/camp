@@ -1,0 +1,39 @@
+# CAMP-164 / CAMP-400: повітря EEA — станції й модельована сітка.
+#
+# 🔴 ЦЕЙ ЮНІТ ЗʼЯВИВСЯ ЗА РІШЕННЯМ ВЛАСНИКА 03.11.2026: «ставити до
+# відкриття, інакше половину фіч не побачать люди». До того дня
+# `air/import.ts` у власному заголовку казав «THE REFRESH IS NOT
+# SCHEDULED BY THIS CARD», і таблиці стояли ПОРОЖНІ — не протухлі, а
+# такі, що не наповнювались жодного разу.
+#
+# 🔴 `--apply` ОБОВʼЯЗКОВЕ. Без нього імпортер робить сухий прогін:
+# качає все, пише все в транзакцію й відкочує її. Юніт без цього
+# прапорця щотри години витрачав би 230 МБ і не лишав би нічого.
+#
+# 🔴 ЦІНА ПРОГОНУ НАЗВАНА ЙОГО Ж АВТОРОМ, і розклад обрано по ній:
+# один реєстр (1,8 МБ), 4 018 файлів станцій, з яких 3 504 відповідають
+# (~66 КБ кожен, 230,6 МБ за прогін), 514 дають 404, по шість за раз, і
+# 79 запитів до растра на 39 284 кемпінги без станції поруч. Дві
+# хвилини чотири секунди від початку до кінця.
+#
+# Щогодини це 5,5 ГБ на добу з чужого безкоштовного джерела. Кожні три
+# години — 1,8 ГБ, і все одно менше за бюджет сторінки (чотири години,
+# `AIR_FRESH_FOR_HOURS`). Сторож `check-freshness-has-a-filler.mjs` не
+# дасть зробити період довшим за бюджет непомітно.
+[Unit]
+Description=CampTribe EEA air quality import
+After=postgresql.service network-online.target
+Wants=network-online.target
+OnFailure=camptribe-failed@%n.service
+
+[Service]
+Type=oneshot
+User=camptribe
+Group=camptribe
+WorkingDirectory=/srv/camptribe/current/apps/api
+EnvironmentFile=/srv/camptribe/current/apps/api/.env
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=30min
+ExecStart=/usr/bin/node dist/air/import.js --apply
+ExecStartPost=/bin/rm -f /srv/camptribe/failed/camptribe-air-quality.service
