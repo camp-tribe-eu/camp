@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+# Інфраструктура в репозиторії ≠ інфраструктура на машині. CAMP-400.
+#
+#   camptribe-infra-drift            # порівняти, вийти 1 при розбіжності
+#   camptribe-infra-drift --self-test
+#
+# 🔴 ЧОМУ ЦЕЙ ФАЙЛ ІСНУЄ, І ЦЕ ЗАМІР, А НЕ ПРИПУЩЕННЯ.
+#
+# 03.11.2026 `osm_route_poi` був протухлий **18,5 діб**: 2 274 449 рядків
+# від 16.10, при бюджеті 10 діб. Сторож свіжості червонів щоранку й казав
+# правду — але не міг назвати причину.
+#
+# Причина: `camptribe-route-poi-import.service` і `.timer` ЛЕЖАЛИ В
+# РЕПОЗИТОРІЇ з 28.10 (CAMP-113) і не були розкладені на машину.
+# `systemctl is-enabled` → `not-found`. Тобто код імпорту написано,
+# розклад написано, і нічого з цього жодного разу не виконалось.
+#
+# 🔴 І ЦЕ НЕ ЛОВИВ НІХТО. `camptribe-deploy-nightly` викладає лише
+# ЗАСТОСУНОК; `deploy-infra.sh` бачить різницю, але лише тоді, коли
+# хтось його запустить руками з ноутбука. Між «розклали» і «хтось
+# згадав» минуло 18 діб.
+#
+# 🔴 ЦІНА ХИБНОГО СПРАЦЮВАННЯ НАЗВАНА: лист про розбіжність там, де файл
+# правили на машині свідомо. Заміряно 03.11.2026 сухим прогоном
+# `deploy-infra.sh`: із ~25 файлів розійшлися РІВНО ДВА — ті самі, яких
+# бракувало. Тобто шум тут близький до нуля, а сліпота коштувала 18 діб.
+set -uo pipefail
+
+ROOT="${CAMPTRIBE_ROOT:-/srv/camptribe}"
+SRC="${CAMPTRIBE_INFRA_SRC:-$ROOT/current/infra}"
+
+# Куди їде кожна тека — той самий розподіл, що в `deploy-infra.sh`.
+# 🔴 Два переліки розходяться мовчки, тому самотест нижче звіряє цей
+# `case` з тим: правило, якого немає в розкладці, стерегло б порожнечу.
+remote_for() {
+  case "$1" in
+    */systemd/*)   printf '/etc/systemd/system/%s' "$(basename "$1")" ;;
+    */bin/*)       printf '/usr/local/bin/%s' "$(basename "$1")" ;;
+    */lib/*)       printf '/usr/local/lib/camptribe/%s' "$(basename "$1")" ;;
+    */logrotate/*) printf '/etc/logrotate.d/%s' "$(basename "$1")" ;;
+    */fail2ban/*)  printf '/etc/fail2ban/jail.d/%s' "$(basename "$1")" ;;
+    *) return 1 ;;
+  esac
+}
+
+drift() {
+  local src="$1" missing=0 differs=0 seen=0 f remote
+  for f in "$src"/systemd/* "$src"/bin/* "$src"/lib/* "$src"/logrotate/* "$src"/fail2ban/*; do
+    [ -f "$f" ] || continue
+    remote="$(remote_for "$f")" || continue
+    seen=$((seen + 1))
+    if [ ! -f "$remote" ]; then
+      printf '✗ НЕМАЄ на машині: %s  ←  %s\n' "$remote" "$f"
+      missing=$((missing + 1))
+    elif ! cmp -s "$f" "$remote"; then
+      printf '✗ РОЗІЙШОВСЯ: %s  ←  %s\n' "$remote" "$f"
+      differs=$((differs + 1))
+    fi
+  done
+  # 🔴 Нуль файлів — це збій розбору, а не «все чисто». Саме так сторож
+  # стає зеленим над порожнечею.
+  if [ "$seen" -eq 0 ]; then
+    printf '✗ у %s не знайдено жодного файла інфраструктури — сторож втратив предмет\n' "$src"
+    return 1
+  fi
+  if [ "$missing" -eq 0 ] && [ "$differs" -eq 0 ]; then
+    printf '✓ інфраструктура на машині збігається з репозиторієм: %s файлів\n' "$seen"
+    return 0
+  fi
+  printf '\n✗ розбіжність: %s без файла, %s відрізняються (з %s)\n' "$missing" "$differs" "$seen"
+  printf '  Розкласти: ./infra/deploy-infra.sh --apply з ноутбука.\n'
+  printf '  Юніт, якого немає на машині, не виконується ЖОДНОГО разу —\n'
+  printf '  саме так osm_route_poi протух на 18,5 діб (CAMP-113).\n'
+  return 1
+}
+
+self_test() {
+  local work pass=0 fail=0
+  work="$(mktemp -d)"
+  trap 'rm -rf "$work"' RETURN
+  t() { if [ "$2" = "$3" ]; then pass=$((pass + 1)); printf '  ✓ %s\n' "$1";
+        else fail=$((fail + 1)); printf '  ✗ %s: «%s», мало бути «%s»\n' "$1" "$2" "$3"; fi; }
+
+  mkdir -p "$work/src/systemd" "$work/src/bin" "$work/src/lib" \
+           "$work/src/logrotate" "$work/src/fail2ban"
+  printf 'a\n' > "$work/src/systemd/x.service"
+
+  t 'тека systemd їде в /etc/systemd/system' \
+    "$(remote_for "$work/src/systemd/x.service")" '/etc/systemd/system/x.service'
+  t 'тека bin їде в /usr/local/bin' \
+    "$(remote_for "$work/src/bin/y")" '/usr/local/bin/y'
+  t 'тека lib їде в /usr/local/lib/camptribe' \
+    "$(remote_for "$work/src/lib/z.sh")" '/usr/local/lib/camptribe/z.sh'
+  t 'logrotate' "$(remote_for "$work/src/logrotate/c")" '/etc/logrotate.d/c'
+  t 'fail2ban' "$(remote_for "$work/src/fail2ban/j")" '/etc/fail2ban/jail.d/j'
+  remote_for "$work/src/other/q" >/dev/null 2>&1
+  t '🔴 незнайома тека — не вгадується' "$?" '1'
+
+  # 🔴 Порожнє джерело мусить ПАДАТИ, а не звітувати «все збігається».
+  mkdir -p "$work/empty"
+  drift "$work/empty" >/dev/null 2>&1
+  t '🔴 нуль файлів — це збій, а не чистота' "$?" '1'
+
+  # Той самий `case`, що в розкладці: порівнюємо тексти правил.
+  local here deploy
+  here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  deploy="$here/deploy-infra.sh"
+  if [ -f "$deploy" ]; then
+    for pair in 'systemd|/etc/systemd/system' 'bin|/usr/local/bin' \
+                'lib|/usr/local/lib/camptribe' 'logrotate|/etc/logrotate.d' \
+                'fail2ban|/etc/fail2ban/jail.d'; do
+      local dir="${pair%%|*}" dest="${pair##*|}"
+      grep -q -- "\*/$dir/\*" "$deploy" && grep -q -- "$dest" "$deploy"
+      t "🔴 правило «$dir» є і в deploy-infra.sh" "$?" '0'
+    done
+  else
+    t '🔴 deploy-infra.sh знайдено' 'ні' 'так'
+  fi
+
+  printf '\ncamptribe-infra-drift self-test: ran %s, passed %s, failed %s\n' \
+    "$((pass + fail))" "$pass" "$fail"
+  [ "$fail" -eq 0 ]
+}
+
+if [ "${1:-}" = '--self-test' ]; then self_test; exit $?; fi
+drift "$SRC"

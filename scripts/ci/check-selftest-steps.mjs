@@ -102,7 +102,19 @@ export function commandsIn(run) {
     .filter((tokens) => tokens.length > 0);
 }
 
-const SCRIPT_TOKEN = /^["']?([^"']*\.(?:mjs|cjs|js|ts|sh))["']?$/;
+// 🔴 CAMP-400: І БЕЗ РОЗШИРЕННЯ, КОЛИ ЦЕ `infra/bin/`.
+//
+// Усе, що їде в `/usr/local/bin`, там без розширення — `camptribe-backup`,
+// `camptribe-deploy`, `camptribe-notify`. Новий `camptribe-infra-drift`
+// теж, і його крок цей розбір спершу порахував, але не зміг привʼязати:
+// 91 написано, 90 прочитано.
+//
+// Перейменувати файл на `.sh` було б тим самим, про що попереджає абзац
+// нижче про прапорці: прибрати крок із поля зору сторожа замість навчити
+// сторожа. Тому вчимо — і лише для цієї теки, щоб випадковий аргумент
+// без розширення не став «скриптом».
+const SCRIPT_TOKEN =
+  /^["']?((?:[^"']*\.(?:mjs|cjs|js|ts|sh))|(?:\.?\/?infra\/bin\/[A-Za-z0-9._-]+))["']?$/;
 
 /**
  * The flags that mean "run your self-test": the plain one, and (CAMP-332)

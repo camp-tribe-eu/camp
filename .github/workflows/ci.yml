@@ -714,6 +714,26 @@ jobs:
           ./infra/deploy-nightly.selftest.sh | tee /dev/stderr \
             | grep -c 'deploy-nightly self-test: усе гаразд' >/dev/null
 
+      # 🔴 CAMP-400. ІНФРАСТРУКТУРА В РЕПОЗИТОРІЇ ≠ ІНФРАСТРУКТУРА НА МАШИНІ.
+      #
+      # 03.11.2026 `osm_route_poi` був протухлий 18,5 діб, бо
+      # `camptribe-route-poi-import.service` і `.timer` лежали в
+      # репозиторії з 28.10 і НЕ БУЛИ розкладені: `systemctl is-enabled`
+      # → `not-found`. Код імпорту написано, розклад написано, і нічого
+      # з цього не виконалось жодного разу.
+      #
+      # Сторож свіжості щоранку казав правду про НАСЛІДОК і не міг
+      # назвати ПРИЧИНУ. Новий юніт називає її — о 05:45, тобто ПЕРЕД
+      # листом про свіжість о 06:00.
+      #
+      # Тут перевіряється сам сторож: що він знає ті самі теки, що й
+      # розкладка, і що порожнє джерело для нього — збій, а не чистота.
+      - name: The infrastructure drift sentry knows where every file goes
+        run: |
+          set -o pipefail
+          ./infra/bin/camptribe-infra-drift --self-test | tee /dev/stderr \
+            | grep -c 'camptribe-infra-drift self-test:' >/dev/null
+
       # 🔴 CAMP-349. `"«$v»"` — байти `»` (0xC2 0xBB) прилипають до імені
       # змінної, під `set -u` це «unbound variable», і скрипт падає ТИМ
       # САМИМ рядком, яким мав пояснити помилку. У матриці мутацій крах
