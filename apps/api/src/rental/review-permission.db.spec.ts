@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Client } from 'pg';
+import { statementFor } from '../migration-sql';
 
 // CAMP-427: цифру рейтингу не можна покласти в рядок без дати письмового
 // дозволу — і це мусить доводити PostgreSQL, а не читання міграції.
@@ -35,16 +36,6 @@ const MIGRATION = join(
  * зворотних лапок, що містять потрібне імʼя. Нуль або два збіги — помилка:
  * тест мусить знати, що саме він виконує.
  */
-export function statementFor(text: string, needle: string): string {
-  const blocks = [...text.matchAll(/`([^`]*)`/g)].map((m) => m[1]);
-  const found = blocks.filter((b) => b.includes(needle));
-  if (found.length !== 1) {
-    throw new Error(
-      `у міграції знайдено ${found.length} операторів із «${needle}», а треба рівно один`,
-    );
-  }
-  return found[0];
-}
 
 let db: Client;
 let providerId: string;

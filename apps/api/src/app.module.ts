@@ -32,6 +32,7 @@ import { ProblemReportsModule } from './reports/problem-reports.module';
 import { ProblemReport } from './entities/problem-report.entity';
 import { ClientError } from './entities/client-error.entity';
 import { NotFoundHit } from './entities/not-found-hit.entity';
+import { SpotClaim } from './entities/spot-claim.entity';
 import { SpotTariff } from './entities/spot-tariff.entity';
 import { BathingWater } from './entities/bathing-water.entity';
 import {
@@ -102,6 +103,7 @@ export const REASONS = loadMeasuredReasons();
         ConsentRecord,
         ClientError,
         NotFoundHit,
+        SpotClaim,
         SpotTariff,
         BathingWater,
         AirQualityStation,

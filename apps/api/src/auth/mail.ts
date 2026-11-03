@@ -17,7 +17,20 @@
 
 import { smtpSenderFrom } from './mail-smtp';
 
-export type MailKind = 'verify_email' | 'reset_password' | 'change_email';
+export type MailKind =
+  | 'verify_email'
+  | 'reset_password'
+  | 'change_email'
+  // 🔴 CAMP-51 — ЄДИНИЙ ВИД, ЩО ЙДЕ НЕ НАШОМУ КОРИСТУВАЧЕВІ.
+  //
+  // Усі листи вище йдуть на адресу акаунта. Цей — на ПУБЛІЧНИЙ контакт
+  // кемпінгу з тегів OSM, тобто чужій людині, яка нас не питала. Тому в
+  // ньому немає посилання: клік у незнайомому листі віддав би листинг
+  // тому, хто почав заявку. Там код, який треба ввести в нас.
+  | 'claim_spot';
+
+/** Види, у листі яких є посилання. `claim_spot` сюди не входить. */
+export type LinkMailKind = Exclude<MailKind, 'claim_spot'>;
 
 export type MailMessage = {
   to: string;
@@ -151,14 +164,17 @@ export function webBaseFrom(raw: string | undefined): string | null {
  * a link in an email that 404s is a flow that is broken for everyone and
  * visible to nobody.
  */
-export const LINK_PATH: Record<MailKind, string> = {
+export const LINK_PATH: Record<LinkMailKind, string> = {
   verify_email: '/verify-email',
   reset_password: '/reset-password',
   change_email: '/confirm-email-change',
 };
 
-export const linkFor = (base: string, kind: MailKind, token: string): string =>
-  `${base}${LINK_PATH[kind]}?t=${encodeURIComponent(token)}`;
+export const linkFor = (
+  base: string,
+  kind: LinkMailKind,
+  token: string,
+): string => `${base}${LINK_PATH[kind]}?t=${encodeURIComponent(token)}`;
 
 /** How long a link in either letter lives. Printed in the letters from this. */
 export const LINK_TTL_MS = 60 * 60 * 1000;
@@ -175,7 +191,7 @@ const esc = (s: string): string =>
 
 function letter(
   to: string,
-  kind: MailKind,
+  kind: LinkMailKind,
   subject: string,
   intro: string,
   action: string,
@@ -238,6 +254,58 @@ export const changeEmailMessage = (to: string, link: string): MailMessage =>
     link,
     'If it was not you, delete this letter — nothing has changed, and no account has been moved here.',
   );
+
+/**
+ * CAMP-51 — лист із кодом на публічний контакт кемпінгу.
+ *
+ * 🔴 ЧОТИРИ РІШЕННЯ, І КОЖНЕ ЧЕРЕЗ ТЕ, ЩО ЧИТАЧ НАС НЕ ПИТАВ.
+ *
+ * 1. КОД, НЕ ПОСИЛАННЯ. Клік у незнайомому листі віддав би листинг
+ *    тому, хто почав заявку. Код працює навпаки: його треба ввести в
+ *    нас, уже маючи акаунт, — отже одна людина і отримала лист, і
+ *    тримає акаунт.
+ * 2. ХТО ПОПРОСИВ — НЕ НАЗВАНО. Ані пошти, ані імені. Лист може
+ *    потрапити не до тієї людини, і називати заявника означало б
+ *    видавати його адресу стороннім; а ще це готовий матеріал для
+ *    «це я з CampTribe, продиктуйте код».
+ * 3. «НІЧОГО НЕ РОБІТЬ» — ПОВНОЦІННА ВІДПОВІДЬ, і вона сказана першою.
+ *    Людина, яка цього не просила, має побачити вихід у першому рядку,
+ *    а не наприкінці.
+ * 4. НАЗВАНО, ЗВІДКИ АДРЕСА. Інакше лист виглядає як витік. Вона з
+ *    публічних тегів OpenStreetMap — і це перевірне твердження.
+ */
+export function claimSpotMessage(
+  to: string,
+  code: string,
+  spotName: string,
+  hours: number,
+): MailMessage {
+  const subject = `Someone asked to claim ${spotName} on CampTribe`;
+  const lines = [
+    `Someone asked to manage the CampTribe listing for ${spotName}.`,
+    '',
+    'If that was not you or your team: do nothing. Nothing changes, and we will not write again about this request.',
+    '',
+    'If it was, here is the code to type on the site:',
+    '',
+    `    ${code}`,
+    '',
+    `The code works once, for ${hours} hours, and only for the person who started the request.`,
+    '',
+    'We wrote to this address because it is in the public OpenStreetMap tags for this place. We did not get it from anywhere else, and we do not add it to any list.',
+    '',
+    'CampTribe',
+  ];
+  const html =
+    `<p>${esc(lines[0])}</p>` +
+    `<p>${esc(lines[2])}</p>` +
+    `<p>${esc(lines[4])}</p>` +
+    `<p style="font:700 22px/1.4 monospace;letter-spacing:3px">${esc(code)}</p>` +
+    `<p>${esc(lines[8])}</p>` +
+    `<p>${esc(lines[10])}</p>` +
+    `<p>CampTribe</p>`;
+  return { to, kind: 'claim_spot', subject, text: lines.join('\n'), html };
+}
 
 export const resetPasswordMessage = (to: string, link: string): MailMessage =>
   letter(

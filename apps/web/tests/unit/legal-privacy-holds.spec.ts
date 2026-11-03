@@ -33,7 +33,17 @@ function capabilities(): Record<'trip' | 'place' | 'photo' | 'review' | 'save', 
   expect(writing.length, 'жодного write-маршруту — розбір сліпий').toBeGreaterThan(5);
   const any = (re: RegExp) => writing.some((r) => re.test(r.label));
   const trip = any(/trip/i);
-  const place = any(/place|spot|favou?rite|saved/i);
+  // 🔴 ЗАЯВКА НА ВОЛОДІННЯ — НЕ «ЗБЕРЕЖЕНЕ МІСЦЕ», І ПРАВИЛО ЦЕ ЗНАЄ.
+  //
+  // CAMP-51 додав `POST /spot-claims`, і слово `spot` у назві маршруту
+  // змусило це правило вирішити, що сайт навчився зберігати місця — а
+  // отже змусило б політику написати, що читач може зберегти місце.
+  // Він не може: заявка не кладе місце в список, вона кладе ГРАНТ на
+  // акаунт. Політика каже про неї окремо (реєстр §11), і саме тому тут
+  // маршрути заявки виключені, а не враховані «про всяк випадок».
+  const savesPlace = (r: { label: string }) =>
+    /place|spot|favou?rite|saved/i.test(r.label) && !/claim/i.test(r.label);
+  const place = writing.some(savesPlace);
   const photo = any(/photo|upload|image|picture/i);
   const review = any(/review|rating/i);
   return {

@@ -478,13 +478,33 @@ describe('🔴 the login, mail, consent and plan decorators agree with their rou
   // кошик входу вдесятеро щедріший (10 за 60 с проти 10 за 600 с), і
   // маршрут, що шле листи, там підняв би стелю бомбардування чужої
   // скриньки з 60 листів на годину до 600.
-  it('and the routes it names are the four that can send a letter', () => {
+  it('and the routes it names are the six that can send a letter', () => {
     expect([...MAIL_ROUTES].sort()).toEqual([
       'account/email',
       'auth/forgot',
       'auth/resend-verification',
       'auth/signup',
+      // CAMP-51: єдині два, що шлють лист НЕ нашому користувачеві, а на
+      // публічну адресу кемпінгу з тегів OSM.
+      'spot-claims',
+      'spot-claims/confirm',
     ]);
+  });
+
+  // 🔴 І ЩЛЯХ МУСИТЬ ЗБІГАТИСЬ ТОЧНО, БО `bucketFor` ЗВІРЯЄ РІВНІСТЮ.
+  //
+  // Перша редакція контролера мала `spots/:slug/claim`. Декоратор дав би
+  // число з MAIL_LIMIT, а `bucketOf('spots/alpenblick/claim')` відповів
+  // би `ordinary` — ліміт, якого насправді немає. Це CAMP-176 удруге.
+  it('🔴 жоден маршрут у переліку не містить параметра', () => {
+    for (const r of MAIL_ROUTES) expect(r).not.toContain(':');
+  });
+
+  it('🔴 і справжній шлях заявки справді потрапляє у відро mail', () => {
+    expect(bucketOf('/spot-claims')).toBe('mail');
+    expect(bucketOf('/spot-claims/confirm')).toBe('mail');
+    // А те, що лише схоже, — ні: інакше перевірка нічого не розрізняє.
+    expect(bucketOf('/spot-claims/other')).not.toBe('mail');
   });
 });
 

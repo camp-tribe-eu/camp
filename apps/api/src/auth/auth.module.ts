@@ -38,7 +38,17 @@ import { ViewerMiddleware } from './viewer.middleware';
       },
     },
   ],
-  exports: [AuthService],
+  // 🔴 MAILER ЕКСПОРТУЄТЬСЯ, БО ЛИСТИ ШЛЕ НЕ ЛИШЕ AUTH.
+  //
+  // CAMP-51: `SpotClaimService` надсилає код на публічну адресу кемпінгу.
+  // Поки MAILER лишався всередині, будь-який тестовий модуль, що тягнув
+  // `SpotsModule`, падав із «Symbol(MAILER) … Nest can't resolve» — і
+  // падав не на своєму предметі, а на чужій залежності.
+  //
+  // Другої фабрики НЕ робимо: вона прочитала б середовище ще раз і
+  // надрукувала б другий рядок про пошту при старті, тобто два різні
+  // «стани пошти» в одному процесі.
+  exports: [AuthService, MAILER],
 })
 export class AuthModule implements NestModule {
   /**
