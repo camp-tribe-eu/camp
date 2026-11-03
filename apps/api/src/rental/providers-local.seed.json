@@ -487,6 +487,9 @@
           "berths": 6,
           "beltedSeats": 6,
           "lengthCm": 699,
+          "camperTypeSlug": "coachbuilt",
+          "camperTypeSaid": "Felépítmény: Alkovós",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://premiumlakoauto.hu/lakoauto/giottiline-siena-440-l/",
           "sourceCheckedOn": "2026-11-03"
         },
@@ -496,6 +499,9 @@
           "berths": 4,
           "beltedSeats": 4,
           "lengthCm": 741,
+          "camperTypeSlug": "aclass",
+          "camperTypeSaid": "Felépítmény: Integrált",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://premiumlakoauto.hu/lakoauto/caracore-700-meg/",
           "sourceCheckedOn": "2026-11-03"
         },

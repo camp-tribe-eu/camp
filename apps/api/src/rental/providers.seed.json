@@ -96,6 +96,9 @@
           "berths": 4,
           "beltedSeats": 4,
           "lengthCm": 496,
+          "camperTypeSlug": "van",
+          "camperTypeSaid": "The original van in a small space",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://www.mcrent.eu/motorhome-rv/models/",
           "sourceCheckedOn": "2026-11-02"
         },
@@ -105,6 +108,9 @@
           "berths": 2,
           "beltedSeats": 4,
           "lengthCm": 666,
+          "camperTypeSlug": "lowprofile",
+          "camperTypeSaid": "The compact semi-integrated motorhome",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://www.mcrent.eu/motorhome-rv/models/",
           "sourceCheckedOn": "2026-11-02"
         },
@@ -114,6 +120,9 @@
           "berths": 5,
           "beltedSeats": 5,
           "lengthCm": 661,
+          "camperTypeSlug": "coachbuilt",
+          "camperTypeSaid": "The alcove motorhome with bunk beds",
+          "camperTypeCheckedOn": "2026-11-03",
           "sourceUrl": "https://www.mcrent.eu/motorhome-rv/models/",
           "sourceCheckedOn": "2026-11-02"
         },
