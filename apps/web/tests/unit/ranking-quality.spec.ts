@@ -22,17 +22,29 @@ import { EXONYMS, fold, search, searchText, type SearchDoc } from '@/lib/search'
 // pretending to measure something.
 //
 //   curl -H "x-build-token: $TOKEN" localhost:3001/spots/search-index \
-//     -o <scratchpad>/search-index.json
+//     -o apps/web/.cache/search-index.json
 //
 // The path comes from RANKING_INDEX so CI and a laptop can differ.
 
+// 🔴 ТУТ СТОЯВ ШЛЯХ У ТЕКУ ОДНІЄЇ СЕСІЇ CLAUDE CODE НА ОДНОМУ НОУТІ
+// (`…/claude-501/…/89858e8b-…/scratchpad/search-index.json`), і це
+// робило задум коментаря вище декоративним.
+//
+// Заміряно 03.11.2026 (CAMP-438) з трьох боків:
+//   • тієї теки на ноуті вже немає — сесія закінчилась;
+//   • CI не задає `RANKING_INDEX` ніде: у воркфлоу лише КОМЕНТАР про неї;
+//   • у звіті e2e ці тести пропущені на всіх проєктах.
+// Тобто умова пропуску істинна СКРІЗЬ, і вони не бігли ніде й ніколи,
+// а звіт щоразу писав «passed».
+//
+// Замовчування тепер указує в теку самого репозиторію: шлях, який
+// людина бачить, може створити й перевірити. Це НЕ лагодить картку —
+// CI досі не вміє зібрати індекс, і тести досі пропускаються, — але
+// прибирає пастку, у якій наступний створював би файл там, де його
+// ніхто не шукає.
 const INDEX =
   process.env.RANKING_INDEX ??
-  path.join(
-    process.env.TMPDIR ?? '/tmp',
-    'claude-501/-Users-george-Documents-UTD-Claude------Camping',
-    '89858e8b-4a6c-4c23-9782-7ef21e28cd10/scratchpad/search-index.json',
-  );
+  path.join(process.cwd(), '.cache', 'search-index.json');
 
 interface Row {
   name: string | null;
@@ -251,7 +263,12 @@ function solvePlaces(docs: (SearchDoc & { lat?: number; lon?: number })[]) {
 test.describe('ranking quality, measured on the live index', () => {
   test.skip(
     docs === null,
-    `no index cached at ${INDEX} — see the comment at the top of this file`,
+    // 🔴 Причина називає СТАН, а не лише відсутній файл. «Немає кешу»
+    // читалось як «створи файл», а справжня перешкода в тому, що CI
+    // не вміє його зібрати — і доки не вміє, ці тести мовчать скрізь.
+    `no index cached at ${INDEX}, and CI never sets RANKING_INDEX — ` +
+      'so these have not run anywhere (CAMP-438). Build it with the curl ' +
+      'in the comment at the top of this file, or set RANKING_INDEX.',
   );
 
   test('🔴 CAMP-140: `camping tolmin` answers in Tolmin, and says Tolmin', () => {
