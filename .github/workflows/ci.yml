@@ -728,6 +728,20 @@ jobs:
       #
       # Тут перевіряється сам сторож: що він знає ті самі теки, що й
       # розкладка, і що порожнє джерело для нього — збій, а не чистота.
+      # 🔴 CAMP-400, пункт 3: бюджет без розкладу — обіцянка, яку нема
+      # кому виконати. 03.11.2026 дві таблиці протухли не тому, що
+      # збирач упав, а тому, що наповнювати їх було нікому: юніт POI
+      # лежав нерозкладеним, юніта звʼязків не існувало зовсім. Бюджет
+      # у 10 діб при тижневому таймері виконуваний; без таймера він
+      # червонітиме на одинадцяту добу щоранку й назавжди.
+      - name: Every freshness budget has something that can meet it
+        run: |
+          set -o pipefail
+          node scripts/ci/check-freshness-has-a-filler.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-freshness-has-a-filler self-test:' >/dev/null
+      - name: And no budget is shorter than its own timer
+        run: node scripts/ci/check-freshness-has-a-filler.mjs
+
       - name: The infrastructure drift sentry knows where every file goes
         run: |
           set -o pipefail
