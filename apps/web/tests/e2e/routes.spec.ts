@@ -567,7 +567,6 @@ test.describe('a route page', () => {
     // Said out loud rather than left implicit: against a fixture database
     // with no campsites near these stages, this test verified the empty
     // state and nothing else.
-    // eslint-disable-next-line no-console
     if (checked === 0) console.log('no campsite links on these routes in this dataset');
   });
 });

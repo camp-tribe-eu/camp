@@ -4,7 +4,7 @@ import Home from '@/app/page';
 import { HOME_PAGE } from './home-cms';
 import { GET as llmsTxt } from '@/app/llms.txt/route';
 import { seededHtml } from './legal-cms';
-import { renderAsyncComponent, renderComponent } from './render-component';
+import { renderAsyncComponent } from './render-component';
 import { visibleText } from './rendered-text';
 import { CLIENT_ISLANDS } from './client-islands';
 

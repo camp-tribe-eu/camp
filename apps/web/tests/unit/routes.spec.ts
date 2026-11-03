@@ -374,6 +374,14 @@ test('🔴 the trip graph carries no field that is invalid on Trip', () => {
 
 test('the trip graph says what it is and where it is', () => {
   const r = CURATED_ROUTES[0];
+  // 🔴 `any` тут свідомий, і ось чому він нічого не ховає: це JSON-LD,
+  // дерево довільної глибини, і точний тип довелось би кастити на
+  // КОЖНОМУ кроці всередину. Тест усе одно стверджує ЗНАЧЕННЯ на кожному
+  // рівні — `@type`, `position`, `numberOfItems`, координати, — тож
+  // типізація тут не спіймала б нічого, а каст на кожному рядку зробив
+  // би перевірку нечитною. Правило лишається ввімкненим на весь проєкт;
+  // це названий виняток, а не вимкнений сторож.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const g = routeTripGraph(r, `/routes/${r.slug}`) as Record<string, any>;
   expect(g['@type']).toBe('TouristTrip');
   expect(g['@context']).toBe('https://schema.org');
@@ -382,6 +390,7 @@ test('the trip graph says what it is and where it is', () => {
   expect(g.itinerary.numberOfItems).toBe(r.stages.length);
   // Positions start at 1 and increase without gaps — the rule that,
   // broken, makes Google discard the whole list in silence.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   g.itinerary.itemListElement.forEach((item: any, i: number) => {
     expect(item.position).toBe(i + 1);
     expect(item.item['@type']).toBe('Place');
