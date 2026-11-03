@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 import { robotsFor } from "@/lib/robots-rules";
 import { agentsNamed, blockedByRobots } from "./robots-reading";
 
-// 🔴 CAMP-422. ЩО САМЕ ТУТ СТЕРЕЖЕТЬСЯ — І ЧОМУ ЦЕ НЕ КОСМЕТИКА.
+// 🔴 CAMP-431 (пункт 2). ЩО САМЕ ТУТ СТЕРЕЖЕТЬСЯ — І ЧОМУ ЦЕ НЕ КОСМЕТИКА.
 //
 // Відповідні машини (ChatGPT, Perplexity, Claude, Gemini) цитують те, що
 // має джерело й дату. Наш провенанс кожного факту — рівно те, за що вони
