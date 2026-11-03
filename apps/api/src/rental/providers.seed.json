@@ -2,7 +2,7 @@
   "_meta": {
     "card": "CAMP-427",
     "collectedOn": "2026-11-02",
-    "rules": "Усі числа — заявлені самою компанією на її власному сайті (sourceUrl). Цін і доступності немає навмисно. Профілі Trustpilot — лише URL, і лише якщо посилання стояло на сайті самої компанії; trustpilot.com не відкривався. Відсутній рядок сервісу = «не перевіряли», unavailable = компанія прямо пише, що не дає. Тексти intro/whatToKnow — мовою uk.",
+    "rules": "Усі числа — заявлені самою компанією на її власному сайті (sourceUrl). Цін і доступності немає навмисно. Профілі Trustpilot — лише URL, і лише якщо посилання стояло на сайті самої компанії; trustpilot.com не відкривався. Відсутній рядок сервісу = «не перевіряли», unavailable = компанія прямо пише, що не дає. Тексти intro/whatToKnow — мовою en.",
     "serviceCodesOutsideDictionary": [
       "roadside_assistance",
       "snow_chains",
@@ -10,7 +10,8 @@
       "delivery_to_renter",
       "windshield_tyre_protection",
       "tow_bar"
-    ]
+    ],
+    "language": "en"
   },
   "providers": [
     {
@@ -27,63 +28,63 @@
       "foundedYear": 2004,
       "sourceUrl": "https://www.mcrent.eu/about-mcrent/",
       "sourceCheckedOn": "2026-11-02",
-      "intro": "Прокатний бренд Rental Alliance GmbH (Erwin Hymer Group, Isny im Allgäu); стартував 2004 року з 8 станцій у Німеччині. Слайд «2025» на сторінці About: «16 countries across Europe and in New Zealand, with more than 100 stations and 3,000 vehicles worldwide» — станцій «понад 100», числа світові (включно з Новою Зеландією).",
-      "whatToKnow": "З 16.11.2026 бренд rent easy вливається в McRent («over 130 locations» на https://www.mcrent.eu/mcrent-and-rent-easy/). Сайт рендериться JS: числа видно лише з заголовком X-Locale або в браузері. Інші заявлені числа станцій: REST /appl/rest/stations = 96, rental-alliance.com (2022) = 106. Холдинг на erwinhymergroup.com пише «mehr als 2.500 Fahrzeugen». Контрагент договору — локальна станція (ліцензіат Rental Alliance).",
+      "intro": "Rental brand of Rental Alliance GmbH (Erwin Hymer Group, Isny im Allgäu); started in 2004 with 8 stations in Germany. The “2025” slide on the About page: “16 countries across Europe and in New Zealand, with more than 100 stations and 3,000 vehicles worldwide” — stations “more than 100”, the figures are worldwide (including New Zealand).",
+      "whatToKnow": "From 16.11.2026 the rent easy brand is merging into McRent (“over 130 locations” at https://www.mcrent.eu/mcrent-and-rent-easy/). The site renders with JS: the figures are visible only with the X-Locale header or in a browser. Other stated station counts: REST /appl/rest/stations = 96, rental-alliance.com (2022) = 106. The holding company at erwinhymergroup.com writes “mehr als 2.500 Fahrzeugen”. The contract counterparty is the local station (a Rental Alliance licensee).",
       "reviewProfiles": [],
       "services": [
         {
           "code": "unlimited_km",
           "availability": "included",
-          "note": "«All kilometres*» — спецпропозиції можуть мати ліміт км, позначаються окремо",
+          "note": "“All kilometres*” — special offers may have a km limit, marked separately",
           "sourceUrl": "https://www.mcrent.eu/faq/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "additional_driver",
           "availability": "included",
-          "note": "Реєструється безкоштовно на станції при видачі; виняток — Ірландія",
+          "note": "Registered free of charge at the station at pick-up; exception — Ireland",
           "sourceUrl": "https://www.mcrent.eu/faq/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "pets_allowed",
           "availability": "extra",
-          "note": "На більшості станцій за доплату (pet allowance), не на кожній; потрібне підтвердження станції",
+          "note": "At most stations for an extra charge (pet allowance), not at every one; confirmation from the station is required",
           "sourceUrl": "https://www.mcrent.eu/travel-tips/travelling-with-dog/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "bike_rack",
           "availability": "included",
-          "note": "Не для e-bike; відсутній у групах Premium Plus і Premium Luxury",
+          "note": "Not for e-bikes; not available in the Premium Plus and Premium Luxury groups",
           "sourceUrl": "https://www.mcrent.eu/faq/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "awning",
           "availability": "included",
-          "note": "Крім групи Urban Vehicle",
+          "note": "Except the Urban Vehicle group",
           "sourceUrl": "https://www.mcrent.eu/faq/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "child_seat",
           "availability": "extra",
-          "note": "На запит, за доплату",
+          "note": "On request, for an extra charge",
           "sourceUrl": "https://www.mcrent.eu/faq/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "airport_transfer",
           "availability": "extra",
-          "note": "Лише на деяких станціях, за доплату; бронюється онлайн або на станції",
+          "note": "Only at some stations, for an extra charge; bookable online or at the station",
           "sourceUrl": "https://www.mcrent.eu/faq/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "one_way",
           "availability": "extra",
-          "note": "GTC Germany п. 3.8: «One-way rentals are only possible by special agreement»; розмір доплати в джерелі не названо",
+          "note": "GTC Germany clause 3.8: “One-way rentals are only possible by special agreement”; the surcharge amount is not named in the source",
           "sourceUrl": "https://www.mcrent.de/media/mcrent_gtc_germany_en_1.pdf",
           "sourceCheckedOn": "2026-11-02"
         }
@@ -141,98 +142,98 @@
       "foundedYear": 2016,
       "sourceUrl": "https://roadsurfer.com/about/",
       "sourceCheckedOn": "2026-11-02",
-      "intro": "Мюнхенський прокат кемперів і автодомів із власним парком (roadsurfer GmbH, засн. 2016), а також підписка на кемпер, продаж і платформа стоянок roadsurfer spots. Числа СВІТОВІ (16 країн, включно зі США й Канадою): сторінка About — «100 locations worldwide» і «10,000 vehicles»; прес-кит 2026 — «nearly 100» і «around 10,000».",
-      "whatToKnow": "Прес-реліз 11.02.2026 (roadsurfer.com/wp-content/uploads/260211_PM-Neue-Stationen-DACH_final.pdf): «mehr als 10.000 Fahrzeugen an rund 100 Standorten in 16 Ländern», 37 станцій у Німеччині. Телефону на сторінках контактів і в імпресумі немає — номер мобільності видається в чаті акаунта.",
+      "intro": "Munich-based campervan and motorhome rental with its own fleet (roadsurfer GmbH, founded 2016), also a campervan subscription, sales, and the roadsurfer spots platform of parking spots. The figures are WORLDWIDE (16 countries, including the USA and Canada): the About page — “100 locations worldwide” and “10,000 vehicles”; the 2026 press kit — “nearly 100” and “around 10,000”.",
+      "whatToKnow": "Press release of 11.02.2026 (roadsurfer.com/wp-content/uploads/260211_PM-Neue-Stationen-DACH_final.pdf): “mehr als 10.000 Fahrzeugen an rund 100 Standorten in 16 Ländern”, 37 stations in Germany. There is no phone number on the contact pages or in the imprint — the mobility number is issued in the account chat.",
       "reviewProfiles": [],
       "services": [
         {
           "code": "unlimited_km",
           "availability": "included",
-          "note": "Базовий пакет захисту в кожному бронюванні: необмежені км, крім одностороніх маршрутів Rally",
+          "note": "Basic protection package in every booking: unlimited km, except one-way Rally routes",
           "sourceUrl": "https://roadsurfer.com/wp-content/uploads/roadsurfer-RENT-TermsConditions-2026-10-28-ENG.pdf",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "additional_driver",
           "availability": "included",
-          "note": "Один додатковий водій без доплати (basic); другий — у пакеті «plus»; без обмежень — у пакеті «max»",
+          "note": "One additional driver with no surcharge (basic); the second — in the “plus” package; no limit — in the “max” package",
           "sourceUrl": "https://roadsurfer.com/wp-content/uploads/roadsurfer-RENT-TermsConditions-2026-10-28-ENG.pdf",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "excess_reduction",
           "availability": "extra",
-          "note": "Пакети «plus» і «max» зменшують або знімають франшизу",
+          "note": "The “plus” and “max” packages reduce or remove the excess",
           "sourceUrl": "https://roadsurfer.com/wp-content/uploads/roadsurfer-RENT-TermsConditions-2026-10-28-ENG.pdf",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "pets_allowed",
           "availability": "extra",
-          "note": "FAQ: собаки на всіх моделях, разова плата при бронюванні; умови: тварини лише в авто, позначених «pet-friendly»",
+          "note": "FAQ: dogs on all models, a one-time fee at booking; conditions: animals only in vehicles marked “pet-friendly”",
           "sourceUrl": "https://roadsurfer.com/de/faq/camper-mieten/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "one_way",
           "availability": "extra",
-          "note": "Лише як «roadsurfer Rally» — односторонні оренди на визначених маршрутах (7-денні, Європа й Північна Америка) з лімітом км замість необмежених; розмір доплати на сторінці не названо",
+          "note": "Only as “roadsurfer Rally” — one-way rentals on defined routes (7-day, Europe and North America) with a km limit instead of unlimited; the surcharge amount is not named on the page",
           "sourceUrl": "https://roadsurfer.com/uk/campervan-hire/rally/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "bedding",
           "availability": "extra",
-          "note": "Комплект постелі на одну або дві особи, залежно від станції видачі",
+          "note": "Bedding set for one or two people, depending on the pick-up station",
           "sourceUrl": "https://roadsurfer.com/uk/campervan-hire/equipment/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "bike_rack",
           "availability": "extra",
-          "note": "Кріплення на два або чотири велосипеди, залежить від авто",
+          "note": "Rack for two or four bikes, depends on the vehicle",
           "sourceUrl": "https://roadsurfer.com/uk/campervan-hire/equipment/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "child_seat",
           "availability": "extra",
-          "note": "Дитяче крісло 15 міс.–12 р. (макс. 2 на бронювання) і бустер 3–12 р.",
+          "note": "Child seat 15 months–12 years (max. 2 per booking) and booster seat 3–12 years",
           "sourceUrl": "https://roadsurfer.com/uk/campervan-hire/equipment/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "camping_table_chairs",
           "availability": "included",
-          "note": "1 стіл і 2 стільці включено; додаткові — як опція",
+          "note": "1 table and 2 chairs included; additional ones — as an option",
           "sourceUrl": "https://roadsurfer.com/uk/campervan-hire/equipment/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "awning",
           "availability": "included",
-          "note": "Маркіза або сонцезахисне вітрило; лише для європейських оренд",
+          "note": "Awning or sun sail; only for European rentals",
           "sourceUrl": "https://roadsurfer.com/uk/campervan-hire/equipment/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "gps",
           "availability": "included",
-          "note": "Навігація (частина авто — через Apple CarPlay / Android Auto)",
+          "note": "Navigation (in some vehicles — via Apple CarPlay / Android Auto)",
           "sourceUrl": "https://roadsurfer.com/uk/campervan-hire/equipment/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "snow_chains",
           "availability": "extra",
-          "note": "Опція; наявність залежить від авто й станції",
+          "note": "Option; availability depends on the vehicle and station",
           "sourceUrl": "https://roadsurfer.com/uk/campervan-hire/equipment/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "roadside_assistance",
           "availability": "included",
-          "note": "Допомога на дорозі 24/7; базовий пакет містить мобільність і допомогу при поломці",
+          "note": "Roadside assistance 24/7; the basic package includes mobility and breakdown assistance",
           "sourceUrl": "https://roadsurfer.com/about/",
           "sourceCheckedOn": "2026-11-02"
         }
@@ -290,91 +291,91 @@
       "foundedYear": 2013,
       "sourceUrl": "https://indiecampers.com/discover/en-us/stories/fact-sheet",
       "sourceCheckedOn": "2026-11-02",
-      "intro": "Лісабонська платформа автоподорожей (засн. 2013), яка з 2020 працює в Європі гібридно: власний парк плюс p2p-маркетплейс авто приватних власників (лише Європа); також продає вживані кемпери й володіє брендами Bunk Campers / Just Go у Великій Британії та Ірландії. Числа СВІТОВІ (Європа, США/Канада, Австралія/НЗ) і «понад»: fact sheet — «over 100 physical locations» і «global fleet exceeds 10,000 owned vehicles».",
-      "whatToKnow": "Юридична назва взята з власного PDF компанії (https://indiecampers.com/pdf/FichaProjeto_IC.pdf); реєстраційного номера на сайті й у Terms немає. Rental Agreement for Europe: орендодавець — «company belonging to the Indie Campers group registered in the Country where the selected vehicle is». Телефон у підвалі сайту — американський номер; email узято з Rental Agreement (help.indiecampers.com, стаття 48843149456785). Довжини моделей подано діапазоном — узято нижню межу.",
+      "intro": "Lisbon-based road-trip platform (founded 2013) that has operated in Europe in a hybrid model since 2020: its own fleet plus a p2p marketplace of vehicles from private owners (Europe only); it also sells used campervans and owns the Bunk Campers / Just Go brands in the United Kingdom and Ireland. The figures are WORLDWIDE (Europe, USA/Canada, Australia/NZ) and “more than” figures: fact sheet — “over 100 physical locations” and “global fleet exceeds 10,000 owned vehicles”.",
+      "whatToKnow": "The legal name is taken from the company's own PDF (https://indiecampers.com/pdf/FichaProjeto_IC.pdf); there is no registration number on the site or in the Terms. Rental Agreement for Europe: the lessor — “company belonging to the Indie Campers group registered in the Country where the selected vehicle is”. The phone number in the site footer is a US number; the email is taken from the Rental Agreement (help.indiecampers.com, article 48843149456785). Model lengths are given as a range — the lower bound is used.",
       "reviewProfiles": [],
       "services": [
         {
           "code": "unlimited_km",
           "availability": "included",
-          "note": "«Unlimited distance package» за умови відповідального використання; понад залежний від локації ліміт — дорахунок після поїздки; на частині маршрутів є пакети пробігу при оформленні",
+          "note": "“Unlimited distance package” subject to responsible use; above a location-dependent limit — an additional charge after the trip; on some routes mileage packages are offered at booking",
           "sourceUrl": "https://indiecampers.com/discover/en-us/info/how-indie-campers-rv-rental-works",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "one_way",
           "availability": "extra",
-          "note": "Односторонні поїздки в Європі, Північній Америці й Океанії; збір показується при оформленні",
+          "note": "One-way trips in Europe, North America and Oceania; the fee is shown at booking",
           "sourceUrl": "https://indiecampers.com/discover/en-us/info/how-indie-campers-rv-rental-works",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "pets_allowed",
           "availability": "extra",
-          "note": "Собаки дозволені за разову плату за прибирання",
+          "note": "Dogs are allowed for a one-time cleaning fee",
           "sourceUrl": "https://indiecampers.com/discover/en-us/stories/fact-sheet",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "additional_driver",
           "availability": "extra",
-          "note": "Другий водій — опція; fact sheet: безкоштовний другий водій входить у преміальні плани захисту",
+          "note": "Second driver — an option; fact sheet: a free second driver is included in the premium protection plans",
           "sourceUrl": "https://indiecampers.com/discover/en-us/info/how-indie-campers-rv-rental-works",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "excess_reduction",
           "availability": "extra",
-          "note": "Базовий план захисту включено; вищі плани — при оформленні, онлайн-чекіні або в кабінеті",
+          "note": "Basic protection plan included; higher plans — at booking, online check-in or in the customer account",
           "sourceUrl": "https://indiecampers.com/discover/en-us/info/how-indie-campers-rv-rental-works",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "bedding",
           "availability": "extra",
-          "note": "Комплекти постелі — опція; матраци включено",
+          "note": "Bedding sets — an option; mattresses included",
           "sourceUrl": "https://indiecampers.com/discover/en-us/info/how-indie-campers-rv-rental-works",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "child_seat",
           "availability": "extra",
-          "note": "«Baby seats» серед опцій",
+          "note": "“Baby seats” among the options",
           "sourceUrl": "https://indiecampers.com/discover/en-us/info/how-indie-campers-rv-rental-works",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "camping_table_chairs",
           "availability": "extra",
-          "note": "«Outdoor furniture» серед опцій",
+          "note": "“Outdoor furniture” among the options",
           "sourceUrl": "https://indiecampers.com/discover/en-us/info/how-indie-campers-rv-rental-works",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "cleaning_service",
           "availability": "extra",
-          "note": "Обовʼязковий разовий «preparation fee» (прибирання й видача), залежить від локації та авто",
+          "note": "Mandatory one-time “preparation fee” (cleaning and handover), depends on the location and vehicle",
           "sourceUrl": "https://indiecampers.com/discover/en-us/info/how-indie-campers-rv-rental-works",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "gps",
           "availability": "unavailable",
-          "note": "Help centre: «Our campervans don't include a built-in GPS unit»",
+          "note": "Help centre: “Our campervans don't include a built-in GPS unit”",
           "sourceUrl": "https://help.indiecampers.com/hc/en-us/articles/5410459793169-Is-GPS-available",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "roadside_assistance",
           "availability": "included",
-          "note": "Підтримка в дорозі 24/7 включена",
+          "note": "Roadside support 24/7 included",
           "sourceUrl": "https://indiecampers.com/discover/en-us/info/how-indie-campers-rv-rental-works",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "kitchen_kit",
           "availability": "included",
-          "note": "Сторінка «how it works» називає кухонний набір включеним; fact sheet натомість перелічує «kitchen sets» серед опцій",
+          "note": "The “how it works” page lists a kitchen kit as included; the fact sheet instead lists “kitchen sets” among the options",
           "sourceUrl": "https://indiecampers.com/discover/en-us/info/how-indie-campers-rv-rental-works",
           "sourceCheckedOn": "2026-11-02"
         }
@@ -432,63 +433,63 @@
       "foundedYear": 2016,
       "sourceUrl": "https://www.rent-easy.de/",
       "sourceCheckedOn": "2026-11-02",
-      "intro": "Другий прокатний бренд Rental Alliance GmbH (Erwin Hymer Group), заснований у січні 2016 з 11 станціями в Німеччині; парк Hymer, Carado, Bürstner, Etrusco. Головна сторінка: «an unseren über 50 Stationen» — «понад 50». Розміру парку сайт не називає.",
-      "whatToKnow": "З 16.11.2026 бренд переходить під McRent (https://www.rent-easy.de/rent-easy-und-mcrent/). Інші заявлені числа станцій: rental-alliance.com/unsere-marken/rent-easy.html — «über 40»; REST /appl/rest/stations = 42. Рік заснування — з таймлайну https://www.rent-easy.de/ueber-renteasy/. В імпресумі номер написано як «HB 621035» (на mcrent.eu той самий номер як HRB 621035). Включено 250 км/добу, усі км — лише з 15-ї доби.",
+      "intro": "The second rental brand of Rental Alliance GmbH (Erwin Hymer Group), founded in January 2016 with 11 stations in Germany; fleet of Hymer, Carado, Bürstner, Etrusco. Home page: “an unseren über 50 Stationen” — “more than 50”. The site does not name the fleet size.",
+      "whatToKnow": "From 16.11.2026 the brand moves under McRent (https://www.rent-easy.de/rent-easy-und-mcrent/). Other stated station counts: rental-alliance.com/unsere-marken/rent-easy.html — “über 40”; REST /appl/rest/stations = 42. The founding year is from the timeline at https://www.rent-easy.de/ueber-renteasy/. In the imprint the number is written as “HB 621035” (on mcrent.eu the same number is written as HRB 621035). 250 km/day included, all km — only from day 15.",
       "reviewProfiles": [],
       "services": [
         {
           "code": "unlimited_km",
           "availability": "unavailable",
-          "note": "250 км/добу включено; необмежені км лише з 15-ї доби оренди",
+          "note": "250 km/day included; unlimited km only from day 15 of the rental",
           "sourceUrl": "https://www.rent-easy.de/extras-und-inklusivleistungen/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "additional_driver",
           "availability": "included",
-          "note": "Безкоштовно, вписується на станції в день видачі",
+          "note": "Free of charge, entered at the station on the day of pick-up",
           "sourceUrl": "https://www.rent-easy.de/faq/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "pets_allowed",
           "availability": "extra",
-          "note": "Лише за погодженням зі станцією; Haustierpauschale за кожну тварину",
+          "note": "Only by agreement with the station; Haustierpauschale for each animal",
           "sourceUrl": "https://www.rent-easy.de/faq/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "bedding",
           "availability": "extra",
-          "note": "«Bett-Sets» як zubuchbares Extra",
+          "note": "“Bett-Sets” as a zubuchbares Extra",
           "sourceUrl": "https://www.rent-easy.de/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "camping_table_chairs",
           "availability": "extra",
-          "note": "«Campingtisch/Stühle» як zubuchbares Extra",
+          "note": "“Campingtisch/Stühle” as a zubuchbares Extra",
           "sourceUrl": "https://www.rent-easy.de/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "airport_transfer",
           "availability": "extra",
-          "note": "«Airport-Shuttle-Service direkt zur Station» як zubuchbares Extra",
+          "note": "“Airport-Shuttle-Service direkt zur Station” as a zubuchbares Extra",
           "sourceUrl": "https://www.rent-easy.de/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "gps",
           "availability": "included",
-          "note": "Навігація в усіх авто",
+          "note": "Navigation in all vehicles",
           "sourceUrl": "https://www.rent-easy.de/extras-und-inklusivleistungen/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "one_way",
           "availability": "extra",
-          "note": "AGB Deutschland п. 3.7: «Einwegmieten sind nur bei gesonderter Vereinbarung zulässig»; розмір доплати в джерелі не названо",
+          "note": "AGB Deutschland clause 3.7: “Einwegmieten sind nur bei gesonderter Vereinbarung zulässig”; the surcharge amount is not named in the source",
           "sourceUrl": "https://www.rent-easy.de/media/rent_easy_gtc_deutschland_de.pdf",
           "sourceCheckedOn": "2026-11-02"
         }
@@ -546,8 +547,8 @@
       "foundedYear": 2011,
       "sourceUrl": "https://www.blacksheep-van.com/en/our-agencies/",
       "sourceCheckedOn": "2026-11-02",
-      "intro": "Французька франчайзингова мережа прокату обладнаних вантажівок-кемперів (перша агенція відкрита 2011 біля Ліона). Сторінка агенцій перелічує 30: 24 у Франції (включно з Реюньйоном), 2 в Ірландії, 1 у Греції (ЄС-27) плюс 2 у Швейцарії й 1 у Канаді. Сторінка «Qui sommes-nous» каже «plus de 50 agences» і «plus de 500 vans» — у поле парку взято 500 («понад»), у поле депо — менше з двох чисел.",
-      "whatToKnow": "Посилання на профіль Trustpilot стоїть у підвалі власного сайту компанії (https://www.blacksheep-van.com/en/ і сторінки моделей) — звідти й узято URL. Розбіжності в самих джерелах: країни на сторінці «про нас» (FR, BE, CH, IT, IE, PT) не збігаються зі списком агенцій (FR, CH, CA, IE, GR); у mentions légales email написано «contact@blackheep-van.com» (без s), mailto в умовах оренди — «contact@blacksheep-van.com»; CGL §14.07 згадує фіксований пробіг у базовій ставці, тоді як FAQ і сторінки моделей кажуть «unlimited». Телефон на сайті у національному форматі 09 51 38 88 15.",
+      "intro": "French franchise network renting equipped campervan trucks (the first agency opened in 2011 near Lyon). The agencies page lists 30: 24 in France (including Réunion), 2 in Ireland, 1 in Greece (EU-27), plus 2 in Switzerland and 1 in Canada. The “Qui sommes-nous” page says “plus de 50 agences” and “plus de 500 vans” — the fleet field takes 500 (“more than”), the depot field takes the lower of the two numbers.",
+      "whatToKnow": "The link to the Trustpilot profile is in the footer of the company's own site (https://www.blacksheep-van.com/en/ and the model pages) — the URL was taken from there. Discrepancies within the sources themselves: the countries on the “about us” page (FR, BE, CH, IT, IE, PT) do not match the agency list (FR, CH, CA, IE, GR); in the mentions légales the email is written “contact@blackheep-van.com” (without the s), the mailto in the rental terms is “contact@blacksheep-van.com”; CGL §14.07 mentions a fixed mileage in the base rate, whereas the FAQ and the model pages say “unlimited”. The phone number on the site is in the national format 09 51 38 88 15.",
       "reviewProfiles": [
         {
           "source": "trustpilot",
@@ -558,56 +559,56 @@
         {
           "code": "unlimited_km",
           "availability": "included",
-          "note": "FAQ: пробіг необмежений незалежно від страхового пакета; сторінки моделей — «Unlimited mileage included»",
+          "note": "FAQ: mileage is unlimited regardless of the insurance package; model pages — “Unlimited mileage included”",
           "sourceUrl": "https://www.blacksheep-van.com/en/faq/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "one_way",
           "availability": "unavailable",
-          "note": "FAQ: агенція видачі й повернення має бути однією",
+          "note": "FAQ: the pick-up and return agency must be the same",
           "sourceUrl": "https://www.blacksheep-van.com/en/faq/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "pets_allowed",
           "availability": "included",
-          "note": "FAQ: тварини дозволені в більшості вантажівок; окремі агенції можуть відмовити або вимагати обовʼязкову опцію прибирання; пошкодження оплачуються",
+          "note": "FAQ: animals are allowed in most trucks; individual agencies may refuse or require the mandatory cleaning option; damage is paid for",
           "sourceUrl": "https://www.blacksheep-van.com/en/faq/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "bedding",
           "availability": "extra",
-          "note": "FAQ: постіль не надається з гігієнічних міркувань; як опція — одноразовий біорозкладний комплект",
+          "note": "FAQ: bedding is not provided for hygiene reasons; as an option — a disposable biodegradable set",
           "sourceUrl": "https://www.blacksheep-van.com/en/faq/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "additional_driver",
           "availability": "extra",
-          "note": "Пакет Standard страхує 1 водія; Confort додає 2-го; Allin — кілька водіїв",
+          "note": "The Standard package insures 1 driver; Confort adds a 2nd; Allin — several drivers",
           "sourceUrl": "https://www.blacksheep-van.com/en/insurance-packages/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "excess_reduction",
           "availability": "extra",
-          "note": "Три пакети захисту (Standard, Confort, Allin) зі спадною франшизою",
+          "note": "Three protection packages (Standard, Confort, Allin) with a decreasing excess",
           "sourceUrl": "https://www.blacksheep-van.com/en/insurance-packages/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "cleaning_service",
           "availability": "extra",
-          "note": "Опція «End of stay cleaning»; касету хімтуалету орендар спорожнює сам у будь-якому разі",
+          "note": "“End of stay cleaning” option; the renter empties the toilet cassette themselves in any case",
           "sourceUrl": "https://www.blacksheep-van.com/en/faq/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "roadside_assistance",
           "availability": "included",
-          "note": "Допомога по Європі 24/7 (поломка, евакуація, репатріація) в усіх пакетах",
+          "note": "Assistance across Europe 24/7 (breakdown, towing, repatriation) in all packages",
           "sourceUrl": "https://www.blacksheep-van.com/en/faq/",
           "sourceCheckedOn": "2026-11-02"
         }
@@ -665,84 +666,84 @@
       "foundedYear": 1994,
       "sourceUrl": "https://www.drm.de/en/company",
       "sourceCheckedOn": "2026-11-02",
-      "intro": "Німецький прокат кемперів зі штаб-квартирою в Markt Schwaben (Баварія), заснований 1994, частина Trigano Group; станції лише в Німеччині; усі км у ціні, собаки безкоштовно, авто молодші трьох років (Eura Mobil, Karmann Mobil, Forster, Volkswagen). Сторінка company: «600+ vehicles, 14+ locations» — обидва числа «понад».",
-      "whatToKnow": "На https://www.drm.de/en/locations перелічено 15 станцій — у поле взято менше заявлене число (14). Поле beltedSeats узято з рядка «Seats» у технічних даних моделі (сайт не вживає слово «belted»). One-way і трансфер з аеропорту на 25 переглянутих сторінках не згадані — рядків немає.",
+      "intro": "German campervan rental headquartered in Markt Schwaben (Bavaria), founded 1994, part of Trigano Group; stations in Germany only; all km included in the price, dogs free of charge, vehicles less than three years old (Eura Mobil, Karmann Mobil, Forster, Volkswagen). The company page: “600+ vehicles, 14+ locations” — both figures are “more than”.",
+      "whatToKnow": "15 stations are listed at https://www.drm.de/en/locations — the field takes the lower stated number (14). The beltedSeats field is taken from the “Seats” row in the model's technical data (the site does not use the word “belted”). One-way and airport transfer are not mentioned on the 25 pages reviewed — there are no rows for them.",
       "reviewProfiles": [],
       "services": [
         {
           "code": "unlimited_km",
           "availability": "included",
-          "note": "«All kilometres travelled are included in the hire price»; спецпропозиції можуть відрізнятися",
+          "note": "“All kilometres travelled are included in the hire price”; special offers may differ",
           "sourceUrl": "https://www.drm.de/en/safety/all-kilometres-included",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "pets_allowed",
           "availability": "included",
-          "note": "Собаки безкоштовно; коти не дозволені; орендар накриває оббивку й сам вичищає салон перед поверненням",
+          "note": "Dogs free of charge; cats are not allowed; the renter covers the upholstery and cleans the interior themselves before return",
           "sourceUrl": "https://www.drm.de/en/faq",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "bedding",
           "availability": "extra",
-          "note": "«Bedding set» серед Optional extras; не на всіх станціях",
+          "note": "“Bedding set” among the Optional extras; not at all stations",
           "sourceUrl": "https://www.drm.de/en/wohnmobile/m-mini/m1-california-star",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "bike_rack",
           "availability": "extra",
-          "note": "Для M1/M2 — опція (до 4 велосипедів або на фаркоп до 2); на картках F2/L1 «Bike rack» стоїть серед стандартних ознак",
+          "note": "For M1/M2 — an option (up to 4 bikes, or on a tow bar up to 2); on the F2/L1 cards “Bike rack” is listed among the standard features",
           "sourceUrl": "https://www.drm.de/en/wohnmobile/m-mini/m1-california-star",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "winter_tyres",
           "availability": "extra",
-          "note": "«Winter tires — Mandatory from November 15 to March 15» серед Optional extras",
+          "note": "“Winter tires — Mandatory from November 15 to March 15” among the Optional extras",
           "sourceUrl": "https://www.drm.de/en/wohnmobile/m-mini/m1-california-star",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "excess_reduction",
           "availability": "extra",
-          "note": "Франшизу не можна виключити, лише зменшити через додаткову страховку стороннього провайдера (ERGO); доступно резидентам DE, AT, BE, DK, FR, IT, LU, NL, PL, CZ",
+          "note": "The excess cannot be excluded, only reduced through additional insurance from a third-party provider (ERGO); available to residents of DE, AT, BE, DK, FR, IT, LU, NL, PL, CZ",
           "sourceUrl": "https://www.drm.de/en/terms",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "additional_driver",
           "availability": "included",
-          "note": "Авто може керувати будь-хто, хто відповідає вимогам і кому орендар довірив авто; плата не згадана; імена — на вимогу",
+          "note": "Anyone who meets the requirements and to whom the renter has entrusted the vehicle may drive it; no fee is mentioned; names — on request",
           "sourceUrl": "https://www.drm.de/en/faq",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "camping_table_chairs",
           "availability": "extra",
-          "note": "«Camping chair», «Camping table» серед Optional extras; водночас у стандартних ознаках M1 є «2 camping chairs and 1 table»",
+          "note": "“Camping chair”, “Camping table” among the Optional extras; at the same time the standard features of M1 include “2 camping chairs and 1 table”",
           "sourceUrl": "https://www.drm.de/en/wohnmobile/m-mini/m1-california-star",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "gps",
           "availability": "included",
-          "note": "«Navigation system» у стандартних ознаках M1 і категорії M-Mini; на інших категоріях позначки немає",
+          "note": "“Navigation system” in the standard features of M1 and the M-Mini category; other categories carry no such mark",
           "sourceUrl": "https://www.drm.de/en/wohnmobile/m-mini/m1-california-star",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "child_seat",
           "availability": "extra",
-          "note": "«Child seat ECE-approved», «Booster seat» серед Optional extras",
+          "note": "“Child seat ECE-approved”, “Booster seat” among the Optional extras",
           "sourceUrl": "https://www.drm.de/en/wohnmobile/m-mini/m1-california-star",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "cleaning_service",
           "availability": "extra",
-          "note": "Зовнішнє миття входить у handover fee; якщо салон, сірий бак чи касета туалету не вичищені орендарем — плата за прибирання",
+          "note": "Exterior washing is included in the handover fee; if the interior, grey tank or toilet cassette is not cleaned by the renter — a cleaning fee",
           "sourceUrl": "https://www.drm.de/en/faq",
           "sourceCheckedOn": "2026-11-02"
         }
@@ -800,63 +801,63 @@
       "foundedYear": 2020,
       "sourceUrl": "https://www.cross-rent.de/stationen/",
       "sourceCheckedOn": "2026-11-02",
-      "intro": "Третій прокатний бренд Rental Alliance GmbH (Erwin Hymer Group) поряд із McRent і rent easy; заснований 12/2020, оренди з 06/2021; франчайзингові «Bases» здають компактні кемпервани, напівінтегровані автодоми й пікап із наметом на даху, частково 4x4; 300 км на ніч оренди включено, усі км — з 15-ї доби. Власний сайт перелічує 14 станцій: 12 у Німеччині й 1 у Швеції (ЄС-27) плюс 1 у Великій Британії.",
-      "whatToKnow": "Сторінка холдингу https://www.rental-alliance.com/unsere-marken/crossrent.html каже «Insgesamt 23 Stationen (22x DE, 1x CH)» станом на 10/2022 — у поле взято менше й поточне число 14 (дані сторінки станцій: REST https://www.cross-rent.de/appl/rest/stations із заголовком X-Locale). Рік заснування — з таймлайну холдингу («12/2020 Gründung»). Розміру парку бренду ніде не названо (erwinhymergroup.com дає лише число всієї Rental Alliance). Контрагент договору — локальна Base (ліцензіат Rental Alliance). One-way: AGB п. 3.7 «nur bei gesonderter Vereinbarung» — рядка не додано.",
+      "intro": "The third rental brand of Rental Alliance GmbH (Erwin Hymer Group) alongside McRent and rent easy; founded 12/2020, rentals since 06/2021; franchise “Bases” rent out compact campervans, semi-integrated motorhomes and a pickup with a rooftop tent, partly 4x4; 300 km per rental night included, all km — from day 15. The company's own site lists 14 stations: 12 in Germany and 1 in Sweden (EU-27) plus 1 in the United Kingdom.",
+      "whatToKnow": "The holding company's page https://www.rental-alliance.com/unsere-marken/crossrent.html says “Insgesamt 23 Stationen (22x DE, 1x CH)” as of 10/2022 — the field takes the lower, current number 14 (station page data: REST https://www.cross-rent.de/appl/rest/stations with the X-Locale header). The founding year is from the holding company's timeline (“12/2020 Gründung”). The brand's fleet size is not named anywhere (erwinhymergroup.com gives only the figure for all of Rental Alliance). The contract counterparty is the local Base (a Rental Alliance licensee). One-way: AGB clause 3.7 “nur bei gesonderter Vereinbarung” — no row added.",
       "reviewProfiles": [],
       "services": [
         {
           "code": "unlimited_km",
           "availability": "extra",
-          "note": "300 км на ніч оренди включено; км-пакети бронюються до виїзду; усі км включено з 15-ї доби",
+          "note": "300 km per rental night included; km packages are booked before departure; all km included from day 15",
           "sourceUrl": "https://www.cross-rent.de/faq/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "additional_driver",
           "availability": "included",
-          "note": "Додаткові водії реєструються безкоштовно на Base у день видачі; орендар відповідає за них",
+          "note": "Additional drivers are registered free of charge at the Base on the day of pick-up; the renter is responsible for them",
           "sourceUrl": "https://www.cross-rent.de/faq/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "pets_allowed",
           "availability": "extra",
-          "note": "Собаки лише на окремих Bases, з Haustierpauschale",
+          "note": "Dogs only at certain Bases, with a Haustierpauschale",
           "sourceUrl": "https://www.cross-rent.de/faq/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "awning",
           "availability": "included",
-          "note": "«Markise oder Sonnensegel» в інклюзивних послугах усіх груп авто",
+          "note": "“Markise oder Sonnensegel” in the inclusive services of all vehicle groups",
           "sourceUrl": "https://www.cross-rent.de/appl/rest/inclusiveServices",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "roadside_assistance",
           "availability": "included",
-          "note": "«Hersteller Mobilitäts-Garantie» серед інклюзивних послуг",
+          "note": "“Hersteller Mobilitäts-Garantie” among the inclusive services",
           "sourceUrl": "https://www.cross-rent.de/ueber-uns/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "excess_reduction",
           "availability": "extra",
-          "note": "AGB п. 13: франшизу можна зменшити за плату через додатковий страховий пакет (ERGO «CDW Selbstbehalt-Reduzierung PLUS»)",
+          "note": "AGB clause 13: the excess can be reduced for a fee through an additional insurance package (ERGO “CDW Selbstbehalt-Reduzierung PLUS”)",
           "sourceUrl": "https://www.cross-rent.de/reiseschutz/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "cleaning_service",
           "availability": "included",
-          "note": "Зовнішнє миття включено; салон орендар повертає чистим, інакше стягується плата за прибирання",
+          "note": "Exterior washing included; the renter returns the interior clean, otherwise a cleaning fee is charged",
           "sourceUrl": "https://www.cross-rent.de/faq/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "tow_bar",
           "availability": "included",
-          "note": "«Anhängerkupplung» серед інклюзивних послуг авто",
+          "note": "“Anhängerkupplung” among the inclusive services of the vehicle",
           "sourceUrl": "https://www.cross-rent.de/ueber-uns/",
           "sourceCheckedOn": "2026-11-02"
         }
@@ -914,112 +915,112 @@
       "foundedYear": 1982,
       "sourceUrl": "https://www.touringcars.com/en/about-us/",
       "sourceCheckedOn": "2026-11-02",
-      "intro": "Фінська франчайзингова мережа прокату автодомів (платформа TC Vehicle Oy, Vantaa; франчайзинг із 2013), заснована 1982; «10 local stations» у «8 countries». Станції в ЄС-27: Helsinki-Vantaa, Rovaniemi (FI), Stockholm (SE), Amsterdam (NL), Madrid (ES), Tallinn (EE); поза ЄС: Oslo, Tromsø (NO), Keflavik (IS), Chester (GB). Розміру парку сайт не називає.",
-      "whatToKnow": "Договір оренди укладається з локальною Rental Company, TC Vehicle Oy — посередник (https://www.touringcars.com/en/general-rental-terms/). Сторінки категорій дають лише «Number of people 1–2 / 1–4 / 1–5» і довжину діапазоном (SMALL/MEDIUM/LUXURY «5.9–7.6 m», FAMILY «6.3–7.6 m») — тому beltedSeats і lengthCm порожні. Мінімальний вік залежить від станції (FI/SE 19, EE/GB 21, NL/IS 23, NO 25).",
+      "intro": "Finnish franchise network of motorhome rental (platform TC Vehicle Oy, Vantaa; franchising since 2013), founded 1982; “10 local stations” in “8 countries”. Stations in the EU-27: Helsinki-Vantaa, Rovaniemi (FI), Stockholm (SE), Amsterdam (NL), Madrid (ES), Tallinn (EE); outside the EU: Oslo, Tromsø (NO), Keflavik (IS), Chester (GB). The site does not name the fleet size.",
+      "whatToKnow": "The rental contract is concluded with the local Rental Company, TC Vehicle Oy is an intermediary (https://www.touringcars.com/en/general-rental-terms/). The category pages give only “Number of people 1–2 / 1–4 / 1–5” and the length as a range (SMALL/MEDIUM/LUXURY “5.9–7.6 m”, FAMILY “6.3–7.6 m”) — so beltedSeats and lengthCm are empty. The minimum age depends on the station (FI/SE 19, EE/GB 21, NL/IS 23, NO 25).",
       "reviewProfiles": [],
       "services": [
         {
           "code": "unlimited_km",
           "availability": "included",
-          "note": "«Unlimited kilometres» у переліку Standard services для всіх оренд",
+          "note": "“Unlimited kilometres” in the list of Standard services for all rentals",
           "sourceUrl": "https://www.touringcars.com/en/motorhome-rental-info/faq/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "one_way",
           "availability": "extra",
-          "note": "Повернення на іншу станцію за додаткову плату, залежить від пари станцій; у one-way входять два повні газові балони",
+          "note": "Return to a different station for an additional fee, depends on the pair of stations; one-way includes two full gas cylinders",
           "sourceUrl": "https://www.touringcars.com/en/motorhome-rental-info/faq/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "pets_allowed",
           "availability": "extra",
-          "note": "«We welcome all pets to all our rental vehicles»; обовʼязково бронювати «Pet cleaning fee» заздалегідь",
+          "note": "“We welcome all pets to all our rental vehicles”; the “Pet cleaning fee” must be booked in advance",
           "sourceUrl": "https://www.touringcars.com/en/motorhome-rental-info/faq/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "bedding",
           "availability": "extra",
-          "note": "«Full bed linen set» / «Spare bed linen set» як extra items",
+          "note": "“Full bed linen set” / “Spare bed linen set” as extra items",
           "sourceUrl": "https://www.touringcars.com/en/motorhome-rental-info/additional-services/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "bike_rack",
           "availability": "included",
-          "note": "Лише частина авто має велокріплення, гарантії немає; запит заздалегідь; плата не згадана",
+          "note": "Only some of the vehicles have a bike rack, no guarantee; request in advance; no fee is mentioned",
           "sourceUrl": "https://www.touringcars.com/en/motorhome-rental-info/faq/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "winter_tyres",
           "availability": "included",
-          "note": "Станція комплектує авто шинами за місцевим законодавством і зимовим обладнанням; оренда цілий рік",
+          "note": "The station fits vehicles with tyres as required by local law and with winter equipment; rental is available all year round",
           "sourceUrl": "https://www.touringcars.com/en/motorhome-rental-info/faq/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "excess_reduction",
           "availability": "extra",
-          "note": "TC Basic входить; TC Plus і TC Premium — опційні зменшення франшизи, мінімальний період 7 днів; скло й шини не покриті",
+          "note": "TC Basic is included; TC Plus and TC Premium are optional excess reductions, minimum period 7 days; glass and tyres are not covered",
           "sourceUrl": "https://www.touringcars.com/en/motorhome-rental-info/additional-services/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "additional_driver",
           "availability": "included",
-          "note": "Один додатковий водій безкоштовно при прямому бронюванні; третій і далі — платна послуга",
+          "note": "One additional driver free of charge when booking directly; the third and onwards — a paid service",
           "sourceUrl": "https://www.touringcars.com/en/motorhome-rental-info/faq/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "airport_transfer",
           "availability": "included",
-          "note": "Безкоштовний трансфер від найближчого аеропорту / аеропортового готелю до станції в години 08:00–18:00; бронювати заздалегідь із даними рейсу",
+          "note": "Free transfer from the nearest airport / airport hotel to the station during 08:00–18:00; book in advance with flight details",
           "sourceUrl": "https://www.touringcars.com/en/motorhome-rental-info/faq/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "awning",
           "availability": "included",
-          "note": "«Awning (excluding Iceland)» у категоріях SMALL/MEDIUM/FAMILY/LUXURY і VAN; у Camp Automatic, Van 4x4 Automatic, Urban Van — немає",
+          "note": "“Awning (excluding Iceland)” in the SMALL/MEDIUM/FAMILY/LUXURY categories and VAN; not in Camp Automatic, Van 4x4 Automatic, Urban Van",
           "sourceUrl": "https://www.touringcars.com/en/vehicle/small/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "camping_table_chairs",
           "availability": "extra",
-          "note": "«Camping set» (стіл + стільці на всіх пасажирів); входить у «Best of Summer Package»",
+          "note": "“Camping set” (a table + chairs for all passengers); included in the “Best of Summer Package”",
           "sourceUrl": "https://www.touringcars.com/en/motorhome-rental-info/additional-services/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "gps",
           "availability": "included",
-          "note": "«Navigation» у переліку стандартних функцій усіх оренд",
+          "note": "“Navigation” in the list of standard features of all rentals",
           "sourceUrl": "https://www.touringcars.com/en/motorhome-rental-info/faq/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "child_seat",
           "availability": "extra",
-          "note": "«Child booster seat» (до 135 см) і «Baby seat» (до 120 см); кріплення триточковим паском, ISOFIX немає",
+          "note": "“Child booster seat” (up to 135 cm) and “Baby seat” (up to 120 cm); fastened with a three-point belt, no ISOFIX",
           "sourceUrl": "https://www.touringcars.com/en/motorhome-rental-info/additional-services/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "cleaning_service",
           "availability": "extra",
-          "note": "«Final cleaning» як послуга; без неї орендар виконує перелік прибирання, інакше доплата при поверненні",
+          "note": "“Final cleaning” as a service; without it the renter performs the cleaning list, otherwise a surcharge on return",
           "sourceUrl": "https://www.touringcars.com/en/motorhome-rental-info/additional-services/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "windshield_tyre_protection",
           "availability": "extra",
-          "note": "Опційне покриття одного пошкодження скла або шини; доповнення до будь-якого рівня франшизи",
+          "note": "Optional cover for one instance of damage to the glass or a tyre; a supplement to any excess level",
           "sourceUrl": "https://www.touringcars.com/en/motorhome-rental-info/additional-services/",
           "sourceCheckedOn": "2026-11-02"
         }
@@ -1077,56 +1078,56 @@
       "foundedYear": null,
       "sourceUrl": "https://www.yescapa.com/",
       "sourceCheckedOn": "2026-11-02",
-      "intro": "P2P-маркетплейс (посередник, не власник парку): сам пише «RV rental platform between private individuals», штаб-квартира в Бордо, працює «across the UK and Europe»; на головній є також напрямки Канада, США, Австралія. Авто — «Over 24,000 vehicles» на головній («понад»); водночас <title> сторінок категорій каже «12500 Vehicles Available».",
-      "whatToKnow": "Депо немає за моделлю. Сторінки about/press/legal-notice на сайті віддають 404, /contact-us/ перенаправляє на вхід — тому email, телефон і рік заснування порожні (єдина адреса на сайті — dpo@yescapa.com, це DPO, не контакт). Злиття з Goboony у прозовому тексті сайту не згадано (лише в JS). Сервіси з позначкою «за рішенням власника» — опції оголошення, які виставляє власник авто. Характеристики категорій залежать від конкретного авто — порожні.",
+      "intro": "P2P marketplace (an intermediary, not a fleet owner): it describes itself as “RV rental platform between private individuals”, headquartered in Bordeaux, operating “across the UK and Europe”; the home page also lists Canada, USA and Australia as destinations. Vehicles — “Over 24,000 vehicles” on the home page (“more than”); meanwhile the <title> of the category pages says “12500 Vehicles Available”.",
+      "whatToKnow": "There are no depots under this model. The about/press/legal-notice pages on the site return 404, /contact-us/ redirects to the login — so email, phone and founding year are empty (the only address on the site is dpo@yescapa.com, this is the DPO, not a contact). The merger with Goboony is not mentioned in the site's prose text (only in JS). Services marked “at the owner's decision” are listing options set by the vehicle owner. The category characteristics depend on the specific vehicle — empty.",
       "reviewProfiles": [],
       "services": [
         {
           "code": "excess_reduction",
           "availability": "extra",
-          "note": "Опція «premium offer» / excess waiver, підключається до дня виїзду в «My trips»; плани Basic і Premium (зменшена франшиза)",
+          "note": "“premium offer” / excess waiver option, activated up to the day of departure in “My trips”; Basic and Premium plans (reduced excess)",
           "sourceUrl": "https://www.yescapa.com/help/insurance-and-247-support-guest/what-excess-waiver-option/",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "roadside_assistance",
           "availability": "included",
-          "note": "Допомога на дорозі 24/7 по Європі в кожному страховому плані: евакуація, ремонт на місці, проживання, репатріація",
+          "note": "Roadside assistance 24/7 across Europe in every insurance plan: towing, on-site repair, accommodation, repatriation",
           "sourceUrl": "https://www.yescapa.com/insurance",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "pets_allowed",
           "availability": "extra",
-          "note": "За рішенням власника авто — окрема добірка «Pet-friendly motorhomes»; в опціях оголошення є плата за прибирання після тварини",
+          "note": "At the vehicle owner's decision — a separate “Pet-friendly motorhomes” selection; the listing options include a fee for cleaning after an animal",
           "sourceUrl": "https://www.yescapa.com/rv-hire-with-pets",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "unlimited_km",
           "availability": "unavailable",
-          "note": "Орендар обирає «mileage package» при запиті; перевищення оплачується за ставкою з оголошення (Article 4 – Mileage and location)",
+          "note": "The renter chooses a “mileage package” when making the request; any excess is paid at the rate in the listing (Article 4 – Mileage and location)",
           "sourceUrl": "https://www.yescapa.com/rental-contract",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "bedding",
           "availability": "extra",
-          "note": "За рішенням власника авто — опція оголошення «bedding package»",
+          "note": "At the vehicle owner's decision — a “bedding package” listing option",
           "sourceUrl": "https://www.yescapa.com/camper-type/van",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "bike_rack",
           "availability": "extra",
-          "note": "За рішенням власника авто — опція оголошення «bike_rack»",
+          "note": "At the vehicle owner's decision — a “bike_rack” listing option",
           "sourceUrl": "https://www.yescapa.com/camper-type/van",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "child_seat",
           "availability": "extra",
-          "note": "За рішенням власника авто — опція оголошення «child_seat»",
+          "note": "At the vehicle owner's decision — a “child_seat” listing option",
           "sourceUrl": "https://www.yescapa.com/camper-type/van",
           "sourceCheckedOn": "2026-11-02"
         }
@@ -1184,77 +1185,77 @@
       "foundedYear": 2013,
       "sourceUrl": "https://www.paulcamper.de/",
       "sourceCheckedOn": "2026-11-02",
-      "intro": "P2P-платформа (посередник, не власник парку): сама пише «Deutschlands größte Peer-to-Peer-Plattform für Camper, Wohnmobile und Wohnwagen», Берлін; «in sechs Ländern zuhause» — власні сайти paulcamper.de/.at/.nl, решта через camplify.*. На головній два числа: «12.000+ Fahrzeugen» і «Knapp 24.000 Fahrzeuge» — у поле взято нижнє («понад 12 000»).",
-      "whatToKnow": "Депо немає за моделлю. Рік заснування: «seit 2013» на https://www.paulcamper.de/ueber-uns, «seit 2014» на головній — узято 2013. Належність Camplify на сайті прозою не заявлена (лише посилання на camplify.*). Імпресум дає impressum@paulcamper.de («nicht für Buchung und Beratung»); у поле взято info@paulcamper.de і телефон зі сторінки контактів help-центру (https://help.paulcamper.com/pc-helpcenter/kontaktaufnahme-mit-paulcamper). Сервіси «за рішенням власника» — визначає власник авто. Характеристики категорій залежать від конкретного авто — порожні.",
+      "intro": "P2P platform (an intermediary, not a fleet owner): it describes itself as “Deutschlands größte Peer-to-Peer-Plattform für Camper, Wohnmobile und Wohnwagen”, Berlin; “in sechs Ländern zuhause” — own sites paulcamper.de/.at/.nl, the rest through camplify.*. The home page has two figures: “12.000+ Fahrzeugen” and “Knapp 24.000 Fahrzeuge” — the field takes the lower (“more than 12 000”).",
+      "whatToKnow": "There are no depots under this model. Founding year: “seit 2013” at https://www.paulcamper.de/ueber-uns, “seit 2014” on the home page — 2013 is used. Belonging to Camplify is not stated in prose on the site (only links to camplify.*). The imprint gives impressum@paulcamper.de (“nicht für Buchung und Beratung”); the field takes info@paulcamper.de and the phone number from the contact page of the help centre (https://help.paulcamper.com/pc-helpcenter/kontaktaufnahme-mit-paulcamper). Services “at the owner's decision” are determined by the vehicle owner. The category characteristics depend on the specific vehicle — empty.",
       "reviewProfiles": [],
       "services": [
         {
           "code": "excess_reduction",
           "availability": "extra",
-          "note": "Komfortschutz (зменшення Selbstbehalt) і Komplettschutz (зменшення + Reiseschutz через Battleface) — опція при бронюванні",
+          "note": "Komfortschutz (Selbstbehalt reduction) and Komplettschutz (reduction + Reiseschutz via Battleface) — an option at booking",
           "sourceUrl": "https://help.paulcamper.com/pc-helpcenter/mieterinnen-versicherung-schaden-selbstbehalt-und-pannenfall_de",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "roadside_assistance",
           "availability": "included",
-          "note": "Schutzbrief: допомога 24 год по Європі при поломці чи аварії (Pannenhilfe, евакуація, продовження/повернення)",
+          "note": "Schutzbrief: 24-hour assistance across Europe in case of breakdown or accident (Pannenhilfe, towing, continuation/return)",
           "sourceUrl": "https://www.paulcamper.de/wohnmobil-vermieten/versicherung",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "additional_driver",
           "availability": "included",
-          "note": "«In den meisten Fällen ... ohne Aufpreis» у страховці; ті самі вимоги віку/стажу, запис у документи бронювання",
+          "note": "“In den meisten Fällen ... ohne Aufpreis” in the insurance; the same age/experience requirements, entered in the booking documents",
           "sourceUrl": "https://help.paulcamper.com/pc-helpcenter/mieterinnen-rund-um-die-miete_de",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "unlimited_km",
           "availability": "unavailable",
-          "note": "Платформа радить власникам закладати ~250 км/добу; понад — коригування бронювання з власником",
+          "note": "The platform advises owners to set ~250 km/day; beyond that — the booking is adjusted with the owner",
           "sourceUrl": "https://help.paulcamper.com/pc-helpcenter/mieterinnen-buchungsinformation-de",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "one_way",
           "availability": "extra",
-          "note": "За рішенням власника авто — «Einige Vermietende sind ... offen für One-Way-Anmietungen», домовлятися до бронювання",
+          "note": "At the vehicle owner's decision — “Einige Vermietende sind ... offen für One-Way-Anmietungen”, to be agreed before booking",
           "sourceUrl": "https://help.paulcamper.com/pc-helpcenter/mieterinnen-buchungsinformation-de",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "pets_allowed",
           "availability": "extra",
-          "note": "За рішенням власника авто — фільтр «haustierfreundlich»; власник сам визначає правила й Reinigungsgebühr",
+          "note": "At the vehicle owner's decision — the “haustierfreundlich” filter; the owner sets the rules and the Reinigungsgebühr",
           "sourceUrl": "https://www.paulcamper.de/wohnmobil-mieten/mit-hund",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "bedding",
           "availability": "extra",
-          "note": "За рішенням власника авто — «je nach Wohnmobil unterschiedlich»",
+          "note": "At the vehicle owner's decision — “je nach Wohnmobil unterschiedlich”",
           "sourceUrl": "https://help.paulcamper.com/pc-helpcenter/mieterinnen-rund-um-die-miete_de",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "child_seat",
           "availability": "extra",
-          "note": "За рішенням власника авто — «besprich dich mit den Vermietenden»",
+          "note": "At the vehicle owner's decision — “besprich dich mit den Vermietenden”",
           "sourceUrl": "https://help.paulcamper.com/pc-helpcenter/mieterinnen-rund-um-die-miete_de",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "gps",
           "availability": "extra",
-          "note": "За рішенням власника авто — «frag lieber bei deinen Vermietenden nach»",
+          "note": "At the vehicle owner's decision — “frag lieber bei deinen Vermietenden nach”",
           "sourceUrl": "https://help.paulcamper.com/pc-helpcenter/mieterinnen-rund-um-die-miete_de",
           "sourceCheckedOn": "2026-11-02"
         },
         {
           "code": "delivery_to_renter",
           "availability": "extra",
-          "note": "За рішенням власника авто — «Viele Fahrzeuge können direkt ans Ziel geliefert werden»",
+          "note": "At the vehicle owner's decision — “Viele Fahrzeuge können direkt ans Ziel geliefert werden”",
           "sourceUrl": "https://www.paulcamper.de/",
           "sourceCheckedOn": "2026-11-02"
         }

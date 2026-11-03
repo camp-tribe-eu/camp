@@ -62,15 +62,15 @@ export async function generateMetadata({
   const p = await getProvider(slug);
   if (!p) return {};
   return {
-    title: `${p.name} — прокат кемперів`,
-    description: `Контакти, сервіси й парк компанії ${p.name}. Кожен факт із джерелом і датою перевірки.`,
+    title: `${p.name} — camper rental`,
+    description: `Contacts, services and fleet of ${p.name}. Every fact with its source and the date it was checked.`,
   };
 }
 
 const AVAILABILITY_LABEL = {
-  included: "входить у ціну",
-  extra: "за окрему плату",
-  unavailable: "компанія не надає",
+  included: "included in the price",
+  extra: "costs extra",
+  unavailable: "the company does not offer it",
 } as const;
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -90,7 +90,7 @@ export default async function ProviderPageView({
   return (
     <main className="mx-auto max-w-4xl px-4 py-10">
       <p className="text-sm">
-        <Link href="/camper-rental/providers">← усі компанії</Link>
+        <Link href="/camper-rental/providers">← all companies</Link>
       </p>
       <h1 className="mt-4 text-3xl font-bold">{p.name}</h1>
 
@@ -102,33 +102,33 @@ export default async function ProviderPageView({
 
       {p.whatToKnow && (
         <section className="mt-6">
-          <h2 className="text-xl font-semibold">Що варто знати</h2>
+          <h2 className="text-xl font-semibold">What to know</h2>
           <p className="mt-2 max-w-2xl">{p.whatToKnow}</p>
         </section>
       )}
 
       <section className="mt-6">
-        <h2 className="text-xl font-semibold">Контакти</h2>
+        <h2 className="text-xl font-semibold">Contacts</h2>
         <dl className="mt-2 grid gap-1 text-sm">
           {p.legalName && (
             <div>
-              <dt className="inline font-medium">Юридична назва: </dt>
+              <dt className="inline font-medium">Legal name: </dt>
               <dd className="inline">{p.legalName}</dd>
             </div>
           )}
           {p.registrationNumber && (
             <div>
-              <dt className="inline font-medium">Реєстраційний номер: </dt>
+              <dt className="inline font-medium">Registration number: </dt>
               <dd className="inline">{p.registrationNumber}</dd>
             </div>
           )}
           <div>
-            <dt className="inline font-medium">Країна: </dt>
+            <dt className="inline font-medium">Country: </dt>
             <dd className="inline">{p.homeCountry}</dd>
           </div>
           {p.website && (
             <div>
-              <dt className="inline font-medium">Сайт: </dt>
+              <dt className="inline font-medium">Website: </dt>
               <dd className="inline">
                 <a
                   href={p.website}
@@ -142,13 +142,13 @@ export default async function ProviderPageView({
           )}
           {p.email && (
             <div>
-              <dt className="inline font-medium">Пошта: </dt>
+              <dt className="inline font-medium">Email: </dt>
               <dd className="inline">{p.email}</dd>
             </div>
           )}
           {p.phone && (
             <div>
-              <dt className="inline font-medium">Телефон: </dt>
+              <dt className="inline font-medium">Phone: </dt>
               <dd className="inline">{p.phone}</dd>
             </div>
           )}
@@ -158,17 +158,19 @@ export default async function ProviderPageView({
       {/* 🔴 «За даними компанії» — не ввічливість, а точність: ці числа
           заявлені, а не зміряні нами, і читач має знати різницю. */}
       <section className="mt-6">
-        <h2 className="text-xl font-semibold">Масштаб, за даними компанії</h2>
+        <h2 className="text-xl font-semibold">
+          Scale, as the company states it
+        </h2>
         <p className="mt-2 text-sm">
           {p.declaredDepotCount !== null && (
-            <>депо: {p.declaredDepotCount} · </>
+            <>depots: {p.declaredDepotCount} · </>
           )}
-          {p.declaredFleetSize !== null && <>парк: {p.declaredFleetSize} · </>}
-          {p.foundedYear !== null && <>працює з {p.foundedYear}</>}
+          {p.declaredFleetSize !== null && <>fleet: {p.declaredFleetSize} · </>}
+          {p.foundedYear !== null && <>trading since {p.foundedYear}</>}
         </p>
         {p.sourceUrl && (
           <p className="mt-1 text-xs">
-            Джерело:{" "}
+            Source:{" "}
             <a
               href={p.sourceUrl}
               target="_blank"
@@ -176,14 +178,14 @@ export default async function ProviderPageView({
             >
               {p.sourceUrl.replace(/^https:\/\//, "")}
             </a>
-            {p.sourceCheckedOn && <> · перевірено {p.sourceCheckedOn}</>}
+            {p.sourceCheckedOn && <> · checked {p.sourceCheckedOn}</>}
           </p>
         )}
       </section>
 
       {p.services.length > 0 && (
         <section className="mt-6">
-          <h2 className="text-xl font-semibold">Сервіси</h2>
+          <h2 className="text-xl font-semibold">Services</h2>
           <ul className="mt-2 grid gap-1 text-sm" data-testid="services">
             {p.services.map((s) => (
               <li key={s.code}>
@@ -197,25 +199,25 @@ export default async function ProviderPageView({
               не дає». Сказати це вголос дешевше, ніж бути звинуваченим у
               неправді про чужий бізнес. */}
           <p className="mt-2 text-xs">
-            Тут лише те, що ми перевірили. Сервіс, якого немає в переліку, — не
-            перевірений нами, а не відсутній у компанії.
+            Only what we checked is here. A service that is not in the list is
+            one we have not verified, not one the company fails to offer.
           </p>
         </section>
       )}
 
       {p.vehicles.length > 0 && (
         <section className="mt-6">
-          <h2 className="text-xl font-semibold">Парк</h2>
+          <h2 className="text-xl font-semibold">Fleet</h2>
           <ul className="mt-2 grid gap-1 text-sm" data-testid="vehicles">
             {p.vehicles.map((v) => (
               <li key={v.slug}>
                 <span className="font-medium">{v.name}</span>
-                {v.berths !== null && <> · спальних місць: {v.berths}</>}
+                {v.berths !== null && <> · berths: {v.berths}</>}
                 {v.belted_seats !== null && (
-                  <> · місць із пасками: {v.belted_seats}</>
+                  <> · belted seats: {v.belted_seats}</>
                 )}
                 {v.length_cm !== null && (
-                  <> · довжина: {(v.length_cm / 100).toFixed(2)} м</>
+                  <> · length: {(v.length_cm / 100).toFixed(2)} m</>
                 )}
               </li>
             ))}
@@ -225,7 +227,7 @@ export default async function ProviderPageView({
 
       {p.reviewProfiles.length > 0 && (
         <section className="mt-6">
-          <h2 className="text-xl font-semibold">Відгуки</h2>
+          <h2 className="text-xl font-semibold">Reviews</h2>
           <p className="mt-2 text-sm" data-testid="review-links">
             {p.reviewProfiles.map((r, i) => (
               <span key={r.source}>
@@ -242,9 +244,9 @@ export default async function ProviderPageView({
           </p>
           {/* Оцінок тут немає навмисно — див. коментар у компоненті каталогу. */}
           <p className="mt-1 text-xs">
-            Оцінок ми не показуємо: умови цих майданчиків дозволяють це лише з
-            їхнього письмового дозволу або через платний доступ. Посилання веде
-            на їхню сторінку, де видно повну картину.
+            We do not show scores: the terms of these platforms allow it only
+            with their written permission or through paid access. The link goes
+            to their page, where the full picture is one click away.
           </p>
         </section>
       )}

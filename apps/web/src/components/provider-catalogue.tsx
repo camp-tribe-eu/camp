@@ -29,21 +29,21 @@ import {
 // переробкою цього файлу.
 
 const SERVICE_LABEL: Record<string, string> = {
-  unlimited_km: "без ліміту км",
-  one_way: "в один бік",
-  pets_allowed: "з твариною",
-  bedding: "постіль",
-  bike_rack: "велокріплення",
-  winter_tyres: "зимові шини",
-  excess_reduction: "зменшення франшизи",
-  additional_driver: "другий водій",
-  airport_transfer: "трансфер з аеропорту",
-  awning: "маркіза",
-  camping_table_chairs: "стіл і стільці",
-  gps: "навігатор",
-  child_seat: "дитяче крісло",
-  cleaning_service: "прибирання",
-  young_driver: "молодий водій",
+  unlimited_km: "unlimited mileage",
+  one_way: "one way",
+  pets_allowed: "pets allowed",
+  bedding: "bedding",
+  bike_rack: "bike rack",
+  winter_tyres: "winter tyres",
+  excess_reduction: "excess reduction",
+  additional_driver: "additional driver",
+  airport_transfer: "airport transfer",
+  awning: "awning",
+  camping_table_chairs: "table and chairs",
+  gps: "sat nav",
+  child_seat: "child seat",
+  cleaning_service: "cleaning",
+  young_driver: "young driver",
 };
 
 const label = (code: string) => SERVICE_LABEL[code] ?? code.replace(/_/g, " ");
@@ -68,7 +68,7 @@ export default function ProviderCatalogue({ all }: { all: Provider[] }) {
     <div data-testid="provider-catalogue">
       <div className="flex flex-wrap items-end gap-4">
         <label className="flex flex-col gap-1 text-sm">
-          <span>Країна компанії</span>
+          <span>Company’s home country</span>
           <select
             data-testid="filter-country"
             className="rounded border border-neutral-300 bg-white px-3 py-2"
@@ -77,7 +77,7 @@ export default function ProviderCatalogue({ all }: { all: Provider[] }) {
               setFilters((f) => ({ ...f, country: e.target.value || null }))
             }
           >
-            <option value="">усі</option>
+            <option value="">all</option>
             {countries.map((c) => (
               <option key={c} value={c}>
                 {c}
@@ -87,7 +87,7 @@ export default function ProviderCatalogue({ all }: { all: Provider[] }) {
         </label>
 
         <label className="flex flex-col gap-1 text-sm">
-          <span>Сортування</span>
+          <span>Sort by</span>
           <select
             data-testid="sort"
             className="rounded border border-neutral-300 bg-white px-3 py-2"
@@ -104,7 +104,7 @@ export default function ProviderCatalogue({ all }: { all: Provider[] }) {
       </div>
 
       <fieldset className="mt-4">
-        <legend className="text-sm">Мусить бути</legend>
+        <legend className="text-sm">Must offer</legend>
         <div className="mt-2 flex flex-wrap gap-2">
           {services.map((code) => {
             const on = filters.services.includes(code);
@@ -141,13 +141,13 @@ export default function ProviderCatalogue({ all }: { all: Provider[] }) {
       {/* 🔴 Знаменник поруч із чисельником: «6 із 10» відповідає на
           питання «а скільки відсіялось», якого інакше ніхто не поставить. */}
       <p className="mt-6 text-sm" data-testid="result-count">
-        {shown.length} із {all.length}
+        {shown.length} of {all.length}
       </p>
 
       {shown.length === 0 ? (
         <p className="mt-4">
-          Під ці умови не підпадає жодна компанія з каталогу. Приберіть частину
-          умов — або напишіть нам, якщо вважаєте, що компанія має тут бути.
+          No company in the catalogue meets these conditions. Drop some of them
+          — or write to us if you think a company belongs here.
         </p>
       ) : (
         <ul className="mt-4 grid gap-4">
@@ -165,19 +165,19 @@ export default function ProviderCatalogue({ all }: { all: Provider[] }) {
               <p className="mt-1 text-sm">
                 {p.homeCountry}
                 {p.declaredDepotCount !== null && (
-                  <> · депо: {p.declaredDepotCount} (за даними компанії)</>
+                  <> · depots: {p.declaredDepotCount} (company’s own figure)</>
                 )}
                 {p.declaredFleetSize !== null && (
-                  <> · парк: {p.declaredFleetSize} (за даними компанії)</>
+                  <> · fleet: {p.declaredFleetSize} (company’s own figure)</>
                 )}
-                {p.foundedYear !== null && <> · від {p.foundedYear}</>}
+                {p.foundedYear !== null && <> · since {p.foundedYear}</>}
               </p>
               <p className="mt-1 text-sm">
-                сервісів описано: {p.serviceCount} · моделей: {p.vehicleCount}
+                services listed: {p.serviceCount} · models: {p.vehicleCount}
               </p>
               {p.reviewProfiles.length > 0 && (
                 <p className="mt-2 text-sm" data-testid="review-links">
-                  Відгуки:{" "}
+                  Reviews:{" "}
                   {p.reviewProfiles.map((r, i) => (
                     <span key={r.source}>
                       {i > 0 && ", "}
