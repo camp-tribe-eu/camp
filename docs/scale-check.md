@@ -74,15 +74,82 @@ Two things follow, and both are in this change:
   when a filter matches nothing, so naming the block makes their absence
   a failure instead of a silent pass.
 
-⚠️ **What is not covered, stated rather than folded in.** The gate is not
-yet on `ci.yml`'s e2e suite — only the guard's self-test is. `tests/e2e`
-has 23 `test.skip` sites, most of them of the form "this build holds no
-gone campsites" / "the fixture holds no campsite without facilities",
-which is this card's subject arriving from a third direction: tests that
-quietly stand down because the fixture lacks the case they were written
-for. Budgeting those needs a full e2e report to seed from and a decision
-per skip, which is a card of its own. Until then, CI can still go green
-over an e2e test that declined to run.
+✅ **The third direction is now counted — 03.11.2026.** The paragraph that
+stood here said `tests/e2e` had "23 `test.skip` sites", most of the form
+"this build holds no gone campsites" / "the fixture holds no campsite
+without facilities", and called that this card's subject arriving from a
+third direction: tests that quietly stand down because the fixture lacks
+the case they were written for. It then said budgeting them was a card of
+its own, and left the number in prose. A sentence counts nothing.
+
+`scripts/ci/check-e2e-skips.mjs` counts them and refuses growth. Measured
+with that one ruler, on both trees:
+
+| | files in `tests/e2e` | `test.skip` sites |
+|---|---|---|
+| `1c74ae1`, where the "23" was written | 23 | **29** |
+| today | 46 | **38** |
+
+🔴 **The "23" does not reproduce.** The same commit measures 29 under the
+guard, so the old figure came from a ruler nobody recorded — most likely
+`grep -c` over lines, which counts a `test.skip` written inside a comment
+and misses `testInfo.skip` entirely. On one ruler the real story is milder
+than the prose implied: the suite doubled, the skips grew by nine.
+
+🔴 **And the guard's own first ruler was wrong too, which is why both
+numbers here are its second.** It began by knowing only `test.skip(`, and
+an adversarial review found two real skips in the tree it could not see —
+`error-reporting.spec.ts:72` and `rate-limit.spec.ts:75`, both
+`testInfo.skip`, each taking out a whole `describe` on five projects of
+six. So "36" was 38, and the budget had a live bypass: the same skip
+written as `testInfo.skip(` passed, written as `test.skip(` failed. Every
+figure on this page was re-measured with the corrected instrument on both
+trees, rather than comparing an old count with a new one.
+
+**And the gate the paragraph actually asked for now exists too.** The old
+text said the scale gate "is not yet on `ci.yml`'s e2e suite" because
+"budgeting those needs a full e2e report to seed from". The report was
+always one artifact download away. Measured from run 41715155417 (PR
+#449, e2e green):
+
+```
+3934 tests, 128 of them skipped
+```
+
+| why they stood down | n |
+|---|---|
+| no WebGL2 on firefox-desktop | 88 |
+| no reason given | 14 |
+| "server behaviour, not a rendering difference" | 10 |
+| no cached search index — see below | 10 |
+| site-state ("while the whole site is closed") | 6 |
+
+`ci.yml` now runs `check-skips.mjs … --max 128` on the e2e report. The
+number is a measurement, not an endorsement: fewer passes, more is red.
+
+🔴 **Those ten are a real defect, not an environment.**
+`ranking-quality.spec.ts:30` defaults its index path to a *Claude Code
+session folder on one laptop* — a UUID that no longer exists even there —
+and CI never sets `RANKING_INDEX`. So those tests have never run
+anywhere, on any machine, and the suite has always said "passed". Filed
+as CAMP-438; not fixed here, because fixing it means producing the index
+in CI, which is its own piece of work.
+
+Two guards, two different questions. This one asks *how many stood down
+in the run we just did*; `check-e2e-skips.mjs` asks *how many places in
+the source could*. A source site that never fires is invisible to the
+first; a run that skips for a reason with no `test.skip` in source — a
+`skipWithoutWebGL` helper, say — is invisible to the second.
+
+The budget lives in `scripts/ci/e2e-skip-budget.json` and may only fall.
+Lowering it takes `--update` plus a reason in the commit, which is the
+same shrinking-list shape as `check-selftest-steps.mjs`. The guard prints
+the reasons by frequency, so whoever lowers it can see which skips are
+about the fixture (budgetable) and which are about the browser — "WebKit
+on Linux cannot photograph a canvas", "no WebGL2 in this browser" — which
+no amount of data will fix. It does not try to tell those apart by itself:
+a classifier that almost understands the reason text would produce a
+number that looks like a measurement and is not one.
 
 This is not a gap in the tests. The tests are written well; they check
 what somebody guessed. These six are about size, and no volume of tests
