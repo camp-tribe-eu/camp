@@ -31,6 +31,7 @@ import {
   RentalProviderVehicle,
 } from './entities/rental-provider.entity';
 import { PhotoSubmission, Review } from './entities/moderation.entity';
+import { SpotClaim } from './entities/spot-claim.entity';
 import { SpotTariff } from './entities/spot-tariff.entity';
 import { BathingWater } from './entities/bathing-water.entity';
 import {
@@ -73,6 +74,8 @@ export const AppDataSource = new DataSource({
     PhotoSubmission,
     Review,
     // CAMP-147: the campsite price list, one row per tariff.
+    // CAMP-51: грант володіння кемпінгом поверх звичайного акаунта.
+    SpotClaim,
     SpotTariff,
     // CAMP-168: the EU's designated bathing waters, one row per season.
     BathingWater,

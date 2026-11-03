@@ -277,6 +277,12 @@ export const MAIL_ROUTES = [
   'auth/signup',
   'auth/forgot',
   'auth/resend-verification',
+  // CAMP-51: обидва кроки «claim your listing» шлють або рахують лист на
+  // ЧУЖУ адресу з тегів OSM. Шлях літеральний навмисно — `bucketFor`
+  // звіряє точною рівністю, і `spots/:slug/claim` потрапив би в
+  // `ordinary` з лімітом, якого немає.
+  'spot-claims',
+  'spot-claims/confirm',
 ] as const;
 
 /** Is this a route that can send a letter? Normalised like isLoginPath. */
