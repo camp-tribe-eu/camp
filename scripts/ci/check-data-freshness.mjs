@@ -240,18 +240,15 @@ export const DB_SOURCES = Object.freeze([
   { name: 'bathing_waters (купання EEA)', card: 'CAMP-168',
     table: 'bathing_waters', column: 'created_at',
     budgetHours: () => budgetFromSource('apps/web/src/lib/sources.ts', 'ANNUAL_HEALTHY_DAYS') * 24,
-    unit: null,
-    manual: 'таблиця порожня — імпортер не запускався ЖОДНОГО разу; чи потрібна до відкриття, не вирішено (CAMP-400, пункт 4)' },
+    unit: 'camptribe-bathing-waters' },
   { name: 'air_quality_stations (повітря EEA, станції)', card: 'CAMP-164',
     table: 'air_quality_stations', column: 'read_at',
     budgetHours: () => budgetFromSource('apps/web/src/lib/air-quality.ts', 'AIR_FRESH_FOR_HOURS'),
-    unit: null,
-    manual: 'таблиця порожня; `air/import.ts` каже прямо «the refresh is not scheduled» (CAMP-400, пункт 4)' },
+    unit: 'camptribe-air-quality' },
   { name: 'air_quality_modelled (повітря EEA, модель)', card: 'CAMP-164',
     table: 'air_quality_modelled', column: 'read_at',
     budgetHours: () => budgetFromSource('apps/web/src/lib/air-quality.ts', 'AIR_FRESH_FOR_HOURS'),
-    unit: null,
-    manual: 'те саме, що й станції: порожня, розкладу немає (CAMP-400, пункт 4)' },
+    unit: 'camptribe-air-quality' },
 ]);
 
 const ISO = `'YYYY-MM-DD"T"HH24:MI:SS"Z"'`;

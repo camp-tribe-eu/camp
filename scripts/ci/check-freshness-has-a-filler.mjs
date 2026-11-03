@@ -49,6 +49,18 @@ const UNITS = join(ROOT, 'infra', 'systemd');
  */
 export function periodHours(onCalendar) {
   const s = String(onCalendar ?? '').trim();
+  // 🔴 `00/3` — ПОВТОР КОЖНІ N ГОДИН, і він тут не заради краси.
+  //
+  // Повітря EEA має бюджет 4 години (`AIR_FRESH_FOR_HOURS`), тож добовий
+  // таймер його не виконає ніколи. Погодинний виконав би — але замір у
+  // заголовку `air/import.ts` каже ціну: 230,6 МБ і 2 хв 4 с на прогін,
+  // тобто 5,5 ГБ на добу з чужого безкоштовного джерела. Кожні три
+  // години це 1,8 ГБ і все ще менше за бюджет.
+  const every = /^\*-\*-\* \d{2}\/(\d{1,2}):\d{2}:\d{2}/.exec(s);
+  if (every) {
+    const n = Number(every[1]);
+    return n >= 1 && n <= 23 ? n : null;
+  }
   if (/^\*-\*-\* \*:\d{2}:\d{2}/.test(s)) return 1; // щогодини
   if (/^\*-\*-\* \d{2}:\d{2}:\d{2}/.test(s)) return 24; // щодня
   if (/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun) \*-\*-\* \d{2}:\d{2}:\d{2}/.test(s))
@@ -144,6 +156,11 @@ function selfTest() {
     ['щогодини', periodHours('*-*-* *:17:00 UTC'), 1],
     ['щодня', periodHours('*-*-* 05:00:00 UTC'), 24],
     ['щотижня', periodHours('Tue *-*-* 04:30:00 UTC'), 168],
+    ['кожні три години', periodHours('*-*-* 00/3:25:00 UTC'), 3],
+    ['кожні дві години', periodHours('*-*-* 00/2:10:00 UTC'), 2],
+    // 🔴 `00/0` — не «кожні нуль годин», а безглуздя. Розбір, що віддав
+    // би 0, зробив би будь-який бюджет «виконуваним» діленням на нуль.
+    ['🔴 нуль годин — null, а не нуль', periodHours('*-*-* 00/0:10:00 UTC'), null],
     ['🔴 незнайома форма — null, а не здогад', periodHours('monthly'), null],
     ['порожньо — null', periodHours(''), null],
     ['справжній перелік чистий', faults(DB_SOURCES).length, 0],
