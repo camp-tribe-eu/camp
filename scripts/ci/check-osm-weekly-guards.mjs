@@ -20,6 +20,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const WORKFLOW = '.github/workflows/osm-weekly.yml';
@@ -46,6 +47,14 @@ export function faults(text) {
     if (!/--speed-time\s+\d+/.test(cmd) || !/--speed-limit\s+\d+/.test(cmd)) {
       out.push(`curl без виявлення зупинки (--speed-limit і --speed-time): ${short}`);
     }
+    // 🔴 CAMP-434. БЕЗ `-C -` ОБРИВ ВИКИДАЄ ВСЕ, ЩО ВЖЕ ОТРИМАНО.
+    //
+    // 03.11.2026 Німеччина взяла 3,44 ГБ із 4,54 ГіБ і викинула їх —
+    // і так чотири рази поспіль. Повторна спроба без поновлення це не
+    // друга спроба, а та сама перша, лише пізніше.
+    if (!/\s-C\s+-/.test(cmd)) {
+      out.push(`curl без поновлення (-C -): ${short} — обрив викидає все вже отримане`);
+    }
   }
   // 🔴 ТАЙМАУТ РОБОТИ НЕ МОЖЕ БУТИ МЕНШИЙ ЗА БЮДЖЕТ CURL.
   //
@@ -71,11 +80,21 @@ export function faults(text) {
     const windowSec = Number(timeout[1]) * 60;
     for (const cmd of downloads) {
       const maxTime = Number((cmd.match(/--max-time\s+(\d+)/) ?? [])[1] ?? 0);
-      const retry = Number((cmd.match(/--retry\s+(\d+)/) ?? [])[1] ?? 0);
-      const budget = maxTime * (retry + 1);
+      // 🔴 СПРОБИ РАХУЮТЬСЯ З ДВОХ МІСЦЬ, БО ЇХ ДВА.
+      //
+      // `--retry N` це N+1 спроба всередині одного виклику curl.
+      // Відколи CAMP-434 замінив його на цикл окремих викликів, число
+      // спроб живе в `ATTEMPTS=N` поруч. Рахувати лише `--retry` означало
+      // б отримати 1 і проголосити бюджет у 20 хвилин — тобто сторож
+      // замовк би саме тоді, коли форма команди змінилась.
+      const retry = cmd.match(/--retry\s+(\d+)/);
+      const loop = text.match(/^\s*ATTEMPTS=(\d+)/m);
+      const attempts = retry ? Number(retry[1]) + 1 : loop ? Number(loop[1]) : 1;
+      const how = retry ? `--retry ${retry[1]}` : loop ? `ATTEMPTS=${loop[1]}` : 'одна спроба';
+      const budget = maxTime * attempts;
       if (budget > windowSec) {
         out.push(
-          `бюджет curl ${budget} с (--max-time ${maxTime} × ${retry + 1} спроб) ` +
+          `бюджет curl ${budget} с (--max-time ${maxTime} × ${attempts} спроб, ${how}) ` +
             `більший за timeout-minutes ${timeout[1]} (${windowSec} с) — ` +
             'остання спроба не може завершитись',
         );
@@ -104,6 +123,51 @@ function main() {
 }
 
 const COMMAND_FLAGS = '--speed-limit 102400 --speed-time 300 --max-time 1200';
+
+/**
+ * Цикл завантаження, ВИРІЗАНИЙ із самого workflow.
+ *
+ * 🔴 Не копія. Копія підтверджувала б саму себе: вона лишилась би
+ * зеленою після того, як хтось поламає оригінал. Тому блок береться з
+ * файлу, і якщо його межі зникнуть — це падіння, а не порожній прогін.
+ */
+export function downloadLoop(text) {
+  // 🔴 ПРИВʼЯЗКА ДО ПОЧАТКУ РЯДКА, А НЕ ПЕРШЕ ВХОДЖЕННЯ.
+  //
+  // Перша редакція брала `indexOf('ATTEMPTS=')` — і влучала в КОМЕНТАР
+  // вище, де та сама назва згадана словами. «Цикл» починався з прози,
+  // bash казав `,: command not found`, і випадки були червоні ні про що.
+  // Та сама пастка, що вже описана нижче про `--max-time` і `timeout-minutes`:
+  // у цьому файлі коментар завжди згадує те, що стереже команда.
+  const decl = text.match(/^\s*ATTEMPTS=\d+/m);
+  const from = decl ? decl.index : -1;
+  const to = text.indexOf('GOT=$(md5sum');
+  if (from < 0 || to < 0 || to < from) return null;
+  const block = text.slice(from, to);
+  return /for i in \$\(seq/.test(block) && /exit 1/.test(block) ? block : null;
+}
+
+/**
+ * Прогнати цей цикл із підставленим `curl`, який провалює перші
+ * `failUntil` спроб. Повертає {code, out}.
+ *
+ * `stat` теж підставлений і завжди каже «файла немає» — нас цікавить
+ * керування, а не байти. `sleep` з'їдається, щоб замір не тривав хвилини.
+ */
+function runLoop(block, failUntil) {
+  const script = [
+    'set -eo pipefail',
+    'SLUG=probe; REGION=probe; URL=http://example.invalid',
+    'N=0',
+    `curl() { N=$((N+1)); if [ "$N" -le ${failUntil} ]; then return 28; fi; return 0; }`,
+    'sleep() { :; }',
+    'stat() { return 1; }',
+    block,
+    'echo "ATTEMPTS_MADE=$N"',
+  ].join('\n');
+  const r = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+  return { code: r.status, out: `${r.stdout}${r.stderr}` };
+}
 
 function selfTest() {
   const good = readFileSync(join(ROOT, WORKFLOW), 'utf8');
@@ -187,6 +251,83 @@ function selfTest() {
       () => downloadCommands('  EXPECT=$(curl -fsSL --max-time 60 "$URL.md5")').length === 0,
     ],
     ['порожній текст — падіння, а не тиша', () => faults('').length >= 1],
+
+    // 🔴 CAMP-434. ПОНОВЛЕННЯ Й НОВИЙ СПОСІБ РАХУВАТИ СПРОБИ.
+    [
+      'оголошення ATTEMPTS у файлі рівно одне',
+      () => (good.match(/^\s*ATTEMPTS=\d+/gm) ?? []).length === 1,
+    ],
+    [
+      '🔴 curl без -C - — падіння: обрив викидає все вже отримане',
+      () => faults(good.replace(' -C - ', ' ')).some((f) => f.includes('-C -')),
+    ],
+    [
+      'мутація -C - влучає в команду, а не в коментар про неї',
+      () => good.split(' -C - ').length - 1 === 1,
+    ],
+    // Без цього випадку сторож рахував би спроби лише з `--retry`, не
+    // знайшов би його в циклі й дістав би 1 — тобто бюджет у 20 хвилин
+    // замість 80, і будь-яка кількість спроб пролізла б як «у межах».
+    [
+      '🔴 спроби рахуються з ATTEMPTS, коли --retry немає',
+      () =>
+        faults(good.replace(/^(\s*)ATTEMPTS=\d+/m, '$1ATTEMPTS=20')).some(
+          (f) => f.includes('бюджет curl') && f.includes('ATTEMPTS=20'),
+        ),
+    ],
+    [
+      'а поточні чотири спроби в бюджет уміщаються',
+      () => !faults(good).some((f) => f.includes('бюджет curl')),
+    ],
+
+    // 🔴 А ТУТ ЦИКЛ СПРАВДІ ВИКОНУЄТЬСЯ, А НЕ ЧИТАЄТЬСЯ.
+    //
+    // Текстовий сторож вище доводить, що прапорці на місці. Він НЕ
+    // доводить, що цикл виходить на успіху й падає на вичерпанні — а це
+    // рівно те, через що крок або мовчки зеленіє на обрізаному файлі,
+    // або гине з чужою причиною. Блок береться з workflow, `curl`
+    // підставляється.
+    ['цикл завантаження знайдено у workflow', () => downloadLoop(good) !== null],
+    [
+      '🔴 успіх на третій спробі → цикл виходить, код 0, спроб рівно 3',
+      () => {
+        const r = runLoop(downloadLoop(good), 2);
+        return r.code === 0 && /ATTEMPTS_MADE=3/.test(r.out);
+      },
+    ],
+    [
+      '🔴 усі спроби провалились → код 1 і причина названа, а не «checksum»',
+      () => {
+        const r = runLoop(downloadLoop(good), 99);
+        return (
+          r.code === 1 &&
+          // цикл не дійшов до рядка після себе — тобто вийшов саме тут
+          /ATTEMPTS_MADE/.test(r.out) === false &&
+          // і сказав ЧОМУ, своїми словами, з числом спроб і кодом curl
+          /::error::/.test(r.out) &&
+          /4 спроб/.test(r.out) &&
+          /код curl 28/.test(r.out) &&
+          /завантажити не вдалось/.test(r.out)
+        );
+      },
+    ],
+    [
+      '🔴 успіх із першої — жодної зайвої спроби',
+      () => {
+        const r = runLoop(downloadLoop(good), 0);
+        return r.code === 0 && /ATTEMPTS_MADE=1/.test(r.out);
+      },
+    ],
+    // Щоб попередні три не були зеленими ні про що: зламаний цикл
+    // (`break` прибрано) мусить дати ІНШЕ число спроб.
+    [
+      '🔴 цикл без break качав би всі чотири рази — мутація видно',
+      () => {
+        const broken = downloadLoop(good).replace('then break; fi', 'then :; fi');
+        const r = runLoop(broken, 0);
+        return r.code === 0 && /ATTEMPTS_MADE=4/.test(r.out);
+      },
+    ],
   ];
   let bad = 0;
   for (const [name, run] of cases) {
