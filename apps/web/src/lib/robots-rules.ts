@@ -1,6 +1,6 @@
-import type { MetadataRoute } from 'next';
+import type { MetadataRoute } from "next";
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://camptribe.eu';
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://camptribe.eu";
 
 // CAMP-90. Two different files depending on the mode, because a closed
 // environment and a live one need opposite things.
@@ -31,19 +31,53 @@ export function robotsFor(open: boolean): MetadataRoute.Robots {
     // as a bare link. The header is what actually keeps it out, and it
     // is served on every response including files.
     return {
-      rules: { userAgent: '*', disallow: '/' },
+      rules: { userAgent: "*", disallow: "/" },
     };
   }
 
+  // 🔴 ШІ-КРАВЛЕРИ НАЗВАНІ ПОІМЕННО, ХОЧ `*` ЇХ І ТАК ПУСКАЄ.
+  //
+  // Заміряно 03.11.2026: у цьому файлі не було жодного з них, тобто вони
+  // проходили за замовчуванням — не за рішенням. Різниця не косметична.
+  // Відповідні машини (ChatGPT, Perplexity, Claude, Gemini) цитують те,
+  // що має джерело й дату; наш провенанс кожного факту — це рівно те, за
+  // що вони винагороджують, і це наш найдешевший канал проти конкурента,
+  // більшого в рази (CAMP-109, CAMP-431).
+  //
+  // Без цього запису перший, хто захоче «про всяк випадок закритись від
+  // ШІ», допише сюди Disallow — і вимкне канал, якого ми свідомо хотіли.
+  // Тепер, щоб його вимкнути, доведеться стерти рішення, а не додати
+  // рядок до порожнечі.
+  //
+  // `Google-Extended` керує показом у Gemini й оглядах ШІ й НЕ впливає на
+  // звичайну видачу: заборона тут не дала б жодного виграшу в SEO.
+  const aiCrawlers = [
+    "GPTBot",
+    "OAI-SearchBot",
+    "ChatGPT-User",
+    "PerplexityBot",
+    "ClaudeBot",
+    "Google-Extended",
+    "Applebot-Extended",
+    "CCBot",
+  ];
+
   return {
-    rules: {
-      userAgent: '*',
-      allow: '/',
-      // Trip planning is a logged-in, per-user feature - nothing there is
-      // meant to rank, and letting it index would waste crawl budget that
-      // should go to camping-directory and route pages instead.
-      disallow: ['/trips/', '/api/'],
-    },
+    rules: [
+      {
+        userAgent: "*",
+        allow: "/",
+        // Trip planning is a logged-in, per-user feature - nothing there is
+        // meant to rank, and letting it index would waste crawl budget that
+        // should go to camping-directory and route pages instead.
+        disallow: ["/trips/", "/api/"],
+      },
+      ...aiCrawlers.map((userAgent) => ({
+        userAgent,
+        allow: "/",
+        disallow: ["/trips/", "/api/"],
+      })),
+    ],
     sitemap: `${siteUrl}/sitemap.xml`,
   };
 }

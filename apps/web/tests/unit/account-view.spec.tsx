@@ -22,6 +22,7 @@ import {
 import { SignupForm } from '@/components/account-forms';
 import type { Outcome } from '@/lib/account';
 import { robotsFor } from '@/lib/robots-rules';
+import { blockedByRobots } from './robots-reading';
 import { STATIC_HUBS } from '@/lib/sitemap';
 import { renderComponent } from './render-component';
 import { visibleText } from './rendered-text';
@@ -401,8 +402,7 @@ test.describe('🔴 сторінки: noindex метатегом, а не robots
   });
 
   test('відкрита збірка НЕ закриває їх у robots.txt — інакше робот не прочитає noindex', () => {
-    const rules = robotsFor(true).rules as { disallow: string[] };
-    const blocked = (path: string) => rules.disallow.some((d) => path.startsWith(d));
+    const blocked = (path: string) => blockedByRobots(true, path);
     for (const path of Object.keys(PAGES)) expect(blocked(path), path).toBe(false);
     // Щоб відсутність щось означала: правило, яке справді є, спрацьовує.
     expect(blocked('/trips/abc')).toBe(true);
