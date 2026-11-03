@@ -1437,6 +1437,21 @@ jobs:
           xmllint --noout --schema scripts/seo/schemas/sitemap.xsd \
             apps/web/.next/server/app/sitemaps/*.xml.body
 
+      # CAMP-300. Сусідні SEO-сторожі мають `--self-test` у CI, а цей не
+      # мав жодного: перевірку «кожен розділ мапи названий у llms.txt»
+      # відрепетирували руками в скретчпаді сесії, і наступна правка не
+      # переграла б нічого. Рецензія PR #194 знайшла в ній два дефекти,
+      # яких репетиція не спіймала б; обидва тепер окремі випадки.
+      #
+      # `set -o pipefail`, бо Actions запускає `bash -e {0}` без нього, і
+      # крок МУСИТЬ читати власний вивід — інакше замок CAMP-286 його не
+      # прийме, а «зелено» означатиме лише «процес завершився».
+      - name: Sitemap guard still catches breakage
+        run: |
+          set -o pipefail
+          node scripts/seo/check-sitemap.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-sitemap self-test:' >/dev/null
+
       - name: Sitemap agrees with what the pages say
         run: node scripts/seo/check-sitemap.mjs --mode closed
 
