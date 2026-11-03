@@ -56,16 +56,34 @@ function sections(html: string) {
 const h1s = (html: string) =>
   [...html.matchAll(/<h1\b[^>]*>([\s\S]*?)<\/h1>/g)].map((m) => visibleText(m[1]));
 
-test.describe('🔴 порожні стани: той текст, що в макеті', () => {
+test.describe('🔴 порожні стани: макет, крім обіцянок, яких код не виконує', () => {
   // Очікувані рядки — переклад рядків Design/07-account.html (блок «ПОРОЖНІ
   // СТАНИ»), написаний тут руками. Українські оригінали — поруч.
+  //
+  // 🔴 CAMP-425. ТРИ РЯДКИ НАВМИСНО РОЗХОДЯТЬСЯ З МАКЕТОМ.
+  //
+  // Макет писався під сайт, який уміє зберегти маршрут, поставити сердечко
+  // на кемпінг і прийняти фото. Заміряно 03.11.2026: у 17 `@Post` жодного
+  // write-маршруту про поїздки, місця, фото чи відгуки; `trips.controller`
+  // має лише `@Get`; завантажень немає взагалі (`no-upload-routes.spec.ts`).
+  //
+  // Тобто макетний текст — не стиль, а твердження про можливості, яких
+  // немає. Сторінка приватності вже казала правду тими словами: «the site
+  // does not yet let you save a trip, a place, a photograph or a review», а
+  // кабінет казав тому самому читачеві протилежне.
+  //
+  // Тому тест тримає НОВІ рядки, а макетні лишаються поруч підписом: коли
+  // write-маршрути зʼявляться, видно буде, до чого повертатись.
   const EXPECTED = [
     {
       icon: '🗺',
       // «Маршрутів поки немає»
       heading: 'No routes yet',
-      // «Складіть свій у Trip Planner — або візьміть готовий і змініть під себе.»
-      body: 'Build your own in the Trip Planner — or take a ready-made one and change it to suit you.',
+      // макет: «Складіть свій у Trip Planner — або візьміть готовий і змініть
+      // під себе.» — обіцяє збереження, якого немає.
+      body:
+        'The Trip Planner works out a route in your browser and shows it straight away. ' +
+        'It cannot save one to your account yet, so this list stays empty.',
       // «У Trip Planner» · «Готові маршрути»
       buttons: [
         { href: '/plan', text: 'Open the Trip Planner' },
@@ -76,17 +94,24 @@ test.describe('🔴 порожні стани: той текст, що в мак
       icon: '⛺',
       // «Ще нічого не збережено»
       heading: 'Nothing saved yet',
-      // «Сердечко на будь-якому кемпінгу — і він тут. Список синхронізується між пристроями.»
-      body: 'A heart on any campsite and it lands here. The list syncs between your devices.',
+      // макет: «Сердечко на будь-якому кемпінгу — і він тут. Список
+      // синхронізується між пристроями.» — ні сердечка, ні списку немає.
+      body:
+        'Saving a campsite to your account is not built yet, so nothing can land here. ' +
+        'The site does not yet let you save a trip, a place, a photograph or a review.',
       // «Відкрити мапу»
       buttons: [{ href: '/map', text: 'Open the map' }],
     },
     {
       icon: '📷',
-      // «Ви ще не надсилали фото»
-      heading: "You haven't sent any photos yet",
-      // «Були в кемпінгу, якого немає на фото? Ваш знімок побачать тисячі людей — із вашим імʼям у підписі.»
-      body: 'Been to a campsite we have no photo of? Thousands of people will see your shot — with your name in the credit.',
+      // макет: «Ви ще не надсилали фото» — каже, що надіслати можна.
+      heading: 'We do not take photos yet',
+      // макет: «Були в кемпінгу, якого немає на фото? Ваш знімок побачать
+      // тисячі людей — із вашим імʼям у підписі.»
+      body:
+        'There is no upload anywhere on the site, and the site does not yet let you save a trip, ' +
+        'a place, a photograph or a review. We publish no stock and no generated pictures either, ' +
+        'so a campsite page without photographs is an honest page rather than an unfinished one.',
       // «Додати фото» — кнопки немає свідомо: завантаження фото ще не існує.
       buttons: [],
     },

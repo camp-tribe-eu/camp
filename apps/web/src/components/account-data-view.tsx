@@ -86,9 +86,15 @@ function ExportBlock({
       {/* макет: «ZIP: профіль, маршрути, збережені кемпінги, ваші фото в оригіналі й історія
           модерації — JSON, який читає і людина, і машина.» — без ZIP і без оригіналів,
           див. шапку файлу. */}
+      {/* 🔴 CAMP-425. Перелічити «ваші маршрути, фото й відгуки» без
+          застереження — це сказати, що вони там будуть. Розділи у файлі
+          справді є, і сьогодні вони порожні в усіх: сайт нічого з цього не
+          приймає. Сторінка приватності каже це тими самими словами. */}
       <p className="mt-1.5 text-[13px] leading-[1.55] text-ink-2">
-        One JSON file that both a person and a program can read: your profile, your routes, the
-        records of your photos and reviews, and their moderation history.
+        One JSON file that both a person and a program can read: your profile, your settings,
+        your sign-ins and what you consented to. It has sections for routes, photos and reviews
+        as well, and they are empty for everyone — the site does not yet let you save a trip, a
+        place, a photograph or a review.
       </p>
 
       {archive.kind === 'checking' && (

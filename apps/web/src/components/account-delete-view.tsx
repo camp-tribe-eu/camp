@@ -112,9 +112,13 @@ export function DeleteFormView({
         {/* макет: «Зникне: профіль, 3 маршрути, 12 збережених кемпінгів, налаштування. Публічний
             лінк «Альпи за 6 днів» перестане відкриватись…» — без цифр і без публічного лінку:
             ні джерела цифр, ні публічних лінків ще немає. */}
+        {/* 🔴 CAMP-425. Назвати маршрути, збережені кемпінги й відгуки серед
+            того, що зникне, — це сказати, що вони є. Жодного з них сайт не
+            приймає, тож зникає рівно те, що названо. */}
         <p className="mt-3 text-[13px] leading-[1.6] text-ink-2">
-          <b className="font-semibold text-heading">Will disappear:</b> your profile, your routes and
-          saved campsites, your settings, and any reviews you wrote.
+          <b className="font-semibold text-heading">Will disappear:</b> your profile, your settings,
+          and every browser that is signed in. The site does not yet let you save a trip, a place, a
+          photograph or a review, so there is nothing of that kind on the account to lose.
         </p>
 
         {/* макет: «Що зробити з вашими опублікованими фото — оберіть, ми не вирішуємо за вас» */}
@@ -123,6 +127,15 @@ export function DeleteFormView({
             What should happen to the photos you have published{' '}
             <b className="font-semibold text-warn">— choose, we do not decide for you</b>
           </legend>
+          {/* 🔴 CAMP-425. Механізм лишається: правило видалення вже написане
+              й перевірене, і коли фото зʼявляться, воно мусить діяти з
+              першого дня. Але питати «що зробити з вашими фото», мовчки
+              припускаючи, що вони є, — неправда посеред форми видалення.
+              Прибрати сам вибір — це зміна договору з API, а не редакція. */}
+          <p className="mb-2 text-[12.5px] leading-[1.5] text-ink-2">
+            The site does not take photographs yet, so today this choice applies to nothing. It is
+            asked because the rule has to work from the first day it does.
+          </p>
           {PHOTO_CHOICES.map((value) => (
             <label
               key={value}
@@ -149,8 +162,7 @@ export function DeleteFormView({
           ))}
           <p className="mt-1 text-[12.5px] leading-[1.5] text-ink-2">
             Your choice is applied straight away. Signing back in later restores your account and
-            your routes — but not your reviews, and not the photos. Your own words are deleted with
-            the account, whichever choice you make here.
+            your settings — but never a photograph, whichever choice you make here.
           </p>
         </fieldset>
 
