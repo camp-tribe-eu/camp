@@ -349,13 +349,37 @@ CAMP-42.
 
 ## Без картки, і це дірки
 
-* **5 відкритих алертів CodeQL** — #14, #15 (`scripts/edo/fetch-drought.mjs`,
-  04.10), #18 (`resolve-areas.mjs`), #29 (`resolve-campsite-zones.mjs`),
-  #30 (`drought-overlay.spec.ts`, 14.10). CAMP-201 закрила лише #7.
 * **WINDY_KEY** — крок власника, названий у CAMP-189 і CAMP-314, без
   власної картки.
-* `npm audit` сьогодні: 27 (5 high, 22 moderate), з них `--omit=dev`
-  **0** — усе девелоперське, у продакшн не їде.
+
+🔴 **Числа нижче заміряні 03.11.2026 командою, яка стоїть поруч.** Два
+числа, що тут були, протухли мовчки (CAMP-432): «5 відкритих алертів
+CodeQL» — їх нуль; «27 (5 high, 22 moderate)» — їх 44, і high серед них
+жодного. Тому тепер біля кожного стоїть команда: читач може переміряти,
+а не повірити.
+
+* **Алерти CodeQL** — закритих із причиною **6**, відкритих **0**
+  (CAMP-330 лишається відкритою не через алерти, а через те, що причини
+  відхилень не мають якоря в репозиторії).
+
+  ```
+  gh api 'repos/camp-tribe-eu/camp/code-scanning/alerts?state=open'      --jq length   → 0
+  gh api 'repos/camp-tribe-eu/camp/code-scanning/alerts?state=dismissed' --jq length   → 6
+  ```
+
+* **`npm audit`** — **44** (41 moderate, 3 low, **0 high**), із них
+  `--omit=dev` рівно **0**: усе девелоперське, у продакшн не їде.
+
+  ```
+  npm audit --json            | …metadata.vulnerabilities → 44, high 0
+  npm audit --omit=dev --json | …metadata.vulnerabilities → 0
+  ```
+
+  🔴 Це НЕ те саме число, що показує GitHub на пуші («24 vulnerabilities,
+  8 high»). Dependabot рахує поради на гілці за замовчуванням і по всіх
+  маніфестах разом; `npm audit` рахує встановлене дерево. Два різні
+  знаменники — і плутати їх означає сперечатись про цифри, що міряють
+  різне.
 
 ---
 

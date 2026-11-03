@@ -90,19 +90,39 @@ writing EL for Greece loses those rows AND is named» у
 
 ## Безпека, що не їде в продакшн
 
-### Пʼять відкритих алертів CodeQL
+### Алерти CodeQL: відкритих 0, відхилених із причиною 6
 
-Станом на 15.10.2026: **#14, #15** (`scripts/edo/fetch-drought.mjs`,
-04.10), **#18** (`resolve-areas.mjs`), **#29**
-(`resolve-campsite-zones.mjs`), **#30** (`drought-overlay.spec.ts`,
-14.10). CAMP-201 закрила лише #7.
+Заміряно 03.11.2026 — команда поруч, бо попереднє число («пʼять
+відкритих», 15.10.2026) протухло мовчки, і саме через це заведено
+CAMP-432:
 
-Усі — у скриптах конвеєра, не в коді, що відповідає відвідувачу.
+```
+gh api 'repos/camp-tribe-eu/camp/code-scanning/alerts?state=open'      --jq length   → 0
+gh api 'repos/camp-tribe-eu/camp/code-scanning/alerts?state=dismissed' --jq length   → 6
+```
 
-### `npm audit`: 27 (5 high, 22 moderate), `--omit=dev` → **0**
+Усі шість — у скриптах конвеєра, не в коді, що відповідає відвідувачу.
 
-Високі йдуть через `eslint-config-next` → `braces`/`micromatch`/`fast-glob`.
-npm пропонує відкат на 14.2.35 — тобто ліки гірші за хворобу.
+🔴 **Нуль відкритих не означає, що CAMP-330 зроблена.** Вона лишається
+відкритою з іншої причини: причини відхилень живуть у чужому UI, а не в
+репозиторії, і пережити перегляд через рік вони не можуть.
+
+### `npm audit`: 44 (41 moderate, 3 low, **0 high**), `--omit=dev` → **0**
+
+Заміряно 03.11.2026:
+
+```
+npm audit --json            | …metadata.vulnerabilities → {"low":3,"moderate":41,"high":0,"total":44}
+npm audit --omit=dev --json | …metadata.vulnerabilities → {"total":0}
+```
+
+Високих більше немає: шлях `eslint-config-next` → `braces`/`micromatch`/
+`fast-glob`, через який вони приходили, закрито оновленнями. Залишок —
+девелоперський і в продакшн не їде, що й каже другий рядок.
+
+🔴 Це НЕ те число, яке GitHub друкує на пуші («24 vulnerabilities, 8
+high»). Dependabot рахує поради на гілці за замовчуванням по всіх
+маніфестах; `npm audit` рахує встановлене дерево. Різні знаменники.
 
 Окремо `sprintf-js` без патча: приходить лише через `ts-jest` і
 `@lhci/cli`, у продакшн не їде зовсім (заміряно `npm ls --omit=dev`).
