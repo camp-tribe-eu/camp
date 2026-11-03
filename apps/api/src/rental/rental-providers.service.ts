@@ -209,9 +209,17 @@ export class RentalProvidersService {
       [p.id],
     )) as Record<string, unknown>[];
 
+    const tr = (await this.db.query(
+      `SELECT intro, what_to_know FROM rental_provider_translations
+        WHERE provider_id = $1 AND language_code = $2`,
+      [p.id, 'uk'],
+    )) as Record<string, string | null>[];
+
     return {
       slug: p.slug,
       name: p.name,
+      intro: tr[0]?.intro ?? null,
+      whatToKnow: tr[0]?.what_to_know ?? null,
       legalName: p.legal_name ?? null,
       registrationNumber: p.registration_number ?? null,
       homeCountry: p.home_country,
