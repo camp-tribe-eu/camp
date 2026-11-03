@@ -44,10 +44,10 @@ export const SORT_KEYS = ["name", "depots", "fleet", "oldest"] as const;
 export type SortKey = (typeof SORT_KEYS)[number];
 
 export const SORT_LABEL: Record<SortKey, string> = {
-  name: "за назвою",
-  depots: "більше депо",
-  fleet: "більший парк",
-  oldest: "найдавніші",
+  name: "name",
+  depots: "most depots",
+  fleet: "largest fleet",
+  oldest: "oldest first",
 };
 
 export interface CatalogueFilters {

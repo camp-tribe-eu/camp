@@ -9,9 +9,9 @@ import { listProviders } from "@/lib/rental-providers";
 // компаній десяток. Правило звуження живе в `lib/rental-providers.ts`,
 // тобто в одному місці, а не копією в компоненті.
 export const metadata: Metadata = {
-  title: "Прокат кемперів у ЄС: компанії, сервіси й парк",
+  title: "Camper rental in the EU: companies, services and fleet",
   description:
-    "Компанії прокату кемперів у Європейському Союзі з переліком сервісів і парку. Кожен факт має джерело й дату перевірки.",
+    "Camper rental companies in the European Union, with the services and fleet each one lists. Every fact carries its source and the date it was checked.",
 };
 
 export default async function ProvidersPage() {
@@ -25,9 +25,9 @@ export default async function ProvidersPage() {
       <script
         {...jsonLdProps(
           collectionGraph({
-            name: "Компанії прокату кемперів у ЄС",
+            name: "Camper rental companies in the EU",
             description:
-              "Компанії прокату кемперів у Європейському Союзі з переліком сервісів і парку.",
+              "Camper rental companies in the European Union, with the services and fleet each one lists.",
             path: "/camper-rental/providers",
             items: all.map((p) => ({
               name: p.name,
@@ -36,15 +36,17 @@ export default async function ProvidersPage() {
           }),
         )}
       />
-      <h1 className="text-3xl font-bold">Компанії прокату кемперів</h1>
+      <h1 className="text-3xl font-bold">Camper rental companies</h1>
       <p className="mt-3 max-w-2xl">
-        Числа депо й парку — <strong>заявлені самими компаніями</strong>, ми їх
-        не вимірювали; поруч із кожним на сторінці компанії стоїть джерело й
-        дата перевірки. Цін тут немає навмисно: вони змінюються щотижня, і
-        будь-яке число тут було б застарілим раніше, ніж ви його прочитаєте.
+        The depot and fleet figures are{" "}
+        <strong>what each company states about itself</strong>; we did not
+        measure them, and on the company&apos;s own page the source and the date
+        we checked it stand next to the number. There are no prices here on
+        purpose: they change weekly, and any figure we printed would be out of
+        date before you read it.
       </p>
       {all.length === 0 ? (
-        <p className="mt-8">Каталог ще не заповнений.</p>
+        <p className="mt-8">The catalogue is not filled in yet.</p>
       ) : (
         <div className="mt-8">
           <ProviderCatalogue all={all} />

@@ -185,7 +185,7 @@ async function main() {
       }
       await db.query(
         `INSERT INTO rental_provider_translations (provider_id, language_code, intro, what_to_know)
-         VALUES ($1, 'uk', $2, $3)`,
+         VALUES ($1, 'en', $2, $3)`,
         [id, p.intro, p.whatToKnow ?? null],
       );
       for (const s of p.services ?? []) {
