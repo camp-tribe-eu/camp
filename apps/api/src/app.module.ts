@@ -1,4 +1,4 @@
-import { PG_EXTRA } from './db-session';
+import { PG_CONNECTION } from './db-session';
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
@@ -85,11 +85,9 @@ export const REASONS = loadMeasuredReasons();
     // test can assert them without booting Nest.
     ThrottlerModule.forRoot([DEFAULT_LIMIT]),
     TypeOrmModule.forRoot({
-      type: 'postgres',
-      url:
-        process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev',
-      // CAMP-338: пояс сесії задаємо ми, а не машина. Див. db-session.ts.
-      extra: PG_EXTRA,
+      // CAMP-338 + CAMP-433: той самий `PG_CONNECTION`, що й у
+      // data-source.ts. Один перелік, одне місце, де його можна зламати.
+      ...PG_CONNECTION,
       entities: [
         User,
         CampingSpot,

@@ -1,4 +1,4 @@
-import { PG_EXTRA } from './db-session';
+import { PG_CONNECTION } from './db-session';
 import 'dotenv/config';
 import { DataSource } from 'typeorm';
 import { User } from './entities/user.entity';
@@ -41,10 +41,10 @@ import {
 import { ProblemReport } from './entities/problem-report.entity';
 
 export const AppDataSource = new DataSource({
-  type: 'postgres',
-  url: process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev',
-  // CAMP-338: пояс сесії задаємо ми, а не машина. Див. db-session.ts.
-  extra: PG_EXTRA,
+  // CAMP-338 + CAMP-433: тип, адреса й пояс сесії — один перелік на два
+  // пули, `PG_CONNECTION` у db-session.ts. Два однакові рядки в двох
+  // файлах не звіряються; заміряно, що їх розходження тест не ловив.
+  ...PG_CONNECTION,
   entities: [
     User,
     // CAMP-390: the journal of consents (GDPR Art. 7(1)), append-only.
