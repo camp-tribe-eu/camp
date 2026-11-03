@@ -274,6 +274,6 @@ export class CampingSpot {
   @Column({ name: 'missing_since', type: 'timestamptz', nullable: true })
   missingSince?: Date;
 
-  @CreateDateColumn({ name: 'created_at' })
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }

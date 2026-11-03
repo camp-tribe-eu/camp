@@ -1,0 +1,29 @@
+# CAMP-400: інфраструктура в репозиторії ≠ інфраструктура на машині.
+#
+# 🔴 ЦЕЙ ЮНІТ ІСНУЄ ЧЕРЕЗ 18,5 ДІБ ТИШІ, ЗАМІРЯНІ 03.11.2026.
+#
+# `camptribe-route-poi-import.service` і `.timer` лежали в репозиторії з
+# 28.10 (CAMP-113) і не були розкладені на машину: `systemctl is-enabled`
+# → `not-found`. Код імпорту написано, розклад написано, і нічого з цього
+# не виконалось ЖОДНОГО разу. `osm_route_poi` застиг на 2026-10-16.
+#
+# Сторож свіжості червонів щоранку й казав правду — але він бачить
+# НАСЛІДОК (таблиця стара), а не ПРИЧИНУ (юніта на машині немає). Цей
+# юніт називає причину.
+#
+# 🔴 ЧОМУ НЕ ВИСТАЧИЛО ТОГО, ЩО Є. `camptribe-deploy-nightly` викладає
+# лише застосунок. `deploy-infra.sh` бачить різницю — але лише коли
+# хтось запустить його руками з ноутбука. Між «написали» і «хтось
+# згадав» минуло 18 діб.
+[Unit]
+Description=CampTribe infrastructure drift check
+After=network-online.target
+OnFailure=camptribe-failed@%n.service
+
+[Service]
+Type=oneshot
+# 🔴 root, а не camptribe: порівнюємо файли в /etc, які власнику служби
+# не належать. Скрипт лише ЧИТАЄ — жодного запису, жодного systemctl.
+User=root
+WorkingDirectory=/srv/camptribe/current
+ExecStart=/usr/local/bin/camptribe-infra-drift

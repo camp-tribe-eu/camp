@@ -1,0 +1,237 @@
+#!/usr/bin/env bash
+# Інфраструктура в репозиторії ≠ інфраструктура на машині. CAMP-400.
+#
+#   camptribe-infra-drift            # порівняти, вийти 1 при розбіжності
+#   camptribe-infra-drift --self-test
+#
+# 🔴 ЧОМУ ЦЕЙ ФАЙЛ ІСНУЄ, І ЦЕ ЗАМІР, А НЕ ПРИПУЩЕННЯ.
+#
+# 03.11.2026 `osm_route_poi` був протухлий **18,5 діб**: 2 274 449 рядків
+# від 16.10, при бюджеті 10 діб. Сторож свіжості червонів щоранку й казав
+# правду — але не міг назвати причину.
+#
+# Причина: `camptribe-route-poi-import.service` і `.timer` ЛЕЖАЛИ В
+# РЕПОЗИТОРІЇ з 28.10 (CAMP-113) і не були розкладені на машину.
+# `systemctl is-enabled` → `not-found`. Тобто код імпорту написано,
+# розклад написано, і нічого з цього жодного разу не виконалось.
+#
+# 🔴 І ЦЕ НЕ ЛОВИВ НІХТО. `camptribe-deploy-nightly` викладає лише
+# ЗАСТОСУНОК; `deploy-infra.sh` бачить різницю, але лише тоді, коли
+# хтось його запустить руками з ноутбука. Між «розклали» і «хтось
+# згадав» минуло 18 діб.
+#
+# 🔴 ЦІНА ХИБНОГО СПРАЦЮВАННЯ НАЗВАНА: лист про розбіжність там, де файл
+# правили на машині свідомо. Заміряно 03.11.2026 сухим прогоном
+# `deploy-infra.sh`: із ~25 файлів розійшлися РІВНО ДВА — ті самі, яких
+# бракувало. Тобто шум тут близький до нуля, а сліпота коштувала 18 діб.
+set -uo pipefail
+
+ROOT="${CAMPTRIBE_ROOT:-/srv/camptribe}"
+SRC="${CAMPTRIBE_INFRA_SRC:-$ROOT/current/infra}"
+DEPLOY="${CAMPTRIBE_DEPLOY_SH:-$SRC/deploy-infra.sh}"
+
+# 🔴 РОЗПОДІЛ ЧИТАЄТЬСЯ З `deploy-infra.sh`, А НЕ ПОВТОРЮЄТЬСЯ ТУТ.
+#
+# Тут стояв власний `case` із пʼятьма теками — копія того, що в
+# розкладці. Рецензія 03.11.2026 довела, чого це коштувало, двома
+# заміром:
+#
+#   1. `infra/caddy/` у копію не потрапила — а це 4 файли, серед них
+#      `/etc/caddy/Caddyfile`. Сторож звітував «45 файлів збігається» і
+#      мав рацію щодо 45 із 49. Саме про Caddyfile `deploy-infra.sh`
+#      пише, що зміна в один рядок робить політику приватності неправдою.
+#   2. Самотест «той самий case, що в розкладці» ґрепав теку й адресу
+#      НЕЗАЛЕЖНО. Мутація `*/systemd/*) remote="/etc/systemd/user/$name"`
+#      лишала його зеленим 12/12.
+#
+# Два переліки не звіряються — вони розходяться. Тепер перелік один:
+# нижче дві функції ВИТЯГУЮТЬ правила з розкладки, і підсунути сюди іншу
+# адресу, не змінивши розкладку, неможливо.
+
+# Теки → куди: рядки виду `*/systemd/*) remote="/etc/systemd/system/$name"`.
+dir_rules() {
+  sed -n 's#^[[:space:]]*\*/\([a-z0-9]\{1,\}\)/\*)[[:space:]]*remote="\([^"]*\)/\$name".*#\1|\2#p' "$DEPLOY"
+}
+
+# Caddy має власний перелік, бо імена в репозиторії та на машині різні
+# (`camptribe.eu.caddyfile` → `/etc/caddy/Caddyfile`).
+caddy_rules() {
+  sed -n '/^CADDY_PAIRS="/,/"$/p' "$DEPLOY" \
+    | sed 's/^CADDY_PAIRS="//; s/"$//' \
+    | sed -n 's#^\([^:][^:]*\):\(/.*\)$#\1|\2#p'
+}
+
+remote_for() {
+  local f="$1" name dir dest
+  name="$(basename "$f")"
+  dir="$(basename "$(dirname "$f")")"
+  if [ "$dir" = caddy ]; then
+    dest="$(caddy_rules | awk -F'|' -v n="$name" '$1 == n { print $2 }')"
+  else
+    dest="$(dir_rules | awk -F'|' -v d="$dir" '$1 == d { print $2 }')"
+    [ -n "$dest" ] && dest="$dest/$name"
+  fi
+  [ -n "$dest" ] || return 1
+  printf '%s' "$dest"
+}
+
+# 🔴 ФАЙЛ, ЯКИЙ НІЯКЕ ПРАВИЛО НЕ НАКРИВАЄ, — ЦЕ ПРОВАЛ, А НЕ «ПРОПУСТИЛИ».
+# Саме мовчазний пропуск сховав `infra/caddy/`. Файли в КОРЕНІ `infra/`
+# навмисно не розкладаються (це сама розкладка, її самотести й README),
+# тому предмет — усе, що лежить у підтеках, і кожен такий файл мусить
+# мати адресу.
+drift() {
+  local src="$1" missing=0 differs=0 uncovered=0 seen=0 f remote
+
+  if [ "$(dir_rules | grep -c .)" -eq 0 ] || [ "$(caddy_rules | grep -c .)" -eq 0 ]; then
+    printf '✗ не вдалось прочитати правила з %s — розбір зламався, а не «все чисто»\n' "$DEPLOY"
+    return 1
+  fi
+
+  while IFS= read -r f; do
+    if ! remote="$(remote_for "$f")"; then
+      printf '✗ НЕ НАКРИТИЙ ЖОДНИМ ПРАВИЛОМ: %s — розкладка його не везе, сторож його не бачить\n' "$f"
+      uncovered=$((uncovered + 1))
+      continue
+    fi
+    seen=$((seen + 1))
+    if [ ! -f "$remote" ]; then
+      printf '✗ НЕМАЄ на машині: %s  ←  %s\n' "$remote" "$f"
+      missing=$((missing + 1))
+    elif ! cmp -s "$f" "$remote"; then
+      printf '✗ РОЗІЙШОВСЯ: %s  ←  %s\n' "$remote" "$f"
+      differs=$((differs + 1))
+    fi
+  done <<EOF
+$(find "$src" -mindepth 2 -type f | sort)
+EOF
+
+  # 🔴 ОДНАКОВІ ФАЙЛИ ЩЕ НЕ ОЗНАЧАЮТЬ ЖИВИЙ РОЗКЛАД.
+  #
+  # Рецензія: у цьому сторожі не було ЖОДНОГО звернення до systemd, хоч
+  # писався він через таймер, що не виконувався. `systemctl disable
+  # camptribe-route-poi-import.timer` лишає файл байт-у-байт — і сторож
+  # щоранку казав би «✓ збігається», поки розклад мовчить. Тобто він
+  # ловив лише ВІДСУТНІЙ файл, а не вимкнений таймер.
+  #
+  # Ціна хибного спрацювання заміряна 03.11.2026: усі 14 таймерів із
+  # репозиторію на машині `enabled`, тож сьогодні ця перевірка не додає
+  # жодного листа. Таймер, вимкнений свідомо, треба прибрати з репозиторію
+  # або увімкнути — третього стану «лежить, але не ходить» ми вже платили.
+  local off=0 t name state
+  if command -v systemctl >/dev/null 2>&1; then
+    for t in "$src"/systemd/*.timer; do
+      [ -f "$t" ] || continue
+      name="$(basename "$t")"
+      state="$(systemctl is-enabled "$name" 2>&1 || true)"
+      if [ "$state" != enabled ]; then
+        printf '✗ ТАЙМЕР НЕ УВІМКНЕНО: %s → %s (файл на місці, розклад мовчить)\n' "$name" "$state"
+        off=$((off + 1))
+      fi
+    done
+  fi
+
+  if [ "$seen" -eq 0 ]; then
+    printf '✗ у %s не знайдено жодного файла інфраструктури — сторож втратив предмет\n' "$src"
+    return 1
+  fi
+  if [ "$missing" -eq 0 ] && [ "$differs" -eq 0 ] && [ "$uncovered" -eq 0 ] && [ "$off" -eq 0 ]; then
+    printf '✓ інфраструктура на машині збігається з репозиторієм: %s файлів, таймерів увімкнено всі\n' "$seen"
+    return 0
+  fi
+  printf '\n✗ розбіжність: %s без файла, %s відрізняються, %s не накрито правилом, %s таймерів вимкнено (файлів %s)\n' \
+    "$missing" "$differs" "$uncovered" "$off" "$seen"
+  printf '  Розкласти: ./infra/deploy-infra.sh --apply з ноутбука.\n'
+  printf '  Юніт, якого немає на машині АБО вимкнений, не виконується ЖОДНОГО\n'
+  printf '  разу — саме так osm_route_poi протух на 18,5 діб (CAMP-113).\n'
+  return 1
+}
+
+self_test() {
+  local work pass=0 fail=0
+  work="$(mktemp -d)"
+  trap 'rm -rf "$work"' RETURN
+  t() { if [ "$2" = "$3" ]; then pass=$((pass + 1)); printf '  ✓ %s\n' "$1";
+        else fail=$((fail + 1)); printf '  ✗ %s: «%s», мало бути «%s»\n' "$1" "$2" "$3"; fi; }
+
+  # Підроблена розкладка: саме з неї мають читатись правила.
+  mkdir -p "$work/src/systemd" "$work/src/caddy" "$work/src/bin"
+  cat > "$work/deploy.sh" <<'FAKE'
+    */systemd/*) remote="/etc/systemd/system/$name" ;;
+    */bin/*)     remote="/usr/local/bin/$name" ;;
+CADDY_PAIRS="camptribe.eu.caddyfile:/etc/caddy/Caddyfile
+gate-open.conf:/etc/caddy/gate-open.conf"
+FAKE
+  DEPLOY="$work/deploy.sh"
+
+  t 'правило теки читається з розкладки' \
+    "$(remote_for "$work/src/systemd/x.service")" '/etc/systemd/system/x.service'
+  t 'caddy читається з CADDY_PAIRS, разом із перейменуванням' \
+    "$(remote_for "$work/src/caddy/camptribe.eu.caddyfile")" '/etc/caddy/Caddyfile'
+
+  # 🔴 ГОЛОВНИЙ ВИПАДОК, ЯКОГО НЕ БУЛО. Рецензія довела, що стара
+  # перевірка «той самий case, що в розкладці» лишалась зеленою 12/12,
+  # коли розкладці підміняли адресу. Тепер перелік один, і цей випадок
+  # це ДОВОДИТЬ: міняємо розкладку — сторож іде за нею.
+  sed -i.bak 's#/etc/systemd/system/#/etc/systemd/user/#' "$work/deploy.sh"
+  t '🔴 адресу змінили в розкладці — сторож пішов за нею, а не за копією' \
+    "$(remote_for "$work/src/systemd/x.service")" '/etc/systemd/user/x.service'
+  sed -i.bak 's#/etc/systemd/user/#/etc/systemd/system/#' "$work/deploy.sh"
+
+  # 🔴 Тека, якої правила не знають, мусить бути ПРОВАЛОМ. Саме так
+  # `infra/caddy/` була невидимою: 45 файлів із 49, і «✓ збігається».
+  mkdir -p "$work/src/newdir"
+  printf 'x\n' > "$work/src/newdir/thing.conf"
+  printf 'y\n' > "$work/src/systemd/x.service"
+  # 🔴 Без труби: `grep -q` виходить одразу, `drift` ловить SIGPIPE, і
+  # `$?` стає 141 — код того, ХТО ПОРУЧ, а не того, кого міряємо.
+  # Я щойно на цьому й попався.
+  local out
+  out="$(drift "$work/src" 2>&1)"
+  case "$out" in *'НЕ НАКРИТИЙ'*) t '🔴 файл поза правилами — провал, а не мовчазний пропуск' 'так' 'так' ;;
+                 *) t '🔴 файл поза правилами — провал, а не мовчазний пропуск' 'ні' 'так' ;; esac
+  rm -rf "$work/src/newdir"
+
+  # Розбір зламався — це теж провал, а не чистота.
+  : > "$work/empty.sh"
+  DEPLOY="$work/empty.sh"
+  drift "$work/src" >/dev/null 2>&1
+  t '🔴 правил не прочитано — збій, а не «все чисто»' "$?" '1'
+  DEPLOY="$work/deploy.sh"
+
+  mkdir -p "$work/empty/systemd"
+  drift "$work/empty" >/dev/null 2>&1
+  t '🔴 нуль файлів — це збій, а не чистота' "$?" '1'
+
+  # 🔴 ЯКІР НА СПРАВЖНЬОМУ ДЕРЕВІ. Без нього все вище — вправа на
+  # тимчасових теках, і сторож міг би стерегти порожнечу.
+  local real_src real_deploy total covered
+  real_src="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  real_deploy="$real_src/deploy-infra.sh"
+  if [ -f "$real_deploy" ]; then
+    DEPLOY="$real_deploy"
+    total=0; covered=0
+    while IFS= read -r f; do
+      total=$((total + 1))
+      remote_for "$f" >/dev/null 2>&1 && covered=$((covered + 1))
+    done <<EOF
+$(find "$real_src" -mindepth 2 -type f | sort)
+EOF
+    t '🔴 у справжньому infra/ накрито ВСЕ, що лежить у підтеках' "$covered" "$total"
+    t '🔴 і цього «всього» більше сорока — інакше якір тримає порожнечу' \
+      "$([ "$total" -gt 40 ] && echo так || echo ні)" 'так'
+    t '🔴 тека caddy серед накритого (саме її пропускали)' \
+      "$(remote_for "$real_src/caddy/camptribe.eu.caddyfile")" '/etc/caddy/Caddyfile'
+    t 'правил тек прочитано пʼять' "$(dir_rules | grep -c .)" '5'
+    t 'пар caddy прочитано чотири' "$(caddy_rules | grep -c .)" '4'
+  else
+    t '🔴 справжній deploy-infra.sh знайдено' 'ні' 'так'
+  fi
+
+  printf '\ncamptribe-infra-drift self-test: ran %s, passed %s, failed %s\n' \
+    "$((pass + fail))" "$pass" "$fail"
+  [ "$fail" -eq 0 ]
+}
+
+if [ "${1:-}" = '--self-test' ]; then self_test; exit $?; fi
+drift "$SRC"
