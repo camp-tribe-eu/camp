@@ -1,0 +1,129 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import {
+  AMENITY_KEYS,
+  hasChanges,
+  loadListings,
+  namePatch,
+  saveListing,
+  type AmenityKey,
+  type AmenityValue,
+  type Listing,
+} from '@/lib/owner-listings';
+import { EmptyView, ListingForm } from '@/components/owner-listings-view';
+
+// CAMP-51 / CAMP-86 — стан сторінки «мої листинги». Тонка обгортка:
+// правила в lib/owner-listings.ts, розмітка в owner-listings-view.tsx.
+
+function useReady(): boolean {
+  const [ready, setReady] = useState(false);
+  useEffect(() => setReady(true), []);
+  return ready;
+}
+
+type Draft = {
+  name: string;
+  amenities: Partial<Record<AmenityKey, AmenityValue>>;
+};
+
+const draftOf = (l: Listing): Draft => ({
+  name: l.overrides.name ?? l.name ?? '',
+  amenities: { ...(l.overrides.amenities ?? {}) },
+});
+
+export function OwnerListings() {
+  const ready = useReady();
+  const [listings, setListings] = useState<Listing[] | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [notes, setNotes] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let alive = true;
+    void loadListings().then((res) => {
+      if (!alive) return;
+      if (res.kind === 'ok') {
+        setListings(res.listings);
+        setDrafts(Object.fromEntries(res.listings.map((l) => [l.slug, draftOf(l)])));
+      } else {
+        setListings([]);
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // 🔴 Нічого не малюємо, доки не знаємо відповіді. Сторінка, що встигла
+  // показати «у вас нічого немає», а потім перемалювала список, —
+  // це брехня на півсекунди, і саме її людина запам'ятає.
+  if (listings === null) return null;
+  if (listings.length === 0) return <EmptyView />;
+
+  const patchFor = (l: Listing, d: Draft): Record<string, unknown> => {
+    const patch: Record<string, unknown> = {};
+    const name = namePatch(d.name, l.name);
+    if (name !== (l.overrides.name ?? null)) patch.name = name;
+    const before = l.overrides.amenities ?? {};
+    const amenities: Record<string, AmenityValue | null> = {};
+    for (const k of AMENITY_KEYS) {
+      const now = d.amenities[k] ?? 'unknown';
+      const was = before[k];
+      // «unknown» у чернетці означає «не правлю», тобто прибрати правку.
+      const want = now === 'unknown' ? null : now;
+      if (want !== (was ?? null)) amenities[k] = want;
+    }
+    if (Object.keys(amenities).length > 0) patch.amenities = amenities;
+    return patch;
+  };
+
+  return (
+    <>
+      {listings.map((l) => {
+        const d = drafts[l.slug] ?? draftOf(l);
+        const patch = patchFor(l, d);
+        return (
+          <ListingForm
+            key={l.slug}
+            listing={l}
+            name={d.name}
+            amenities={d.amenities}
+            busy={busy === l.slug}
+            ready={ready}
+            dirty={hasChanges(patch)}
+            message={notes[l.slug] ?? null}
+            onName={(v) => setDrafts((s) => ({ ...s, [l.slug]: { ...d, name: v } }))}
+            onAmenity={(k, v) =>
+              setDrafts((s) => ({
+                ...s,
+                [l.slug]: { ...d, amenities: { ...d.amenities, [k]: v } },
+              }))
+            }
+            onSave={() => {
+              setBusy(l.slug);
+              void saveListing(l.slug, patch)
+                .then((res) => {
+                  if (res.kind === 'saved') {
+                    setListings((all) =>
+                      (all ?? []).map((x) =>
+                        x.slug === l.slug ? { ...x, overrides: res.overrides } : x,
+                      ),
+                    );
+                    setNotes((n) => ({ ...n, [l.slug]: 'Saved.' }));
+                  } else if (res.kind === 'refused') {
+                    setNotes((n) => ({ ...n, [l.slug]: res.message }));
+                  } else if (res.kind === 'signed-out') {
+                    setNotes((n) => ({ ...n, [l.slug]: 'Sign in again to save.' }));
+                  } else {
+                    setNotes((n) => ({ ...n, [l.slug]: 'That did not go through.' }));
+                  }
+                })
+                .finally(() => setBusy(null));
+            }}
+          />
+        );
+      })}
+    </>
+  );
+}

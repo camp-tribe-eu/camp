@@ -163,14 +163,15 @@ export function DoneView({ spot }: { spot: string }) {
         {spot} is yours to manage
       </h1>
       <p className={HINT}>
-        {/* 🔴 Сказано ЧЕСНО, що саме це поки дає. Обіцяти кабінет, якого
-            ще немає, означало б збрехати людині, яка щойно нам довірилась. */}
-        We have recorded that you control this listing. Editing the details
-        and adding photos comes next — nothing on the page has changed yet.
+        {/* 🔴 Сказано ЧЕСНО, що саме це дає, і що ще ні. Фото — окрема
+            картка (CAMP-52), і обіцяти їх зараз означало б збрехати
+            людині, яка щойно нам довірилась. */}
+        You can now correct what the page says — the name and what the site
+        has. Photographs come later.
       </p>
       <p className={HINT}>
-        <Link className="underline" href="/account">
-          Back to your account
+        <Link className="underline" href="/account/listings">
+          Correct this listing
         </Link>
       </p>
     </section>

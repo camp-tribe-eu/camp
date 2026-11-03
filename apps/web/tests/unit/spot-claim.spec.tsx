@@ -224,8 +224,9 @@ test.describe("розмітка", () => {
     expect(html).toContain("disabled");
   });
 
-  test("🔴 готово не обіцяє кабінету, якого немає", () => {
+  test("🔴 готово веде до правок і НЕ обіцяє фото, яких немає", () => {
     const html = renderClient(DoneView, { spot: "alpenblick" });
-    expect(html).toContain("nothing on the page has changed yet");
+    expect(html).toContain("/account/listings");
+    expect(html).toContain("Photographs come later");
   });
 });
