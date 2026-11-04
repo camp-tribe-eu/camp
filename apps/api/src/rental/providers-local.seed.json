@@ -762,7 +762,7 @@
           "beltedSeats": 4,
           "lengthCm": 541,
           "camperTypeSlug": "van",
-          "camperTypeSaid": "Bürstner Campeo 4x4 C540 — Van",
+          "camperTypeSaid": "Bürstner Campeo 4x4 C540 Van",
           "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://www.karavan.sk/pozicovna",
           "sourceCheckedOn": "2026-11-03"
@@ -774,7 +774,7 @@
           "beltedSeats": 4,
           "lengthCm": 598,
           "camperTypeSlug": "van",
-          "camperTypeSaid": "Bürstner Lineo C590 — Van",
+          "camperTypeSaid": "Bürstner Lineo C590 Van",
           "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://www.karavan.sk/pozicovna",
           "sourceCheckedOn": "2026-11-03"
@@ -786,7 +786,7 @@
           "beltedSeats": 4,
           "lengthCm": 699,
           "camperTypeSlug": "lowprofile",
-          "camperTypeSaid": "McLouis Mc4 865 — Polointegrované",
+          "camperTypeSaid": "McLouis Mc4 865 Polointegrované",
           "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://www.karavan.sk/pozicovna",
           "sourceCheckedOn": "2026-11-03"
@@ -948,7 +948,7 @@
           "berths": 5,
           "beltedSeats": 5,
           "camperTypeSlug": "coachbuilt",
-          "camperTypeSaid": "Rad Coral XL je meradlom pre štýlové a praktické alkovny; Predná posteľ alkovňa (cm): 210x140",
+          "camperTypeSaid": "Rad Coral XL je meradlom pre štýlové a praktické alkovny",
           "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://karavanea.sk/adria-coral-xl-660-sl-automat-41",
           "sourceCheckedOn": "2026-11-04"
@@ -1100,7 +1100,7 @@
           "berths": 4,
           "beltedSeats": 4,
           "camperTypeSlug": "lowprofile",
-          "camperTypeSaid": "EURA MOBIL PROFILA RS 695 EB — Polointegrované",
+          "camperTypeSaid": "EURA MOBIL PROFILA RS 695 EB Polointegrované",
           "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://www.reslgroup.cz/pronajem-obytnych-vozu",
           "sourceCheckedOn": "2026-11-03"
@@ -1111,7 +1111,7 @@
           "berths": 4,
           "beltedSeats": 5,
           "camperTypeSlug": "van",
-          "camperTypeSaid": "KARMANN MOBIL DUNCAN 500 — Vestavba",
+          "camperTypeSaid": "KARMANN MOBIL DUNCAN 500 Vestavba",
           "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://www.reslgroup.cz/pronajem-obytnych-vozu",
           "sourceCheckedOn": "2026-11-03"
@@ -1122,7 +1122,7 @@
           "berths": 4,
           "beltedSeats": 4,
           "camperTypeSlug": "van",
-          "camperTypeSaid": "KARMANN MOBIL DAVIS 591 PALANDY 4 OSOBY — Vestavba",
+          "camperTypeSaid": "KARMANN MOBIL DAVIS 591 PALANDY 4 OSOBY Vestavba",
           "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://www.reslgroup.cz/pronajem-obytnych-vozu",
           "sourceCheckedOn": "2026-11-03"
@@ -1200,7 +1200,7 @@
           "slug": "itineo-sb-740",
           "berths": 5,
           "camperTypeSlug": "aclass",
-          "camperTypeSaid": "Integriran → Itineo SB 740 (5 oseb) — Najem menu grouping",
+          "camperTypeSaid": "Integriran",
           "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://avtodomi-stipic.si/najem-avtodoma/",
           "sourceCheckedOn": "2026-11-03"
@@ -1357,7 +1357,7 @@
           "slug": "benimar-tessoro-444",
           "berths": 6,
           "camperTypeSlug": "lowprofile",
-          "camperTypeSaid": "Poluintegrirani kamper (breadcrumb) — Benimar Tessoro 444",
+          "camperTypeSaid": "Poluintegrirani kamper",
           "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://www.kamperi.hr/najam-kampera/luksuzni-kamper-10/",
           "sourceCheckedOn": "2026-11-04"
@@ -1367,7 +1367,7 @@
           "slug": "benimar-tessoro-463",
           "berths": 5,
           "camperTypeSlug": "lowprofile",
-          "camperTypeSaid": "Poluintegrirani kamper (breadcrumb) — Benimar Tessoro 463 Northautokapp",
+          "camperTypeSaid": "Poluintegrirani kamper",
           "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://www.kamperi.hr/najam-kampera/luksuzni-kamper-5/",
           "sourceCheckedOn": "2026-11-04"
@@ -1377,10 +1377,10 @@
           "slug": "benimar-benivan-120up",
           "berths": 4,
           "camperTypeSlug": "van",
-          "camperTypeSaid": "Obiteljski kampervan za 4 osobe – Benivan 120up",
+          "camperTypeSaid": "Benimar Benivan 120 UP – kompaktan kampervan za 4 osobe",
           "camperTypeCheckedOn": "2026-11-04",
-          "sourceUrl": "https://www.kamperi.hr/najam-kampera/",
-          "sourceCheckedOn": "2026-11-03"
+          "sourceUrl": "https://www.kamperi.hr/najam-kampera/luksuzni-kamper-9/",
+          "sourceCheckedOn": "2026-11-04"
         }
       ]
     },
