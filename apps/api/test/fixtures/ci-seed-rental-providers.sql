@@ -96,6 +96,52 @@ INSERT INTO rental_provider_vehicles (provider_id, name, slug, berths, belted_se
   ('aaaaaaa1-0000-4000-8000-000000000003', 'Lago Compact', 'lago-compact', 2, 4, 540, 'https://lagocampers.example/flotta', '2026-11-03'),
   ('aaaaaaa1-0000-4000-8000-000000000004', 'Dune Van 6', 'dune-van-6', 4, NULL, 636, 'https://dunesvans.example/vloot', '2026-11-03');
 
+-- 🔴 CAMP-371, пункт 3: типи для фільтра «який вен чи причеп шукаєте».
+--
+-- Пʼять типів — ТА САМА таксономія, що в
+-- `apps/api/src/rental/camper-types.seed.json` (слаги, позиції, класи прав,
+-- назви en), бо CI сівалку типів не запускає (лише `--dry-run`), а без
+-- рядків у `camper_types` селект типу порожній і «вибір типу звужує»
+-- нічим довести. `ON CONFLICT DO NOTHING` — щоб фікстура лягала й на базу,
+-- де сівалка вже пройшла.
+--
+-- 🔴 ТИП СТОЇТЬ У ДВОХ МАШИН ІЗ ЧОТИРЬОХ, І ЦЕ НАВМИСНО. Dune Van 6 — ван,
+-- Alpine 600 — альков; Alpine 740 і Lago Compact лишаються БЕЗ типу. Це
+-- рівно та гілка, заради якої існує число «сховано через невідомий тип»:
+-- обрав «ван» → 1 компанія з 4 на екрані, і 2 машини, про які невідомо.
+-- Якби тип мали всі, число було б нулем на будь-якому коді — і мутація
+-- «константа замість підрахунку» пройшла б повз.
+--
+-- Обмеження `rental_provider_vehicles_type_has_evidence` вимагає слова
+-- прокатника й дату поруч із типом — вони тут є, як і на проді.
+-- 🔴 Ідентифікатори задані ЯВНО, а не згенеровані. Сторож фікстури вміє
+-- рахувати лише `INSERT … VALUES`, і він правильно ВІДМОВЛЯЄТЬСЯ вважати
+-- незрахований блок нулем. Форма `INSERT … SELECT … JOIN` потрібна була
+-- тільки щоб дістати згенерований id; зі сталими id вона зайва, а фікстура
+-- заразом стає передбачуваною.
+INSERT INTO camper_types (id, slug, position, licence_class, status) VALUES
+  ('00000000-0000-4000-8000-0000000ca001', 'van', 10, 'B', 'published'),
+  ('00000000-0000-4000-8000-0000000ca002', 'lowprofile', 20, 'B_or_C1', 'published'),
+  ('00000000-0000-4000-8000-0000000ca003', 'coachbuilt', 30, 'B_or_C1', 'published'),
+  ('00000000-0000-4000-8000-0000000ca004', 'aclass', 40, 'B_or_C1', 'published'),
+  ('00000000-0000-4000-8000-0000000ca005', 'caravan', 50, 'trailer', 'published')
+ON CONFLICT (slug) DO NOTHING;
+INSERT INTO camper_type_translations (camper_type_id, language_code, name) VALUES
+  ('00000000-0000-4000-8000-0000000ca001', 'en', 'Campervan'),
+  ('00000000-0000-4000-8000-0000000ca002', 'en', 'Low-profile motorhome'),
+  ('00000000-0000-4000-8000-0000000ca003', 'en', 'Over-cab motorhome'),
+  ('00000000-0000-4000-8000-0000000ca004', 'en', 'A-class motorhome'),
+  ('00000000-0000-4000-8000-0000000ca005', 'en', 'Caravan')
+ON CONFLICT (camper_type_id, language_code) DO NOTHING;
+UPDATE rental_provider_vehicles
+   SET camper_type_id = (SELECT id FROM camper_types WHERE slug = 'van'),
+       camper_type_said = 'Campervan', camper_type_checked_on = '2026-11-03'
+ WHERE slug = 'dune-van-6';
+UPDATE rental_provider_vehicles
+   SET camper_type_id = (SELECT id FROM camper_types WHERE slug = 'coachbuilt'),
+       camper_type_said = 'Alkoven', camper_type_checked_on = '2026-11-03'
+ WHERE slug = 'alpine-600';
+
 -- 🔴 Лише посилання. `rating` і `review_count` лишаються NULL, і замок у
 -- схемі не дасть їх покласти, доки немає письмового дозволу.
 INSERT INTO rental_provider_review_profiles (provider_id, source, profile_url) VALUES
@@ -131,6 +177,18 @@ BEGIN
   END IF;
   IF EXISTS (SELECT 1 FROM rental_provider_review_profiles WHERE rating IS NOT NULL OR review_count IS NOT NULL) THEN
     RAISE EXCEPTION 'CI fixture: у профілі відгуків стоїть цифра — дозволу на це немає';
+  END IF;
+  -- CAMP-371: два типи проставлені, і хоча б одна машина БЕЗ типу — інакше
+  -- число «сховано через невідомий тип» було б нулем на будь-якому коді.
+  IF (SELECT count(*) FROM rental_provider_vehicles WHERE camper_type_id IS NOT NULL) <> 2 THEN
+    RAISE EXCEPTION 'CI fixture: очікували 2 машини з типом, є %',
+      (SELECT count(*) FROM rental_provider_vehicles WHERE camper_type_id IS NOT NULL);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM rental_provider_vehicles WHERE camper_type_id IS NULL) THEN
+    RAISE EXCEPTION 'CI fixture: усі машини мають тип — гілку «сховано через невідомий тип» нічим перевірити';
+  END IF;
+  IF (SELECT count(*) FROM camper_types WHERE status = 'published') < 5 THEN
+    RAISE EXCEPTION 'CI fixture: у camper_types менше пʼяти опублікованих типів — селект типу неповний';
   END IF;
   RAISE NOTICE 'CI fixture: % rental providers, % country rows over % countries, % services, % vehicles', p, c, cc, s, v;
 END $$;

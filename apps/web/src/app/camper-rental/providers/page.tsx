@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import ProviderCatalogue from "@/components/provider-catalogue";
 import { collectionGraph, jsonLdProps } from "@/lib/jsonld";
-import { listProviders } from "@/lib/rental-providers";
+import { listCamperTypes, listProviders } from "@/lib/rental-providers";
 
 // CAMP-427 — сторінка вибору провайдера.
 //
@@ -15,7 +15,9 @@ export const metadata: Metadata = {
 };
 
 export default async function ProvidersPage() {
-  const all = await listProviders();
+  // 🔴 CAMP-371. Таксономія типів іде поруч із компаніями, і теж у збірці:
+  // пʼять типів з бази, не константа в коді.
+  const [all, types] = await Promise.all([listProviders(), listCamperTypes()]);
   return (
     <main className="mx-auto max-w-wrap px-4 py-10 xl:px-6">
       {/* 🔴 Структуровані дані на КОЖНІЙ сторінці — вимога сторожа
@@ -49,7 +51,7 @@ export default async function ProvidersPage() {
         <p className="mt-8">The catalogue is not filled in yet.</p>
       ) : (
         <div className="mt-8">
-          <ProviderCatalogue all={all} />
+          <ProviderCatalogue all={all} types={types} />
         </div>
       )}
     </main>

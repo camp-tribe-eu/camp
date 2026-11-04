@@ -82,3 +82,61 @@ test.describe("каталог компаній: фільтр звужує, а н
     expect(html).toContain("provider-row");
   });
 });
+
+// 🔴 CAMP-371, пункт 3: фільтр «який вен чи причеп шукаєте» — справжнім
+// кліком, і число схованих читається з розмітки, а не з константи тесту.
+//
+// Число не записане в тест рукою навмисно: тест іде і по фікстурі CI
+// (2 машини без типу з 4), і по справжньому каталозі (48 зі 115 на
+// 04.11.2026). Замість цього він бере суму «N without a stated type» /
+// «no vehicle type stated for its N models» з КОЖНОГО рядка до фільтра —
+// тобто з іншого місця розмітки — і вимагає, щоб рядок про сховані машини
+// назвав рівно її. Константа замість підрахунку збіглася б із цією сумою
+// хіба що випадково, і лише на одному з двох наборів даних.
+test.describe("каталог компаній: фільтр за типом", () => {
+  test("🔴 вибір типу звужує список, і число схованих через невідомий тип дорівнює сумі по рядках", async ({
+    page,
+  }) => {
+    await page.goto("/camper-rental/providers");
+    const rows = page.getByTestId("provider-row");
+    const before = await rows.count();
+    expect(before).toBeGreaterThanOrEqual(2);
+
+    // Сума машин без типу по ВСІХ рядках — до того, як щось сховано.
+    const perRow = await page.getByTestId("row-types").allTextContents();
+    const untyped = perRow.reduce((n, t) => {
+      const m = t.match(
+        /(\d+) without a stated type|no vehicle type stated for its (\d+) model/,
+      );
+      return n + (m ? Number(m[1] ?? m[2]) : 0);
+    }, 0);
+    // Щоб число щось означало: у даних справді є машини без типу.
+    expect(untyped).toBeGreaterThan(0);
+
+    const type = page.getByTestId("filter-type");
+    const options = await type.locator("option").allTextContents();
+    // Перша — «any»; далі таксономія з бази, тобто пʼять типів.
+    expect(options.length).toBe(6);
+    // Перший тип таксономії — ван (position 10); він є і у фікстурі, і
+    // в каталозі.
+    await type.selectOption({ index: 1 });
+    const chosen = options[1].toLowerCase();
+
+    await expect(rows).not.toHaveCount(before);
+    const after = await rows.count();
+    expect(after).toBeGreaterThan(0);
+    expect(after).toBeLessThan(before);
+    await expect(page.getByTestId("result-count")).toHaveText(
+      `${after} of ${before}`,
+    );
+    // Кожен, хто лишився, НАЗВАВ цей тип сам.
+    for (const t of await page.getByTestId("row-types").allTextContents()) {
+      expect(t).toContain(chosen);
+    }
+    await expect(page.getByTestId("hidden-by-type")).toHaveText(
+      new RegExp(
+        `^${untyped} vehicles? (is|are) not shown because their rental company does not state a type`,
+      ),
+    );
+  });
+});

@@ -53,6 +53,29 @@ export interface ProviderListItem {
    */
   countries: string[];
   reviewProfiles: ReviewProfileView[];
+  /**
+   * 🔴 CAMP-371. Слаги типів, які ПРОКАТНИК САМ назвав хоча б для однієї
+   * своєї машини (`camper_type_said` поруч із кожним). Порядок — як у
+   * таксономії, щоб два рядки каталогу не перелічували те саме в різному
+   * порядку.
+   */
+  camperTypeSlugs: string[];
+  /**
+   * 🔴 CAMP-371. Машини БЕЗ типу — ті, де прокатник ніде його не написав,
+   * а вигадувати заборонено. Число порахованe в SQL, а не виведене з
+   * `vehicleCount - типові`: читач, що обрав «ван», мусить побачити,
+   * скільки машин сховано не тому, що вони не вани, а тому, що про них
+   * невідомо. Без цього числа фільтр каже «таких немає» там, де насправді
+   * «ми не знаємо», — і це брехня мовчанням.
+   */
+  untypedVehicleCount: number;
+}
+
+/** Відповідь `/rental/camper-types` — таксономія, якою звужує каталог. */
+export interface CamperTypeView {
+  slug: string;
+  name: string;
+  position: number;
 }
 
 /**
@@ -94,6 +117,28 @@ export interface ProviderFilters {
   country?: string;
   /** Коди сервісів, які мусять бути `included` АБО `extra`. */
   services?: string[];
+  /**
+   * Слаг типу з `camper_types`: компанія мусить мати хоча б одну машину
+   * цього типу, названого САМИМ прокатником. Машини без типу не рахуються
+   * ні за, ні проти — їх кількість іде окремим полем.
+   */
+  camperType?: string;
+}
+
+/**
+ * Слаг типу — з того ж словника, що й `camper_types.slug` (`^[a-z0-9_]+$`).
+ * Порожнє — «без фільтра». Чужий, але правильно складений слаг просто не
+ * знайде жодної машини: це не помилка запиту, а порожня відповідь.
+ */
+export function normaliseCamperType(
+  value: string | undefined,
+): string | undefined {
+  if (value === undefined || value === '') return undefined;
+  const slug = value.trim();
+  if (!/^[a-z0-9_]+$/.test(slug)) {
+    throw new BadRequestException(`«${value}» не схоже на слаг типу кемпера`);
+  }
+  return slug;
 }
 
 /** Країна — рівно дві літери. Усе інше відмовляємо, а не шукаємо мовчки. */
@@ -156,6 +201,19 @@ export class RentalProvidersService {
           AND s.availability <> 'unavailable'
       )`);
     }
+    // 🔴 CAMP-371. Тип звужує за словами ПРОКАТНИКА: `camper_type_id`
+    // стоїть лише там, де поруч лежить `camper_type_said` (обмеження
+    // `rental_provider_vehicles_type_has_evidence`). Машина без типу не
+    // проходить фільтр — і не має проходити, бо ми не знаємо, що вона
+    // таке; але скільки їх, каже `untyped_vehicle_count` нижче.
+    if (filters.camperType) {
+      params.push(filters.camperType);
+      where.push(`EXISTS (
+        SELECT 1 FROM rental_provider_vehicles v
+        JOIN camper_types ct ON ct.id = v.camper_type_id
+        WHERE v.provider_id = p.id AND ct.slug = $${params.length}
+      )`);
+    }
 
     const rows = (await this.db.query(
       `SELECT p.slug, p.name, p.home_country, p.website,
@@ -164,6 +222,14 @@ export class RentalProvidersService {
                 WHERE s.provider_id = p.id) AS service_count,
               (SELECT count(*) FROM rental_provider_vehicles v
                 WHERE v.provider_id = p.id) AS vehicle_count,
+              (SELECT count(*) FROM rental_provider_vehicles v
+                WHERE v.provider_id = p.id
+                  AND v.camper_type_id IS NULL) AS untyped_vehicle_count,
+              COALESCE((SELECT array_agg(t.slug ORDER BY t.position, t.slug)
+                          FROM (SELECT DISTINCT ct.slug, ct.position
+                                  FROM rental_provider_vehicles v
+                                  JOIN camper_types ct ON ct.id = v.camper_type_id
+                                 WHERE v.provider_id = p.id) t), '{}') AS camper_type_slugs,
               COALESCE((SELECT array_agg(s.code ORDER BY s.code)
                           FROM rental_provider_services s
                          WHERE s.provider_id = p.id
@@ -194,6 +260,35 @@ export class RentalProvidersService {
       serviceCodes: (r.service_codes as unknown as string[]) ?? [],
       countries: (r.countries as unknown as string[]) ?? [],
       reviewProfiles: profiles.get(String(r.slug)) ?? [],
+      camperTypeSlugs: (r.camper_type_slugs as unknown as string[]) ?? [],
+      untypedVehicleCount: Number(r.untyped_vehicle_count),
+    }));
+  }
+
+  /**
+   * 🔴 CAMP-371. ТАКСОНОМІЯ БЕРЕТЬСЯ З БАЗИ, А НЕ З КОНСТАНТИ В КОДІ.
+   *
+   * Пʼять типів живуть у `camper_types` і засіваються з
+   * `camper-types.seed.json`, де кожен несе джерело. Перелік у коді був
+   * би другим описом того самого, і розійшлися б вони тихо: шостий тип у
+   * сіді — і фільтр його не показує, а тест на «пʼять типів» зелений.
+   * Порядок — `position`, як у таксономії; назва — з перекладу, щоб
+   * читач не бачив `lowprofile`.
+   */
+  async camperTypes(): Promise<CamperTypeView[]> {
+    const rows = (await this.db.query(
+      `SELECT ct.slug, ct.position, ctt.name
+         FROM camper_types ct
+         JOIN camper_type_translations ctt
+           ON ctt.camper_type_id = ct.id AND ctt.language_code = $1
+        WHERE ct.status = 'published'
+        ORDER BY ct.position, ct.slug`,
+      ['en'],
+    )) as { slug: string; position: number; name: string }[];
+    return rows.map((r) => ({
+      slug: String(r.slug),
+      name: String(r.name),
+      position: Number(r.position),
     }));
   }
 

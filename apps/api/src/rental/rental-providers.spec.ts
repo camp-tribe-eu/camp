@@ -1,5 +1,6 @@
 import {
   DEFAULT_SORT,
+  normaliseCamperType,
   normaliseCountry,
   normaliseServices,
   sortClause,
@@ -82,5 +83,24 @@ describe('сервіси', () => {
     expect(() => normaliseServices('one_way,Pets Allowed')).toThrow(
       /Pets Allowed/,
     );
+  });
+});
+
+// CAMP-371: фільтр за типом — слаг із того ж словника, що й `camper_types`.
+describe('тип кемпера', () => {
+  it('порожнє — це «без фільтра», а не помилка', () => {
+    expect(normaliseCamperType(undefined)).toBeUndefined();
+    expect(normaliseCamperType('')).toBeUndefined();
+  });
+
+  it('слаг таксономії проходить як є', () => {
+    expect(normaliseCamperType('van')).toBe('van');
+    expect(normaliseCamperType('lowprofile')).toBe('lowprofile');
+  });
+
+  it('🔴 не слаг — відмова, а не мовчазне «жодної машини»', () => {
+    for (const bad of ['Van', 'camper van', "van'--", 'van,aclass']) {
+      expect(() => normaliseCamperType(bad)).toThrow(/слаг типу/);
+    }
   });
 });
