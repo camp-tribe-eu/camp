@@ -23,4 +23,15 @@ Nice=10
 IOSchedulingClass=idle
 TimeoutStartSec=1h
 ExecStart=/usr/bin/node dist/bathing/import.js --apply
+# 🔴 CAMP-440: лічильник поспіль невдалих звернень до EEA живе тут
+# (/var/lib/camptribe-bathing-waters; systemd створює теку й віддає її
+# користувачу юніта, шлях приходить у $STATE_DIRECTORY). Заміряно
+# 04.11.2026: сервер EEA віддав 500 на все, і юніт упав за секунду з
+# листом власнику про чужу машину. Тепер 5xx/недосяжність після трьох
+# спроб НЕ валить юніт, а рахується; кожна ТРЕТЯ невдача поспіль
+# (три середи ≈ 15 діб) валить, і лист іде через OnFailure вище.
+# Без цього рядка імпортеру нема де рахувати — і він валить юніт на
+# кожному 5xx, як до CAMP-440: голосно, не тихо. Тест на наявність
+# рядка — apps/api/src/bathing/upstream.spec.ts.
+StateDirectory=camptribe-bathing-waters
 ExecStartPost=/bin/rm -f /srv/camptribe/failed/camptribe-bathing-waters.service
