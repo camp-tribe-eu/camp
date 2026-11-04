@@ -114,21 +114,24 @@ INSERT INTO rental_provider_vehicles (provider_id, name, slug, berths, belted_se
 --
 -- Обмеження `rental_provider_vehicles_type_has_evidence` вимагає слова
 -- прокатника й дату поруч із типом — вони тут є, як і на проді.
-INSERT INTO camper_types (slug, position, licence_class, status) VALUES
-  ('van', 10, 'B', 'published'),
-  ('lowprofile', 20, 'B_or_C1', 'published'),
-  ('coachbuilt', 30, 'B_or_C1', 'published'),
-  ('aclass', 40, 'B_or_C1', 'published'),
-  ('caravan', 50, 'trailer', 'published')
+-- 🔴 Ідентифікатори задані ЯВНО, а не згенеровані. Сторож фікстури вміє
+-- рахувати лише `INSERT … VALUES`, і він правильно ВІДМОВЛЯЄТЬСЯ вважати
+-- незрахований блок нулем. Форма `INSERT … SELECT … JOIN` потрібна була
+-- тільки щоб дістати згенерований id; зі сталими id вона зайва, а фікстура
+-- заразом стає передбачуваною.
+INSERT INTO camper_types (id, slug, position, licence_class, status) VALUES
+  ('00000000-0000-4000-8000-0000000ca001', 'van', 10, 'B', 'published'),
+  ('00000000-0000-4000-8000-0000000ca002', 'lowprofile', 20, 'B_or_C1', 'published'),
+  ('00000000-0000-4000-8000-0000000ca003', 'coachbuilt', 30, 'B_or_C1', 'published'),
+  ('00000000-0000-4000-8000-0000000ca004', 'aclass', 40, 'B_or_C1', 'published'),
+  ('00000000-0000-4000-8000-0000000ca005', 'caravan', 50, 'trailer', 'published')
 ON CONFLICT (slug) DO NOTHING;
-INSERT INTO camper_type_translations (camper_type_id, language_code, name)
-SELECT ct.id, 'en', v.name FROM (VALUES
-  ('van', 'Campervan'),
-  ('lowprofile', 'Low-profile motorhome'),
-  ('coachbuilt', 'Over-cab motorhome'),
-  ('aclass', 'A-class motorhome'),
-  ('caravan', 'Caravan')
-) AS v(slug, name) JOIN camper_types ct ON ct.slug = v.slug
+INSERT INTO camper_type_translations (camper_type_id, language_code, name) VALUES
+  ('00000000-0000-4000-8000-0000000ca001', 'en', 'Campervan'),
+  ('00000000-0000-4000-8000-0000000ca002', 'en', 'Low-profile motorhome'),
+  ('00000000-0000-4000-8000-0000000ca003', 'en', 'Over-cab motorhome'),
+  ('00000000-0000-4000-8000-0000000ca004', 'en', 'A-class motorhome'),
+  ('00000000-0000-4000-8000-0000000ca005', 'en', 'Caravan')
 ON CONFLICT (camper_type_id, language_code) DO NOTHING;
 UPDATE rental_provider_vehicles
    SET camper_type_id = (SELECT id FROM camper_types WHERE slug = 'van'),
