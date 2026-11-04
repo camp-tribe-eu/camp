@@ -7,10 +7,13 @@ import {
   SORT_KEYS,
   SORT_LABEL,
   arrange,
+  camperTypeName,
   countriesOf,
   filtersFromQuery,
+  hiddenByUnknownType,
   serviceCodesOf,
   serviceLabel,
+  type CamperType,
   type CatalogueFilters,
   type Provider,
   type SortKey,
@@ -35,8 +38,22 @@ const SOURCE_LABEL: Record<string, string> = {
   google: "Google",
 };
 
-export default function ProviderCatalogue({ all }: { all: Provider[] }) {
-  const [filters, setFilters] = useState<CatalogueFilters>(NO_FILTERS);
+export default function ProviderCatalogue({
+  all,
+  types,
+  initial = NO_FILTERS,
+}: {
+  all: Provider[];
+  /** 🔴 CAMP-371. Таксономія з бази (`/rental/camper-types`), не константа. */
+  types: CamperType[];
+  /**
+   * Фільтри першого кадру. Сторінка їх не передає (статична збірка не
+   * знає адреси); існує, щоб юніт міг прочитати ВІДДАНУ розмітку з
+   * обраним типом — число схованих машин, а не константу чи клас.
+   */
+  initial?: CatalogueFilters;
+}) {
+  const [filters, setFilters] = useState<CatalogueFilters>(initial);
   const [sort, setSort] = useState<SortKey>("name");
 
   // 🔴 ПОЧАТКОВИЙ ФІЛЬТР ІЗ АДРЕСИ — ПІСЛЯ МОНТУВАННЯ, А НЕ В useState.
@@ -53,15 +70,23 @@ export default function ProviderCatalogue({ all }: { all: Provider[] }) {
   // які справді трапляються. Чуже значення з адреси просто ігнорується,
   // а не звужує список до порожнього без пояснення.
   useEffect(() => {
-    const next = filtersFromQuery(window.location.search, all);
-    if (next.country || next.services.length) setFilters(next);
-  }, [all]);
+    const next = filtersFromQuery(window.location.search, all, types);
+    if (next.country || next.services.length || next.camperType)
+      setFilters(next);
+  }, [all, types]);
 
   const countries = useMemo(() => countriesOf(all), [all]);
   const services = useMemo(() => serviceCodesOf(all), [all]);
   const shown = useMemo(
     () => arrange(all, filters, sort),
     [all, filters, sort],
+  );
+  // 🔴 CAMP-371. Сума порахованих у SQL `untypedVehicleCount` по компаніях,
+  // що проходять решту фільтрів. Правило — в `lib/rental-providers.ts`,
+  // де в нього є тест; тут лише виклик.
+  const hidden = useMemo(
+    () => hiddenByUnknownType(all, filters),
+    [all, filters],
   );
 
   return (
@@ -88,6 +113,33 @@ export default function ProviderCatalogue({ all }: { all: Provider[] }) {
             {countries.map((c) => (
               <option key={c} value={c}>
                 {c}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {/* 🔴 CAMP-371. «Vehicle type the company states», і це не стиль.
+            Тип стоїть лише там, де прокатник сам його написав
+            (`camper_type_said` поруч із кожним). Машина без типу не
+            проходить фільтр — і скільки їх, сторінка каже числом нижче,
+            а не мовчить. Перелік типів — із бази, не з константи. */}
+        <label className="flex flex-col gap-1 text-sm">
+          <span>Vehicle type the company states</span>
+          <select
+            data-testid="filter-type"
+            className="rounded border border-line bg-surface px-3 py-2 text-ink"
+            value={filters.camperType ?? ""}
+            onChange={(e) =>
+              setFilters((f) => ({
+                ...f,
+                camperType: e.target.value || null,
+              }))
+            }
+          >
+            <option value="">any</option>
+            {types.map((t) => (
+              <option key={t.slug} value={t.slug}>
+                {t.name}
               </option>
             ))}
           </select>
@@ -151,6 +203,21 @@ export default function ProviderCatalogue({ all }: { all: Provider[] }) {
         {shown.length} of {all.length}
       </p>
 
+      {/* 🔴 CAMP-371. ГОЛОВНА ВИМОГА, І ВОНА НЕ ОБГОВОРЮЄТЬСЯ. Тип відомий у
+          67 машин зі 115; решта — ті, де прокатник ніде його не написав.
+          Читач, що обрав тип, мусить бачити, скільки машин сховано саме
+          через невідомий тип, — справжнім числом, не «деякими». Інакше
+          він вирішить, що таких машин у нас немає, і це буде брехня,
+          зроблена мовчанням. Нуль теж друкується: «none hidden» — це
+          твердження, а відсутність рядка — ні. */}
+      {filters.camperType && (
+        <p className="mt-2 text-sm text-ink-2" data-testid="hidden-by-type">
+          {hidden === 0
+            ? "No vehicle is hidden for want of a type: every company here states one for each vehicle."
+            : `${hidden} ${hidden === 1 ? "vehicle is" : "vehicles are"} not shown because their rental company does not state a type. Some of them may be a ${camperTypeName(types, filters.camperType).toLowerCase()} — ask the company.`}
+        </p>
+      )}
+
       {shown.length === 0 ? (
         <p className="mt-4">
           No company in the catalogue meets these conditions. Drop some of them
@@ -182,6 +249,29 @@ export default function ProviderCatalogue({ all }: { all: Provider[] }) {
               <p className="mt-1 text-sm">
                 services listed: {p.serviceCount} · models: {p.vehicleCount}
               </p>
+              {/* 🔴 CAMP-371. Типи — лише ті, що компанія НАЗВАЛА сама; і
+                  поруч скільки моделей без типу, щоб «types: campervan»
+                  не читалось як «усе інше — не вани». */}
+              {p.vehicleCount > 0 && (
+                <p className="mt-1 text-sm" data-testid="row-types">
+                  {p.camperTypeSlugs.length > 0 ? (
+                    <>
+                      types stated:{" "}
+                      {p.camperTypeSlugs
+                        .map((s) => camperTypeName(types, s).toLowerCase())
+                        .join(", ")}
+                      {p.untypedVehicleCount > 0 && (
+                        <> · {p.untypedVehicleCount} without a stated type</>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      no vehicle type stated for its {p.untypedVehicleCount}{" "}
+                      {p.untypedVehicleCount === 1 ? "model" : "models"}
+                    </>
+                  )}
+                </p>
+              )}
               {p.reviewProfiles.length > 0 && (
                 <p className="mt-2 text-sm" data-testid="review-links">
                   Reviews:{" "}

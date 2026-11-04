@@ -4,7 +4,10 @@ import ProviderCatalogue from "@/components/provider-catalogue";
 import {
   arrange,
   countriesOf,
+  hiddenByUnknownType,
   NO_FILTERS,
+  type CamperType,
+  type CatalogueFilters,
   type Provider,
 } from "@/lib/rental-providers";
 import { renderClient } from "./render-component";
@@ -38,7 +41,17 @@ const P = (
   reviewProfiles: [],
   serviceCodes,
   countries,
+  camperTypeSlugs: [],
+  untypedVehicleCount: 0,
 });
+
+// 🔴 CAMP-371. Таксономія для рендера — дві з пʼяти, і цього досить: тест
+// перевіряє, що селект бере перелік із ПРОПСА, а не з константи. Якби
+// компонент мав власний список, тут зʼявились би зайві три.
+const TYPES: CamperType[] = [
+  { slug: "van", name: "Campervan", position: 10 },
+  { slug: "caravan", name: "Caravan", position: 50 },
+];
 
 // 🔴 КРАЇНА ПРОПИСКИ НАВМИСНО НЕ ЗБІГАЄТЬСЯ З КРАЇНАМИ ВИДАЧІ.
 //
@@ -53,8 +66,8 @@ const ALL = [
   P("charlie", ["NL"], ["bike_rack"]),
 ];
 
-const render = (providers: Provider[]) =>
-  renderClient(ProviderCatalogue, { all: providers });
+const render = (providers: Provider[], initial?: CatalogueFilters) =>
+  renderClient(ProviderCatalogue, { all: providers, types: TYPES, initial });
 
 /** Назви рядків у тому порядку, у якому їх віддає розмітка. */
 function rowsIn(html: string): string[] {
@@ -104,5 +117,80 @@ test.describe("каталог показує саме те, що віддає п
     const html = render([]);
     expect(rowsIn(html)).toEqual([]);
     expect(html).toContain("0 of 0");
+  });
+});
+
+// 🔴 CAMP-371, пункт 3. Фільтр за типом і число схованих — У ВІДДАНІЙ
+// РОЗМІТЦІ, а не в предикаті. Предикат доведений у
+// `rental-providers.spec.ts`; тут — що компонент друкує саме його число.
+//
+// Пораховано руками:
+//   alfa    — van, 2 машини без типу
+//   bravo   — van + caravan, 0 без типу
+//   charlie — жодного типу, 3 без типу
+// «ван» → alfa і bravo; сховано 2 + 0 + 3 = 5.
+const TYPED = [
+  {
+    ...ALL[0],
+    vehicleCount: 3,
+    camperTypeSlugs: ["van"],
+    untypedVehicleCount: 2,
+  },
+  { ...ALL[1], vehicleCount: 2, camperTypeSlugs: ["van", "caravan"] },
+  { ...ALL[2], vehicleCount: 3, untypedVehicleCount: 3 },
+];
+const VAN: CatalogueFilters = { ...NO_FILTERS, camperType: "van" };
+
+test.describe("фільтр за типом у розмітці", () => {
+  test("🔴 селект пропонує рівно типи з пропса, назвами, і жодного зайвого", () => {
+    const html = render(TYPED);
+    for (const t of TYPES) {
+      expect(html, t.slug).toContain(`value="${t.slug}"`);
+      expect(html, t.name).toContain(`>${t.name}<`);
+    }
+    // Три інші типи таксономії в пропсі НЕ передані — і в розмітці їх
+    // бути не може: інакше перелік іде з константи, а не з бази.
+    for (const absent of ["lowprofile", "coachbuilt", "aclass"]) {
+      expect(html, absent).not.toContain(`value="${absent}"`);
+    }
+  });
+
+  test("🔴 обраний тип: на екрані лише ті, хто його назвав", () => {
+    const html = render(TYPED, VAN);
+    expect(rowsIn(html)).toEqual(["ALFA", "BRAVO"]);
+    expect(html).toContain("2 of 3");
+  });
+
+  test("🔴 число схованих через невідомий тип надруковане, і воно дорівнює підрахунку", () => {
+    const html = render(TYPED, VAN);
+    const m = html.match(
+      /data-testid="hidden-by-type"[^>]*>(\d+) vehicles are not shown because their rental company does not state a type/,
+    );
+    expect(m, "рядок про сховані машини").not.toBeNull();
+    expect(Number(m![1])).toBe(5);
+    expect(hiddenByUnknownType(TYPED, VAN)).toBe(5);
+    // І назва обраного типу — з таксономії, не слаг.
+    expect(html).toContain("may be a campervan");
+  });
+
+  test("число йде з даних: інші дані — інше число", () => {
+    const html = render(TYPED.slice(0, 2), VAN);
+    expect(html).toMatch(/hidden-by-type"[^>]*>2 vehicles are not shown/);
+  });
+
+  test("нуль схованих — теж сказано словами, а не мовчанням", () => {
+    const html = render([TYPED[1]], VAN);
+    expect(html).toMatch(/hidden-by-type"[^>]*>No vehicle is hidden/);
+  });
+
+  test("без обраного типу рядка про сховані немає: ховати нічого", () => {
+    expect(render(TYPED)).not.toContain('data-testid="hidden-by-type"');
+  });
+
+  test("рядок компанії каже, які типи вона назвала і скільки моделей без типу", () => {
+    const html = render(TYPED);
+    expect(html).toContain("types stated: campervan · 2 without a stated type");
+    expect(html).toContain("types stated: campervan, caravan");
+    expect(html).toContain("no vehicle type stated for its 3 models");
   });
 });

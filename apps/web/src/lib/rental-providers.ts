@@ -44,6 +44,25 @@ export interface Provider {
    * німецька, якщо депо є в Амстердамі.
    */
   countries: string[];
+  /**
+   * 🔴 CAMP-371. Слаги типів, які прокатник САМ назвав хоча б для однієї
+   * машини. Фільтр за типом звужує саме по цьому полю.
+   */
+  camperTypeSlugs: string[];
+  /**
+   * 🔴 CAMP-371. Машини, де прокатник ніде не написав тип, — порахованe в
+   * SQL (`rental-providers.service.ts`). Коли читач обирає тип, сума
+   * цього поля — те, що він МУСИТЬ побачити: інакше «0 of 36» читається
+   * як «таких машин немає», а правда — «про 48 ми не знаємо».
+   */
+  untypedVehicleCount: number;
+}
+
+/** Відповідь `/rental/camper-types` — пʼять типів таксономії, з бази. */
+export interface CamperType {
+  slug: string;
+  name: string;
+  position: number;
 }
 
 export const SERVICE_LABEL: Record<string, string> = {
@@ -153,9 +172,15 @@ export const SORT_LABEL: Record<SortKey, string> = {
 export interface CatalogueFilters {
   country: string | null;
   services: string[];
+  /** Слаг типу з таксономії (`CamperType.slug`) або `null` — без фільтра. */
+  camperType: string | null;
 }
 
-export const NO_FILTERS: CatalogueFilters = { country: null, services: [] };
+export const NO_FILTERS: CatalogueFilters = {
+  country: null,
+  services: [],
+  camperType: null,
+};
 
 /**
  * 🔴 КОЖЕН ОБРАНИЙ СЕРВІС МУСИТЬ БУТИ, А НЕ «ХОЧА Б ОДИН».
@@ -163,11 +188,45 @@ export const NO_FILTERS: CatalogueFilters = { country: null, services: [] };
  * `some` замість `every` дав би фільтр «з душем АБО велокріпленням» там,
  * де читач просив «і те, і те» — і він би цього не помітив, бо список
  * просто був би довшим, ніж має бути.
+ *
+ * Тип — «компанія має хоча б одну машину цього типу, названого нею
+ * самою». Машина без типу не проходить і не має проходити: ми не знаємо,
+ * що вона таке. Скільки таких — каже `hiddenByUnknownType`.
  */
 export function matches(p: Provider, f: CatalogueFilters): boolean {
   if (f.country && !p.countries.includes(f.country)) return false;
+  if (f.camperType && !p.camperTypeSlugs.includes(f.camperType)) return false;
   return f.services.every((code) => p.serviceCodes.includes(code));
 }
+
+/**
+ * 🔴 CAMP-371. СКІЛЬКИ МАШИН СХОВАНО НЕ ТОМУ, ЩО ВОНИ НЕ ТОГО ТИПУ, А
+ * ТОМУ, ЩО ТИП НЕВІДОМИЙ.
+ *
+ * Тип відомий у 67 машин зі 115 (замір `seed-camper-types.mjs --dry-run`,
+ * 04.11.2026). Решта 48 — ті, де прокатник ніде не написав тип, і
+ * вигадувати його заборонено. Читач, що обрав «ван» і побачив 15 компаній,
+ * мусить бачити й це число: інакше він вирішить, що решти машин у нас
+ * просто немає, і це буде брехня мовчанням.
+ *
+ * Рахується по компаніях, що проходять РЕШТУ фільтрів (країна, сервіси),
+ * а тип не береться до уваги: саме серед них машини без типу й могли б
+ * виявитись шуканими. Без обраного типу число — нуль: ховати нічого.
+ */
+export function hiddenByUnknownType(
+  all: Provider[],
+  f: CatalogueFilters,
+): number {
+  if (!f.camperType) return 0;
+  const others: CatalogueFilters = { ...f, camperType: null };
+  return all
+    .filter((p) => matches(p, others))
+    .reduce((n, p) => n + p.untypedVehicleCount, 0);
+}
+
+/** Назва типу з таксономії; слаг, якого там немає, віддається як є. */
+export const camperTypeName = (types: CamperType[], slug: string): string =>
+  types.find((t) => t.slug === slug)?.name ?? slug;
 
 /**
  * Порівняння для сортування. `null` завжди в кінець: компанія, про яку
@@ -214,17 +273,23 @@ export function compare(a: Provider, b: Provider, key: SortKey): number {
 export function filtersFromQuery(
   search: string,
   all: Provider[],
+  types: CamperType[] = [],
 ): CatalogueFilters {
   const q = new URLSearchParams(search);
   const country = (q.get("country") ?? "").toUpperCase();
   const known = new Set(all.flatMap((p) => p.countries));
   const codes = new Set(all.flatMap((p) => p.serviceCodes));
+  // Тип — лише з таксономії, а не «будь-який слаг, що трапляється»: тип,
+  // якого ще ніхто не назвав, усе одно законний і дає «0 of N» із
+  // поясненням, скільки машин без типу.
+  const type = q.get("type") ?? "";
   return {
     country: known.has(country) ? country : null,
     services: (q.get("services") ?? "")
       .split(",")
       .map((c) => c.trim())
       .filter((c) => codes.has(c)),
+    camperType: types.some((t) => t.slug === type) ? type : null,
   };
 }
 
@@ -250,4 +315,18 @@ export async function listProviders(): Promise<Provider[]> {
   });
   if (!res.ok) return [];
   return (await res.json()) as Provider[];
+}
+
+/**
+ * 🔴 ТАКСОНОМІЯ З БАЗИ, А НЕ З КОНСТАНТИ. Пʼять типів засіяні з
+ * `camper-types.seed.json`, де кожен несе джерело; перелік у коді був би
+ * другим описом того самого, і розійшлися б вони тихо. Порожня
+ * відповідь — порожній селект, і сторінка так і каже.
+ */
+export async function listCamperTypes(): Promise<CamperType[]> {
+  const res = await apiFetch("/rental/camper-types", {
+    next: { revalidate: 86_400 },
+  });
+  if (!res.ok) return [];
+  return (await res.json()) as CamperType[];
 }
