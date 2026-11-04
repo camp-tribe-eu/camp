@@ -1,3 +1,8 @@
+import { config as loadDotenv } from 'dotenv';
+
+// 🔴 ДО обчислення PG_CONNECTION нижче — див. коментар над ним.
+loadDotenv({ quiet: true });
+
 /**
  * CAMP-338 — пояс сесії до бази задається НАМИ, а не машиною.
  *
@@ -62,3 +67,32 @@ export const PG_CONNECTION = Object.freeze({
   url: process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev',
   extra: PG_EXTRA,
 });
+
+/**
+ * 🔴 ЧОМУ `.env` ЧИТАЄТЬСЯ ТУТ, А НЕ ЛИШЕ В `ConfigModule.forRoot()`.
+ *
+ * Заміряно 04.11.2026: нічний деплой упав на тимчасовій API —
+ * `Unable to connect to the database. Retrying (1)…(10)` і вихід із
+ * кодом 1. Деплой запускає її як `env PORT=3002 node dist/main` із
+ * `.env` у теці, а не в оточенні (systemd-юніт живої API має
+ * `EnvironmentFile`, тимчасова — ні). До CAMP-433 вираз
+ * `process.env.DATABASE_URL ?? …` стояв усередині літерала
+ * `TypeOrmModule.forRoot({...})`, який обчислюється ПІСЛЯ
+ * `ConfigModule.forRoot()` у тому ж масиві імпортів — і `.env` уже був
+ * прочитаний. CAMP-433 перенесла його сюди, у модульну область, а
+ * `app.module.ts` і `data-source.ts` імпортують цей файл ПЕРШИМ рядком:
+ * `PG_CONNECTION` обчислювався до того, як хтось узагалі відкрив `.env`,
+ * і обидва пули йшли в `camptribe_dev`, якої на машині немає.
+ *
+ * Локально це не видно: `camptribe_dev` на ноуті існує, API стартує,
+ * лише бекенд у `pg_stat_activity` сидить не в тій базі. У CI — теж:
+ * кожен запуск API там має `DATABASE_URL` в оточенні процесу.
+ *
+ * Тому `.env` завантажується ТУТ, перед обчисленням, і порядок імпортів
+ * більше нічого не вирішує. `quiet`, бо dotenv ≥17 інакше друкує банер
+ * у stderr на кожному старті. `ConfigModule.forRoot()` потім читає той
+ * самий файл і нічого не перезаписує.
+ *
+ * Сторож: `startup-env.db.spec.ts` — запускає `dist/main` як деплой і
+ * читає з `pg_stat_activity`, у якій базі опинився його бекенд.
+ */
