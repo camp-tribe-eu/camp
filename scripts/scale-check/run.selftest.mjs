@@ -27,7 +27,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const RUN_SH = path.join('scripts', 'scale-check', 'run.sh');
-const TOKEN = 'selftest-token-not-a-secret';
+// 🔴 Слово «placeholder» тут не прикраса — це домовленість сторожа
+// секретів: правило «assigned credential» у `check-secrets.mjs` ігнорує
+// значення зі словами placeholder/dummy/example, бо саме такі й мають
+// стояти в тестах. Без нього сторож червонив цей рядок (заміряно:
+// «1 possible secret(s): run.selftest.mjs:30»), і спокуса була б
+// перейменувати змінну — тобто обійти сторожа, а не домовитись із ним.
+const TOKEN = 'placeholder-token-for-the-selftest';
 
 /** A stub API whose answers the cases set one at a time. */
 async function stub() {
