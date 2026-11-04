@@ -1,7 +1,91 @@
 # The scale check
 
 CAMP-134. Every number here comes from a run on 27.09.2026, on the machine
-that holds the database.
+that holds the database — unless a date beside it says otherwise.
+
+## Where it runs (since 04.11.2026)
+
+🔴 **On the production machine, from a systemd timer — not from GitHub
+Actions.** `infra/systemd/camptribe-scale-check.service` and `.timer`,
+02:00 UTC nightly, `User=camptribe`, `EnvironmentFile=apps/api/.env`,
+`OnFailure=camptribe-failed@%n` like every other timer in `infra/systemd`.
+`./infra/deploy-infra.sh --apply` places it; `camptribe-look scale-check`
+runs it on the machine without raising the alarm.
+
+Why not the workflow this file used to describe:
+
+- **The repository is public.** A self-hosted runner for a public
+  repository executes a pull request's checkout — `npm ci` lifecycle
+  scripts before anything else — on the machine it stands on, and the only
+  machine with the data this check needs holds the production database of
+  personal data and `apps/api/.env`. GitHub's own documentation says
+  self-hosted runners should almost never be used with public
+  repositories. A `labeled`-only trigger narrowed that window; it did not
+  close it.
+- **The runner never existed.** Measured 04.11.2026 with
+  `gh run list --workflow=scale-check.yml --limit 100 --json conclusion`:
+  77 runs in all, **70 cancelled, 7 skipped, 0 successful** — each nightly
+  queued for a label no machine carried, waited, and was cancelled. Five
+  weeks of a mechanism that looked like coverage and had not run once.
+
+What the timer runs is the unit's one line, `run.sh --nightly --api-only`:
+rehearse the map guard, then probe the map index and its chunks against
+the API on `:3001`. The journal line that carries the measured number is
+`scale-check against <N> campsites`, printed by the gate before any probe.
+Rehearsed on 04.11.2026 against a private copy of the API over the local
+full database (52 549 published campsites):
+
+```
+API_BASE_URL=http://127.0.0.1:3101 ./scripts/scale-check/run.sh --nightly --api-only
+scale-check against 52549 campsites
+…
+✓ every scale check passed                                        exit 0
+
+the same, with WHOLE_WORLD_LIMIT raised from 20 000 to 200 000:
+  ✗ the dataset is past the 200,000 a single snapshot could carry…
+✗ 1 scale check(s) failed                                         exit 1
+```
+
+🔴 **`--api-only`, said out loud, and what it leaves out.** The OSM tag
+census (`check-osm-columns.mjs`) needs `osmium` and the merged extracts;
+the server has neither (`docs/deploy.md` §6, measured 15.10.2026: "на
+сервері немає `osmium` і `ogr2ogr`", the extracts are 31 GiB on the
+laptop). Running it there would be a letter to the owner every night
+about a tool that is not installed — a safeguard costing more than the
+defect. So the unit names the flag, `run.sh` prints that the census was
+not run, and the census keeps running where the extracts are: by hand,
+from the laptop. Its logic is checked on every PR (below). If `osmium`
+and the extracts ever land on the machine, the flag comes off the
+`ExecStart` line and nothing else changes.
+
+**The browser stage** (the 7.5-minute build, nine chromium tests, the five
+ranking tests over the live index) is **not on the timer either**. It
+needs Chromium on the machine and a build made from the live API right
+before the run; neither is there today, and it had never run from the
+workflow before this change. That is a gap, stated rather than hidden;
+the specs still run by hand with `--with-pages` wherever a build exists.
+
+### What stays in CI, and why
+
+`.github/workflows/scale-check.yml` keeps the name and runs on every
+pull request, on GitHub's runners, with no secret, no `.env` and no
+`npm ci` — the scripts import only node builtins. It runs the half of each
+check that needs no data:
+
+| step | what it proves without a dataset |
+| --- | --- |
+| `check-osm-columns.mjs --self-test --offline` | the pipeline script is read as an `include_tags` allowlist with tags for every layer; `--config=` removed is read as "every tag", `exclude_tags` as an exclude list, an unknown key as a refusal; priced against the census measured 27.09.2026 (3 381 keys EU-27, 1 149 three countries) the broken export dies at 3 384 columns and passes at 1 152, the inverted one dies at 3 380 — the same figures as §4 |
+| `check-map-index.mjs --self-test --offline` | `sample()` is deterministic in any input order, always includes the biggest region, never repeats one, and collapses to one row at n=0 — the collapse the probe asserts against |
+| `run.selftest.mjs` | the gate in `run.sh`, driven against a stub API: shuts on 72 campsites, on a string, on an unsafe integer, on non-JSON, on a 429 and on silence; opens on 61 557 and prints `scale-check against 61557 campsites`; what follows FAILS on a stub with no map routes; the token never reaches the output |
+
+Each step reads its self-test's own summary line under `set -o pipefail`
+(`check-selftest-steps.mjs` enforces that). Rehearsed on 04.11.2026, each
+with one mutation: `exclude_tags` read as an allowlist → 12 of 13;
+`sample()` without the biggest-region append → 5 of 7; the gate lowered
+from 10 000 to 10 → 12 of 13. All three exit 1; restored, all exit 0.
+
+The same offline cases run first inside every live rehearsal, so the
+nightly on the machine covers them too.
 
 ## Why it exists
 
@@ -197,8 +281,9 @@ other build was doing to the database. The build itself measured 7 min
 36 s idle and 20 min 4 s beside another build.
 
 That spread is the real lesson about contention, and it is why the
-schedule is 02:00 UTC and why `concurrency: group: scale-check` exists.
-Do not plan against a contended number; there isn't one.
+schedule is 02:00 UTC and why the probe is a single `Type=oneshot` unit —
+systemd will not start a second instance over a running one. Do not plan
+against a contended number; there isn't one.
 
 Almost all of the contended cost is waiting on
 Postgres, not computing anything — which is also why the map probe asks
@@ -250,33 +335,37 @@ The machine that already has it. Priced:
 | a second machine with its own copy | a production dataset kept in step by hand drifts; a scale check against a stale copy is worse than none, because it reports on data nobody serves |
 | the machine that has it | free, and already running the API |
 
-So: a self-hosted runner labelled `camptribe-data`. The label is a promise
-about what the machine holds — the database, the extracts, and the API —
-and `.github/actionlint.yaml` says so, because anything without all three
-would pass the scale check over the wrong data.
+So: the machine — but **as a systemd timer, not as a self-hosted
+runner**. The first version of this section chose a runner labelled
+`camptribe-data` and wrote a security paragraph about `labeled`-only
+triggers. The label was a promise about data; it said nothing about who
+could put code on the machine, and for a public repository the answer is
+"anyone who opens a pull request". `.github/actionlint.yaml` now knows
+**no** self-hosted label, so a workflow that reintroduces one fails
+actionlint in `ci.yml`.
 
-The cost of this choice is stated rather than hidden: the workflow cannot
-run on a fork, and cannot run when that machine is off. So its **absence**
-is watched. `scripts/ci/check-schedule.mjs` lists `scale-check.yml`, and
-the daily watchdog opens an issue after a night with no successful run. A
-nightly cron that stops, stops silently; that is this repository's own
-lesson and it applies to the thing it just built.
+The cost of this choice is stated rather than hidden: the check runs
+only where the API is, and a timer that stops, stops silently. So its
+**absence** is watched where it lives rather than from GitHub. A failed
+run is a trace in `/srv/camptribe/failed/` and a letter through
+`camptribe-failed@` (CAMP-306/394); a timer that is on disk but not
+enabled is reported every morning by `camptribe-infra-drift` (it asks
+`systemctl is-enabled` for every `.timer` in `infra/systemd`). The GitHub
+watchdog in `scripts/ci/check-schedule.mjs` no longer lists
+`scale-check.yml`: the workflow it would watch runs per PR now, and an
+entry would open an issue daily about a nightly that no longer exists.
 
 ### 3. How often
 
-Nightly on the default branch, at 02:00 UTC — after the day's work and
-before the 04:00 weekly import, so a run never reads a database
-mid-import.
+Nightly, at 02:00 UTC — the hour the GitHub cron had, after the day's
+work and before the Tuesday 04:30 OSM import, so a run never reads a
+database mid-import. Nothing else in `infra/systemd` runs between 00:25
+and 03:25.
 
-Not per PR. The build is 7 min 36 s and almost every push does not change
-what any of these numbers would say. A PR that does can carry the `scale`
-label, which runs the whole thing on that branch. A label rather than a
-`paths:` filter, deliberately: `paths:` would run this on every commit to
-those files, which is the per-PR cost again under another name, while a
-label is a person deciding that this change is one of the ones worth the
-runner.
-
-The changes worth labelling:
+Not per PR, and not by label any more — the `scale` label ran the whole
+thing on the runner that did not exist. A change that touches what the
+probes see is checked by hand from the laptop before it merges
+(`Running it by hand`, below). The changes worth that:
 
 - `scripts/osm-pipeline/**` — the export, the merge, the load;
 - `apps/web/src/lib/search*.ts` and `apps/web/src/app/data/search/**`;
@@ -360,12 +449,21 @@ hand and the transcripts are on the pull request:
 
 ## Running it by hand
 
+On the machine, without raising the alarm:
+
 ```
-set -a; . apps/api/.env; set +a          # API_BUILD_TOKEN
+camptribe-look scale-check                # the unit's own command, its env, its user
+```
+
+On the laptop, where the extracts and `osmium` are:
+
+```
+set -a; . apps/api/.env; set +a          # API_BUILD_TOKEN — never echo it
 export API_BASE_URL=http://localhost:3001
 
-./scripts/scale-check/run.sh              # probes only, ~4 s
+./scripts/scale-check/run.sh              # both probes, ~4 s
 ./scripts/scale-check/run.sh --rehearse   # prove they can fail, ~7 s
+./scripts/scale-check/run.sh --nightly --api-only   # exactly what the timer runs
 npm run build --workspace=apps/web        # ~7.5 min
 ./scripts/scale-check/run.sh --with-pages # probes + browser
 ```
@@ -387,5 +485,9 @@ wrong place — the same failure as the redirect guard that halted the
 EU-27 import and blamed the region name.
 
 **Never** print the token, and never commit it. `camp-tribe-eu/camp` is
-public; see `docs/ci-and-public-repo.md`. In the workflow it is
-`secrets.SCALE_API_BUILD_TOKEN`, by name only.
+public; see `docs/ci-and-public-repo.md`. The unit reads it from
+`apps/api/.env` through `EnvironmentFile=`, the same way the web build
+does, so it never passes through argv on a machine whose `/proc` has no
+`hidepid`. The GitHub secret `SCALE_API_BUILD_TOKEN` and the variables
+`SCALE_API_URL` / `SCALE_OSM_WORK_DIR` are referenced by nothing any
+more and can be deleted from the repository settings.

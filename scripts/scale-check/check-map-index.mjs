@@ -4,6 +4,12 @@
 //
 //   node scripts/scale-check/check-map-index.mjs
 //   node scripts/scale-check/check-map-index.mjs --self-test
+//   node scripts/scale-check/check-map-index.mjs --self-test --offline
+//
+// `--offline`: the logic alone — the chunk sample the probe compares —
+// with no API. That is what scale-check.yml runs on every PR on GitHub's
+// own runners (CAMP-134, 04.11.2026); the live rehearsal below needs the
+// full dataset and runs from the machine's timer.
 //
 // 🔴 WHAT CI COULD NOT SEE.
 //
@@ -284,8 +290,54 @@ async function run() {
  * countries CI's fixture is drawn from — the same mirror as every other
  * defect on this card.
  */
+/**
+ * The pure half: `sample()`, which decides WHICH chunks the probe
+ * compares against the index. Runs first in every rehearsal; alone under
+ * `--offline`.
+ */
+function offlineCases() {
+  let pass = 0;
+  let fail = 0;
+  const t = (name, got, want) => {
+    if (got === want) {
+      pass++;
+      console.log(`  ✓ ${name}`);
+    } else {
+      fail++;
+      console.log(`  ✗ ${name}: got ${JSON.stringify(got)}, wanted ${JSON.stringify(want)}`);
+    }
+  };
+  // 812 synthetic regions in the live index's shape, the biggest one
+  // placed where a naive "first n" sample would never reach it.
+  const regions = Array.from({ length: 812 }, (_, i) => ({
+    country: `C${String(i % 27).padStart(2, '0')}`,
+    slug: `r${String(i).padStart(3, '0')}`,
+    count: i === 700 ? 1433 : 10 + (i % 90),
+  }));
+  const key = (r) => `${r.country}/${r.slug}`;
+  const picked = sample(regions, 12);
+
+  t('12 wanted, at least 12 chosen', picked.length >= 12, true);
+  t('🔴 the biggest region is always among them', picked.some((r) => r.count === 1433), true);
+  t('no region is chosen twice', new Set(picked.map(key)).size, picked.length);
+  t('the same index twice gives the same sample',
+    sample(regions, 12).map(key).join(','), picked.map(key).join(','));
+  t('🔴 and so does the same index in another order',
+    sample([...regions].reverse(), 12).map(key).join(','), picked.map(key).join(','));
+  // The collapse the probe asserts against: `sample(_, 0)` returns ONE
+  // row, so `chosen.length >= WANT_SAMPLES` is what stops a sample of
+  // one from reading as "✓ 1 sampled chunks each hold…".
+  t('🔴 a sample of 0 collapses to the single biggest row', sample(regions, 0).length, 1);
+  t('a sample larger than the index is the whole index', sample(regions.slice(0, 5), 12).length, 5);
+
+  console.log(`\ncheck-map-index self-test: ran ${pass + fail}, passed ${pass}, failed ${fail}`);
+  return fail === 0;
+}
+
 async function selfTest() {
-  let ok = true;
+  console.log('the logic, with no API:');
+  let ok = offlineCases();
+  if (process.argv.includes('--offline')) return ok;
 
   const wide = await api(
     `/spots/map/points?bbox=${WHOLE_WORLD_BBOX}&limit=${WHOLE_WORLD_LIMIT}`,

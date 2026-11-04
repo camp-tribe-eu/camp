@@ -3,6 +3,7 @@
 #
 #   camptribe-look freshness      # сторож свіжості даних
 #   camptribe-look infra-drift    # розбіжність репозиторію й машини
+#   camptribe-look scale-check    # перевірка масштабу проти повної бази
 #   camptribe-look --list
 #   camptribe-look --self-test
 #
@@ -42,6 +43,7 @@ looks() {
   cat <<'LIST'
 freshness|camptribe-freshness.service
 infra-drift|camptribe-infra-drift.service
+scale-check|camptribe-scale-check.service
 LIST
 }
 
@@ -117,13 +119,16 @@ self_test() {
 
   t 'freshness є в переліку' "$(row_for freshness | cut -d'|' -f2)" 'camptribe-freshness.service'
   t 'infra-drift є в переліку' "$(row_for infra-drift | cut -d'|' -f2)" 'camptribe-infra-drift.service'
+  # CAMP-134: перевірка масштабу читає API й нічого не пише; без цього
+  # рядка глянути на неї означало б запустити юніт і підняти тривогу.
+  t 'scale-check є в переліку' "$(row_for scale-check | cut -d'|' -f2)" 'camptribe-scale-check.service'
   t '🔴 невідоме імʼя не вгадується' "$(row_for osm-import)" ''
 
   # 🔴 ПЕРЕЛІК ЗАКРИТИЙ І ПРИБИТИЙ ТОЧНО. Чорний список стеріг лише ті
   # імена, які встигли назвати; цей випадок червоніє на БУДЬ-ЯКЕ
   # поповнення, зокрема на `backup`, яким рецензія й пробила старий.
-  t '🔴 у переліку рівно двоє, і саме ці' \
-    "$(looks | cut -d'|' -f1 | sort | tr '\n' ' ')" 'freshness infra-drift '
+  t '🔴 у переліку рівно троє, і саме ці' \
+    "$(looks | cut -d'|' -f1 | sort | tr '\n' ' ')" 'freshness infra-drift scale-check '
 
   # 🔴 Прапорець запису читається з команди, а не з імені.
   writes_flag '/usr/local/bin/camptribe-backup --apply'
@@ -134,6 +139,9 @@ self_test() {
   t '🔴 --migrate теж запис' "$?" '0'
   writes_flag '/usr/bin/node x.mjs --applyish'
   t 'схоже слово без межі не рахується' "$?" '1'
+  # Рядок ExecStart юніта перевірки масштабу — як у infra/systemd.
+  writes_flag '/bin/bash scripts/scale-check/run.sh --nightly --api-only'
+  t 'команда scale-check читальна' "$?" '1'
 
   # Розбір `ExecStart`, як його друкує systemd, — на зразку з машини.
   local sample='{ path=/usr/bin/node ; argv[]=/usr/bin/node a.mjs --db ; ignore_errors=no ; pid=1 }'

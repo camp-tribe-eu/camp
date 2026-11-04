@@ -75,28 +75,16 @@ export const WATCHED = [
     since: '2026-09-24',
     why: 'nobody is checking that the backups can be restored: they keep being written, they keep looking fine, and whether they can be read back is unknown until the day it is the only copy',
   },
-  {
-    // CAMP-134. 🔴 This one is watched harder than the others, because it
-    // is the only job in the repository that runs on a machine we own.
-    //
-    // ci.yml lives on GitHub's runners: it is either green, red, or
-    // visibly broken. The scale check runs on the machine that holds the
-    // database and the OSM extracts, and that machine can be asleep, off,
-    // or simply have no runner process — in which case the workflow does
-    // not fail, it queues, and a queued run is indistinguishable from a
-    // healthy repository at a glance.
-    //
-    // The thing it stops being able to see is precisely the class of
-    // defect it was built for: six of eighteen on 25.09.2026, every one
-    // of them green on the fixture. So silence here puts us back exactly
-    // where the card found us, with the added cost of believing we are
-    // covered.
-    workflow: 'scale-check.yml',
-    everyDays: 1,
-    graceDays: 1,
-    since: '2026-09-27',
-    why: 'nothing is asking the questions that only have answers on 61 557 campsites: the six defects of 25.09.2026 were all green on the fixture, and a scale check that has quietly stopped leaves us there while looking covered',
-  },
+  // CAMP-134 used to be here: `scale-check.yml`, every day, watched
+  // harder than the others because it ran on a machine we own. On
+  // 04.11.2026 it stopped being a GitHub job at all — the repository is
+  // public and a self-hosted runner for it would stand on the production
+  // database — and became infra/systemd/camptribe-scale-check.timer.
+  // Its silence is watched where it now lives: a failed run is a letter
+  // through camptribe-failed@, and a timer that is on disk but not
+  // enabled is reported by camptribe-infra-drift. The workflow that keeps
+  // the name runs per PR, so an entry here would open an issue every day
+  // about a nightly that no longer exists.
   {
     // 🔴 CAMP-149. This one watches a NOMENCLATURE, which is the slowest
     // and quietest thing we depend on.

@@ -1,0 +1,11 @@
+[Unit]
+Description=CampTribe scale check against the full dataset, nightly
+[Timer]
+# 02:00 UTC — the same hour the GitHub cron (`0 2 * * *`) had: after the
+# day's work and well before the Tuesday 04:30 OSM import, so the probe
+# never reads a database mid-import. Nothing else in infra/systemd runs
+# between 00:25 and 03:25.
+OnCalendar=*-*-* 02:00:00 UTC
+Persistent=true
+[Install]
+WantedBy=timers.target

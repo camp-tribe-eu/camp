@@ -1,21 +1,15 @@
-# CAMP-134. actionlint knows GitHub's own runner labels and nothing else,
-# so a self-hosted label it has never heard of is an error — and that
-# error would land in ci.yml's "Workflow files parse and their scripts are
-# sane" step, which exists because an unparseable workflow is the failure
-# that reports nothing.
+# CAMP-134. Until 04.11.2026 this file taught actionlint one self-hosted
+# label, `camptribe-data`, so scale-check.yml could say
+# `runs-on: [self-hosted, camptribe-data]` without the "Workflow files
+# parse and their scripts are sane" step refusing it.
 #
-# `camptribe-data` is not a machine description. It is a promise about
-# what the machine holds:
-#
-#   - the full PostGIS database (61 557 campsites, 27 countries, 812
-#     regions — 4 379 MB measured 27.09.2026)
-#   - the OSM extracts the context loader merges, including
-#     merged.water.pbf at 797 MB, which the tag census reads whole
-#   - the API serving that database
-#
-# Anything without all three would pass the scale check over the wrong
-# data, which is the exact failure CAMP-134 was opened about. The label
-# is what stops the job landing there.
+# 🔴 The label is gone ON PURPOSE, and the empty list below is the guard.
+# camp-tribe-eu/camp is public; a self-hosted runner for a public
+# repository runs any pull request's checkout on the machine it stands
+# on, and the only machine with the data this label promised holds the
+# production database. The scale check moved to a systemd timer on that
+# machine (infra/systemd/camptribe-scale-check.service). With no label
+# known here, any workflow that reintroduces `runs-on: self-hosted`
+# fails actionlint in ci.yml — which is what should happen to it.
 self-hosted-runner:
-  labels:
-    - camptribe-data
+  labels: []
