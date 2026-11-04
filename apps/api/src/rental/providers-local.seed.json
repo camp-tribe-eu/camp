@@ -100,8 +100,11 @@
         {
           "name": "Sunlight T68C",
           "slug": "sunlight-t68c",
-          "sourceUrl": "https://camperisimo.com/kemperi-pod-naem/",
-          "sourceCheckedOn": "2026-11-03"
+          "camperTypeSlug": "lowprofile",
+          "camperTypeSaid": "изключително атрактивния полуинтегриран кемпер Sunlight T68c",
+          "camperTypeCheckedOn": "2026-11-04",
+          "sourceUrl": "https://camperisimo.com/sunlight-t68c/",
+          "sourceCheckedOn": "2026-11-04"
         }
       ]
     },
@@ -250,6 +253,9 @@
           "berths": 4,
           "beltedSeats": 4,
           "lengthCm": 599,
+          "camperTypeSlug": "van",
+          "camperTypeSaid": "Carado CV600 Pro – модерен кемперван",
+          "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://xcampers.bg/campers/carado-cv-600-pro/",
           "sourceCheckedOn": "2026-11-03"
         },
@@ -258,16 +264,22 @@
           "slug": "mooveo-tei-70ebh",
           "berths": 5,
           "beltedSeats": 4,
-          "sourceUrl": "https://xcampers.bg/campers/",
-          "sourceCheckedOn": "2026-11-03"
+          "camperTypeSlug": "lowprofile",
+          "camperTypeSaid": "Полуинтегриран кемпер съчетаващ модерен дизайн",
+          "camperTypeCheckedOn": "2026-11-04",
+          "sourceUrl": "https://xcampers.bg/campers/mooveo-tei-70ebh/",
+          "sourceCheckedOn": "2026-11-04"
         },
         {
           "name": "Adria Sun Living Lido M46 SP",
           "slug": "adria-sun-living-lido-m46-sp",
           "berths": 6,
           "beltedSeats": 4,
-          "sourceUrl": "https://xcampers.bg/campers/",
-          "sourceCheckedOn": "2026-11-03"
+          "camperTypeSlug": "lowprofile",
+          "camperTypeSaid": "Полуинтегрираният кемпер Adria SunLiving Lido M46 SP",
+          "camperTypeCheckedOn": "2026-11-04",
+          "sourceUrl": "https://xcampers.bg/campers/adria-sunliving-lido-m46sp/",
+          "sourceCheckedOn": "2026-11-04"
         }
       ]
     },
@@ -423,6 +435,9 @@
           "berths": 4,
           "beltedSeats": 4,
           "lengthCm": 741,
+          "camperTypeSlug": "aclass",
+          "camperTypeSaid": "Autorulotă Sunlight Integrată I69L Edition",
+          "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://greencamper.ro/autorulote-de-inchiriat/",
           "sourceCheckedOn": "2026-11-03"
         },
@@ -649,6 +664,9 @@
           "name": "Mobilvetta KEA I67",
           "slug": "mobilvetta-kea-i67",
           "berths": 4,
+          "camperTypeSlug": "aclass",
+          "camperTypeSaid": "Luxus, modern és kényelmes, 4 személyes, integrált lakóautó",
+          "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://guruloluxus.hu/index.php/lakoautoink/",
           "sourceCheckedOn": "2026-11-03"
         },
@@ -656,6 +674,9 @@
           "name": "Roller Team Zefiro 266 TL",
           "slug": "roller-team-zefiro-266-tl",
           "berths": 4,
+          "camperTypeSlug": "lowprofile",
+          "camperTypeSaid": "Prémium, modern és kényelmes, 4 személyes, félintegrált lakóautó",
+          "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://guruloluxus.hu/index.php/lakoautoink/",
           "sourceCheckedOn": "2026-11-03"
         },
@@ -663,6 +684,9 @@
           "name": "Weinsberg CaraHome 650 DG",
           "slug": "weinsberg-carahome-650-dg",
           "berths": 6,
+          "camperTypeSlug": "coachbuilt",
+          "camperTypeSaid": "Prémium, modern és praktikus, max. 6 személyes, alkóv lakóautó",
+          "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://guruloluxus.hu/index.php/lakoautoink/",
           "sourceCheckedOn": "2026-11-03"
         }
@@ -737,6 +761,9 @@
           "berths": 4,
           "beltedSeats": 4,
           "lengthCm": 541,
+          "camperTypeSlug": "van",
+          "camperTypeSaid": "Bürstner Campeo 4x4 C540 — Van",
+          "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://www.karavan.sk/pozicovna",
           "sourceCheckedOn": "2026-11-03"
         },
@@ -746,6 +773,9 @@
           "berths": 4,
           "beltedSeats": 4,
           "lengthCm": 598,
+          "camperTypeSlug": "van",
+          "camperTypeSaid": "Bürstner Lineo C590 — Van",
+          "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://www.karavan.sk/pozicovna",
           "sourceCheckedOn": "2026-11-03"
         },
@@ -755,6 +785,9 @@
           "berths": 5,
           "beltedSeats": 4,
           "lengthCm": 699,
+          "camperTypeSlug": "lowprofile",
+          "camperTypeSaid": "McLouis Mc4 865 — Polointegrované",
+          "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://www.karavan.sk/pozicovna",
           "sourceCheckedOn": "2026-11-03"
         }
@@ -829,6 +862,9 @@
           "slug": "forster-699-hb",
           "berths": 6,
           "beltedSeats": 6,
+          "camperTypeSlug": "coachbuilt",
+          "camperTypeSaid": "Forster 699 HB, Alkovňa 160",
+          "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://www.karavan365.sk/prenajom-karavanov/",
           "sourceCheckedOn": "2026-11-03"
         },
@@ -911,8 +947,11 @@
           "slug": "adria-coral-xl-660-sl",
           "berths": 5,
           "beltedSeats": 5,
-          "sourceUrl": "https://karavanea.sk/ponuka-karavanov",
-          "sourceCheckedOn": "2026-11-03"
+          "camperTypeSlug": "coachbuilt",
+          "camperTypeSaid": "Rad Coral XL je meradlom pre štýlové a praktické alkovny; Predná posteľ alkovňa (cm): 210x140",
+          "camperTypeCheckedOn": "2026-11-04",
+          "sourceUrl": "https://karavanea.sk/adria-coral-xl-660-sl-automat-41",
+          "sourceCheckedOn": "2026-11-04"
         }
       ]
     },
@@ -988,10 +1027,14 @@
         {
           "name": "Carado A464",
           "slug": "carado-a464",
+          "berths": 6,
           "beltedSeats": 6,
-          "lengthCm": 700,
-          "sourceUrl": "https://karavany-krejci.cz/karavany/",
-          "sourceCheckedOn": "2026-11-03"
+          "lengthCm": 723,
+          "camperTypeSlug": "coachbuilt",
+          "camperTypeSaid": "lůžka alkovna 2 / zadní lůžko 2 / sedací souprava 2",
+          "camperTypeCheckedOn": "2026-11-04",
+          "sourceUrl": "https://karavany-krejci.cz/carado-a464/",
+          "sourceCheckedOn": "2026-11-04"
         },
         {
           "name": "Weinsberg CaraSuite 700 ME",
@@ -1056,6 +1099,9 @@
           "slug": "eura-mobil-profila-rs-695-eb",
           "berths": 4,
           "beltedSeats": 4,
+          "camperTypeSlug": "lowprofile",
+          "camperTypeSaid": "EURA MOBIL PROFILA RS 695 EB — Polointegrované",
+          "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://www.reslgroup.cz/pronajem-obytnych-vozu",
           "sourceCheckedOn": "2026-11-03"
         },
@@ -1064,6 +1110,9 @@
           "slug": "karmann-mobil-duncan-500",
           "berths": 4,
           "beltedSeats": 5,
+          "camperTypeSlug": "van",
+          "camperTypeSaid": "KARMANN MOBIL DUNCAN 500 — Vestavba",
+          "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://www.reslgroup.cz/pronajem-obytnych-vozu",
           "sourceCheckedOn": "2026-11-03"
         },
@@ -1072,6 +1121,9 @@
           "slug": "karmann-mobil-davis-591",
           "berths": 4,
           "beltedSeats": 4,
+          "camperTypeSlug": "van",
+          "camperTypeSaid": "KARMANN MOBIL DAVIS 591 PALANDY 4 OSOBY — Vestavba",
+          "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://www.reslgroup.cz/pronajem-obytnych-vozu",
           "sourceCheckedOn": "2026-11-03"
         }
@@ -1137,6 +1189,9 @@
           "name": "Etrusco A 7300 DB",
           "slug": "etrusco-a-7300-db",
           "berths": 6,
+          "camperTypeSlug": "coachbuilt",
+          "camperTypeSaid": "ALKOVEN ETRUSCO A7300 DB",
+          "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://avtodomi-stipic.si/najem-avtodoma/",
           "sourceCheckedOn": "2026-11-03"
         },
@@ -1144,6 +1199,9 @@
           "name": "Itineo SB 740",
           "slug": "itineo-sb-740",
           "berths": 5,
+          "camperTypeSlug": "aclass",
+          "camperTypeSaid": "Integriran → Itineo SB 740 (5 oseb) — Najem menu grouping",
+          "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://avtodomi-stipic.si/najem-avtodoma/",
           "sourceCheckedOn": "2026-11-03"
         }
@@ -1220,8 +1278,11 @@
         {
           "name": "Knaus Boxdrive 600 XL",
           "slug": "knaus-boxdrive-600-xl",
-          "sourceUrl": "https://www.hisanakolesih.com/sl/car_park/all/standard",
-          "sourceCheckedOn": "2026-11-03"
+          "camperTypeSlug": "van",
+          "camperTypeSaid": "KNAUS Boxdrive je kompaktni kombi‑avtodom",
+          "camperTypeCheckedOn": "2026-11-04",
+          "sourceUrl": "https://www.hisanakolesih.com/sl/car_details/74",
+          "sourceCheckedOn": "2026-11-04"
         }
       ]
     },
@@ -1295,20 +1356,29 @@
           "name": "Benimar Tessoro 444",
           "slug": "benimar-tessoro-444",
           "berths": 6,
-          "sourceUrl": "https://www.kamperi.hr/najam-kampera/",
-          "sourceCheckedOn": "2026-11-03"
+          "camperTypeSlug": "lowprofile",
+          "camperTypeSaid": "Poluintegrirani kamper (breadcrumb) — Benimar Tessoro 444",
+          "camperTypeCheckedOn": "2026-11-04",
+          "sourceUrl": "https://www.kamperi.hr/najam-kampera/luksuzni-kamper-10/",
+          "sourceCheckedOn": "2026-11-04"
         },
         {
           "name": "Benimar Tessoro 463",
           "slug": "benimar-tessoro-463",
           "berths": 5,
-          "sourceUrl": "https://www.kamperi.hr/najam-kampera/",
-          "sourceCheckedOn": "2026-11-03"
+          "camperTypeSlug": "lowprofile",
+          "camperTypeSaid": "Poluintegrirani kamper (breadcrumb) — Benimar Tessoro 463 Northautokapp",
+          "camperTypeCheckedOn": "2026-11-04",
+          "sourceUrl": "https://www.kamperi.hr/najam-kampera/luksuzni-kamper-5/",
+          "sourceCheckedOn": "2026-11-04"
         },
         {
           "name": "Benimar Benivan 120up",
           "slug": "benimar-benivan-120up",
           "berths": 4,
+          "camperTypeSlug": "van",
+          "camperTypeSaid": "Obiteljski kampervan za 4 osobe – Benivan 120up",
+          "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://www.kamperi.hr/najam-kampera/",
           "sourceCheckedOn": "2026-11-03"
         }
@@ -1485,8 +1555,11 @@
           "slug": "vw-california-t6-1-ocean-premium",
           "berths": 4,
           "beltedSeats": 4,
-          "sourceUrl": "https://vanbaltic.com/",
-          "sourceCheckedOn": "2026-11-03"
+          "camperTypeSlug": "van",
+          "camperTypeSaid": "the most luxurious and versatile campervan",
+          "camperTypeCheckedOn": "2026-11-04",
+          "sourceUrl": "https://vanbaltic.com/vw-california-ocean-premium/",
+          "sourceCheckedOn": "2026-11-04"
         }
       ]
     },
@@ -1959,8 +2032,11 @@
           "slug": "weinsberg-carahome-600-dkg",
           "berths": 6,
           "beltedSeats": 6,
-          "sourceUrl": "https://www.webcamper.lu/de/unsere-camper.html",
-          "sourceCheckedOn": "2026-11-03"
+          "camperTypeSlug": "coachbuilt",
+          "camperTypeSaid": "der Weinsberg Cara Home bietet mit dem großen Alkoven Platz für bis zu 6 Personen",
+          "camperTypeCheckedOn": "2026-11-04",
+          "sourceUrl": "https://www.webcamper.lu/de/camper/c/weinsberg-cara-home-600-dkg-8883.html",
+          "sourceCheckedOn": "2026-11-04"
         }
       ]
     },

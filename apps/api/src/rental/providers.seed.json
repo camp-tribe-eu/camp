@@ -467,7 +467,7 @@
       "sourceUrl": "https://www.rent-easy.de/",
       "sourceCheckedOn": "2026-11-02",
       "intro": "The second rental brand of Rental Alliance GmbH (Erwin Hymer Group), founded in January 2016 with 11 stations in Germany; fleet of Hymer, Carado, Bürstner, Etrusco. Home page: “an unseren über 50 Stationen” — “more than 50”. The site does not name the fleet size.",
-      "whatToKnow": "From 16.11.2026 the brand moves under McRent (https://www.rent-easy.de/rent-easy-und-mcrent/). Other stated station counts: rental-alliance.com/unsere-marken/rent-easy.html — “über 40”; REST /appl/rest/stations = 42. The founding year is from the timeline at https://www.rent-easy.de/ueber-renteasy/. In the imprint the number is written as “HB 621035” (on mcrent.eu the same number is written as HRB 621035). 250 km/day included, all km — only from day 15.",
+      "whatToKnow": "From 16.11.2026 the brand moves under McRent (https://www.rent-easy.de/rent-easy-und-mcrent/). Other stated station counts: rental-alliance.com/unsere-marken/rent-easy.html — “über 40”; REST /appl/rest/stations = 42. The founding year is from the timeline at https://www.rent-easy.de/ueber-renteasy/. In the imprint the number is written as “HB 621035” (on mcrent.eu the same number is written as HRB 621035). 250 km/day included, all km — only from day 15. Vehicle type wording comes from REST /appl/rest/modelInfoTexts (with the X-Locale header), which the /wohnmobile/ page renders; curl of the page itself shows no model text.",
       "reviewProfiles": [],
       "services": [
         {
@@ -534,6 +534,9 @@
           "berths": 4,
           "beltedSeats": 4,
           "lengthCm": 505,
+          "camperTypeSlug": "van",
+          "camperTypeSaid": "CamperVan mit Aufstelldach für bis zu 4 Personen - ohne Bad/Toilette",
+          "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://www.rent-easy.de/wohnmobile/",
           "sourceCheckedOn": "2026-11-02"
         },
@@ -543,6 +546,9 @@
           "berths": 2,
           "beltedSeats": 4,
           "lengthCm": 599,
+          "camperTypeSlug": "van",
+          "camperTypeSaid": "CamperVan für 2 Personen – kompakt und wendig",
+          "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://www.rent-easy.de/wohnmobile/",
           "sourceCheckedOn": "2026-11-02"
         },
@@ -552,6 +558,9 @@
           "berths": 6,
           "beltedSeats": 5,
           "lengthCm": 659,
+          "camperTypeSlug": "coachbuilt",
+          "camperTypeSaid": "Alkoven mit Etagenbetten, ideal für 5 Personen",
+          "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://www.rent-easy.de/wohnmobile/",
           "sourceCheckedOn": "2026-11-02"
         },
@@ -561,6 +570,9 @@
           "berths": 6,
           "beltedSeats": 6,
           "lengthCm": 886,
+          "camperTypeSlug": "coachbuilt",
+          "camperTypeSaid": "Unsere Alkoven-Modelle mit über 8m Länge",
+          "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://www.rent-easy.de/wohnmobile/",
           "sourceCheckedOn": "2026-11-02"
         }
@@ -926,6 +938,9 @@
           "berths": 2,
           "beltedSeats": 4,
           "lengthCm": 599,
+          "camperTypeSlug": "van",
+          "camperTypeSaid": "Der ADVENTURER SERIES ist ein kompakter Camper Van für zwei Personen",
+          "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://www.cross-rent.de/appl/rest/vehicles",
           "sourceCheckedOn": "2026-11-02"
         },
@@ -935,6 +950,9 @@
           "berths": 4,
           "beltedSeats": 4,
           "lengthCm": 636,
+          "camperTypeSlug": "van",
+          "camperTypeSaid": "Der ADVENTURER ADVANCED ist ein top ausgestatteter Camper Van",
+          "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://www.cross-rent.de/appl/rest/vehicles",
           "sourceCheckedOn": "2026-11-02"
         },
@@ -944,6 +962,9 @@
           "berths": 2,
           "beltedSeats": 4,
           "lengthCm": 594,
+          "camperTypeSlug": "lowprofile",
+          "camperTypeSaid": "Teilintegriert — categoryName of the VOYAGER group (groupId 6) this model belongs to",
+          "camperTypeCheckedOn": "2026-11-04",
           "sourceUrl": "https://www.cross-rent.de/appl/rest/vehicles",
           "sourceCheckedOn": "2026-11-02"
         },
