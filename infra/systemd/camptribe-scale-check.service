@@ -1,0 +1,64 @@
+# CAMP-134: the questions that only have answers on the full dataset,
+# asked on the machine that holds it.
+#
+# 🔴 WHY A TIMER AND NOT A GITHUB ACTIONS JOB. Until 04.11.2026 this was
+# `.github/workflows/scale-check.yml` with `runs-on: [self-hosted,
+# camptribe-data]`. The repository is PUBLIC, and a self-hosted runner for
+# it would have to stand on the machine with the production database of
+# personal data; GitHub's own documentation says self-hosted runners
+# should almost never be used with public repositories, because any pull
+# request can run code on them. No such runner was ever registered, so
+# every nightly queued, waited and was cancelled — measured over 100 runs
+# on 03.11.2026: 0 successful. The mechanism had not run ONCE.
+#
+# The same check, as a timer here, asks the same API over the same
+# database and runs no code that did not come through a merged release.
+#
+# 🔴 WHAT RUNS: `--nightly --api-only`.
+#   --nightly    rehearse first (prove the probe can still fail), then
+#                probe — what the old workflow did in two steps.
+#   --api-only   only what the API on :3001 can answer: the map index and
+#                its chunks, and the rehearsal that drives the deleted
+#                whole-world snapshot against it. NOT the OSM tag census:
+#                it needs `osmium` and the merged extracts, and this
+#                machine has neither (docs/deploy.md §6, measured
+#                15.10.2026). Running it here would mean a letter to the
+#                owner every night about a tool that is not installed —
+#                a safeguard costing more than the defect it guards. The
+#                census and its rehearsal are run by hand from the laptop
+#                that holds the extracts; their LOGIC is checked on every
+#                PR by `--self-test --offline` in scale-check.yml.
+#
+# 🔴 The two probes are seconds (2.2 s wall measured 27.09.2026), and the
+# scale gate in run.sh refuses to proceed under 10 000 campsites, so a
+# unit pointed at the wrong API fails rather than passes over a fixture.
+# The journal line that carries the measured number is
+# `scale-check against <N> campsites`, printed before any probe runs.
+#
+# 🔴 EnvironmentFile gives `API_BUILD_TOKEN` — the rate-limit bypass the
+# bulk routes require — the same way the web build gets it: from the
+# file, never from argv, because /proc on this machine is mounted without
+# hidepid (docs/deploy.md). API_BASE_URL defaults to localhost:3001 in
+# run.sh and is stated here so the unit says where it looks.
+[Unit]
+Description=CampTribe scale check against the full dataset
+After=postgresql.service camptribe-api.service
+Wants=camptribe-api.service
+OnFailure=camptribe-failed@%n.service
+
+[Service]
+Type=oneshot
+User=camptribe
+Group=camptribe
+WorkingDirectory=/srv/camptribe/current
+EnvironmentFile=/srv/camptribe/current/apps/api/.env
+Environment=API_BASE_URL=http://localhost:3001
+# The probe asks the API, the API asks Postgres; nothing here competes
+# with the site for long, but it must not win against it either.
+Nice=10
+TimeoutStartSec=20min
+ExecStart=/bin/bash scripts/scale-check/run.sh --nightly --api-only
+# 🔴 The trace is removed only after a SUCCESSFUL run. For Type=oneshot
+# ExecStartPost does not run when ExecStart returned non-zero, so
+# yesterday's alarm does not vanish because the unit merely started.
+ExecStartPost=/bin/rm -f /srv/camptribe/failed/camptribe-scale-check.service

@@ -3,6 +3,13 @@
 //
 //   node scripts/scale-check/check-osm-columns.mjs
 //   node scripts/scale-check/check-osm-columns.mjs --self-test
+//   node scripts/scale-check/check-osm-columns.mjs --self-test --offline
+//
+// `--offline`: the logic alone — how the pipeline is read and how the
+// columns are priced — against a census pinned from a measurement, with
+// no osmium and no extracts. That is what scale-check.yml runs on every
+// PR on GitHub's own runners (CAMP-134, 04.11.2026). Without it the
+// self-test goes on to the live halves, which need the merged extracts.
 //   node scripts/scale-check/check-osm-columns.mjs --work-dir ~/camptribe-osm
 //
 // 🔴 WHY THIS CHECK IS NOT A TEST.
@@ -282,6 +289,66 @@ function run(argv) {
  * the code is equally broken in both runs, and only the data makes it
  * visible.
  */
+/**
+ * The census the offline half prices against — MEASURED, not derived.
+ *
+ * `osmium tags-count` over the merged EU-27 water layer, 27.09.2026:
+ * 3 381 distinct keys; over slovenia+croatia+france merged: 1 149. The
+ * numbers in docs/scale-check.md §4 are these. They are a stand-in for
+ * the extracts on a runner that has none; the live halves below re-count
+ * them wherever the extracts are.
+ */
+const MEASURED_KEYS = { eu27: 3381, threeCountries: 1149 };
+
+/**
+ * The pure half: the pipeline is read, the columns are priced, and
+ * nothing is executed. Runs first in every rehearsal; alone under
+ * `--offline`.
+ */
+function offlineCases(real, broken) {
+  let pass = 0;
+  let fail = 0;
+  const t = (name, got, want) => {
+    if (got === want) {
+      pass++;
+      console.log(`  ✓ ${name}`);
+    } else {
+      fail++;
+      console.log(`  ✗ ${name}: got ${JSON.stringify(got)}, wanted ${JSON.stringify(want)}`);
+    }
+  };
+  const worstOf = (plan, keys) =>
+    Math.max(...columnsPerLayer(plan, () => keys).map((r) => r.columns));
+  const fires = (plan, keys) => verdict(columnsPerLayer(plan, () => keys)).length > 0;
+
+  const realPlan = exportPlan(real);
+  t('the shipped pipeline exports an allowlist', realPlan.mode, 'allowlist');
+  t('…keyed include_tags', realPlan.key, 'include_tags');
+  t('…naming tags for every layer', LAYERS.every((l) => (realPlan.tags[l]?.length ?? 0) > 0), true);
+
+  t('🔴 removing --config= is read as "every tag"', exportPlan(broken).mode, 'everything');
+  t('🔴 include_tags → exclude_tags is read as an exclude list',
+    exportPlan(real.replace('"include_tags"', '"exclude_tags"')).mode, 'excludelist');
+  t('🔴 a key this file does not know is "unknown", not a pass',
+    exportPlan(real.replace('"include_tags"', '"only_tags"')).mode, 'unknown');
+
+  t(`the shipped pipeline fits at EU-27 (${MEASURED_KEYS.eu27} keys)`, fires(realPlan, MEASURED_KEYS.eu27), false);
+  t('🔴 without the allowlist it dies at EU-27', fires(exportPlan(broken), MEASURED_KEYS.eu27), true);
+  t(`…asking for ${MEASURED_KEYS.eu27 + NON_TAG_COLUMNS} columns`,
+    worstOf(exportPlan(broken), MEASURED_KEYS.eu27), MEASURED_KEYS.eu27 + NON_TAG_COLUMNS);
+  t('🔴 inverted, it dies at EU-27 too',
+    fires(exportPlan(real.replace('"include_tags"', '"exclude_tags"')), MEASURED_KEYS.eu27), true);
+  t('🔴 the mirror: without the allowlist, three countries still pass',
+    fires(exportPlan(broken), MEASURED_KEYS.threeCountries), false);
+  t(`the ceiling is Postgres's: ${POSTGRES_MAX_COLUMNS} fits`,
+    verdict([{ columns: POSTGRES_MAX_COLUMNS }]).length, 0);
+  t(`…and ${POSTGRES_MAX_COLUMNS + 1} does not`,
+    verdict([{ columns: POSTGRES_MAX_COLUMNS + 1 }]).length, 1);
+
+  console.log(`\ncheck-osm-columns self-test: ran ${pass + fail}, passed ${pass}, failed ${fail}`);
+  return fail === 0;
+}
+
 function selfTest(argv) {
   const workDir = argFor(argv, '--work-dir') ?? defaultWorkDir();
   const real = readFileSync(DEFAULT_PIPELINE, 'utf8');
@@ -295,9 +362,12 @@ function selfTest(argv) {
     return false;
   }
 
+  console.log('the logic, priced against the census measured 27.09.2026:');
+  let ok = offlineCases(real, broken);
+  if (argv.includes('--offline')) return ok;
+
   const brokenPlan = exportPlan(broken);
   const realPlan = exportPlan(real);
-  let ok = true;
 
   // 🔴 The mutation review drove and this check survived: one word in the
   // printf turns an allowlist into its opposite. Rehearsed here, because

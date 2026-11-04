@@ -5,6 +5,9 @@
 #   ./scripts/scale-check/run.sh --with-pages  probes + a browser pass
 #   ./scripts/scale-check/run.sh --pages-only  the browser pass alone
 #   ./scripts/scale-check/run.sh --rehearse    prove every probe can fail
+#   ./scripts/scale-check/run.sh --nightly     rehearse, then probe
+#   ./scripts/scale-check/run.sh --api-only    only what the API answers:
+#                                              the map, not the OSM census
 #
 # 🔴 WHY THERE IS A SEPARATE RUNNER AT ALL.
 #
@@ -42,11 +45,24 @@ WITH_PAGES=0
 # counted. By hand, `--with-pages` is still the one you want.
 SKIP_PROBES=0
 REHEARSE=0
+# 🔴 `--nightly` is what the GitHub workflow used to do in two steps —
+# rehearse, then probe — in one command, because a systemd unit has one
+# ExecStart and `camptribe-look` reads exactly that line (CAMP-134,
+# 04.11.2026). `--rehearse` alone still means rehearsal only.
+PROBE_AFTER_REHEARSAL=0
+# 🔴 `--api-only` names what the production machine can answer. The OSM
+# tag census needs `osmium` and the merged extracts; the machine has
+# neither (docs/deploy.md §6, measured 15.10.2026). Without this flag the
+# census runs and, where it cannot, FAILS — never skips — so the nightly
+# unit says the flag out loud rather than relying on a quiet default.
+API_ONLY=0
 for arg in "$@"; do
   case "$arg" in
     --with-pages) WITH_PAGES=1 ;;
     --pages-only) WITH_PAGES=1; SKIP_PROBES=1 ;;
     --rehearse|--self-test) REHEARSE=1 ;;
+    --nightly) REHEARSE=1; PROBE_AFTER_REHEARSAL=1 ;;
+    --api-only) API_ONLY=1 ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -172,17 +188,29 @@ step() {
   fi
 }
 
+if [ "$API_ONLY" = 1 ]; then
+  # Said in the log, so a reader of the journal sees the census was not
+  # asked rather than wondering why it is absent.
+  echo "--api-only: the OSM column census is not run here (needs osmium and the extracts)"
+  echo
+fi
+
 if [ "$REHEARSE" = 1 ]; then
   # 🔴 A safeguard nobody has rehearsed does not exist on this project.
   # Each of these drives the BROKEN version of the thing it guards against
   # the same live data, and fails if the guard stays quiet.
-  step "the OSM column guard, rehearsed" \
-    node scripts/scale-check/check-osm-columns.mjs --self-test
+  if [ "$API_ONLY" = 0 ]; then
+    step "the OSM column guard, rehearsed" \
+      node scripts/scale-check/check-osm-columns.mjs --self-test
+  fi
   step "the map snapshot guard, rehearsed" \
     node scripts/scale-check/check-map-index.mjs --self-test
-elif [ "$SKIP_PROBES" = 0 ]; then
-  step "OSM context export: columns against the Postgres ceiling" \
-    node scripts/scale-check/check-osm-columns.mjs
+fi
+if { [ "$REHEARSE" = 0 ] || [ "$PROBE_AFTER_REHEARSAL" = 1 ]; } && [ "$SKIP_PROBES" = 0 ]; then
+  if [ "$API_ONLY" = 0 ]; then
+    step "OSM context export: columns against the Postgres ceiling" \
+      node scripts/scale-check/check-osm-columns.mjs
+  fi
   step "the map index and its chunks" \
     node scripts/scale-check/check-map-index.mjs
 fi
