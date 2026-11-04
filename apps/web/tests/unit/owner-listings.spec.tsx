@@ -8,7 +8,9 @@ import {
   saveListing,
   type Listing,
 } from "@/lib/owner-listings";
-import { EmptyView, ListingForm } from "@/components/owner-listings-view";
+import { EmptyView, ListingForm, type Note } from "@/components/owner-listings-view";
+import { signInToSave } from "@/components/owner-listings";
+import { RETURN_KEY, takeReturn } from "@/lib/return-path";
 import { renderClient } from "./render-component";
 
 // CAMP-51 / CAMP-86 — сторінка «мої листинги».
@@ -203,5 +205,102 @@ test.describe("розмітка", () => {
       onSave: () => {},
     });
     expect(html).toContain("disabled");
+  });
+});
+
+// CAMP-227, хвіст після #449 — збереження впало на «не ввійшов».
+//
+// Шлях читання вже ставив паузу (`pauseForLogin`), шлях збереження писав
+// «Sign in again to save.» і на цьому зупинявся: у sessionStorage не
+// лягало нічого, і людина, що сама пішла на /login, поверталась на `/`.
+test.describe("🔴 збереження на «не ввійшов» — пауза, а не глухий кут", () => {
+  /**
+   * Сховище однієї вкладки, яке код бачить як `window.sessionStorage`:
+   * у Node `window` немає, а `rememberReturn` пише саме туди.
+   *
+   * 🔴 Без `location` навмисно. Якби шлях збереження спробував перейти
+   * (`window.location.assign`, `href = …`), він упав би тут — а не пройшов
+   * мовчки, зʼївши чернетку.
+   */
+  function withTabStorage<T>(run: (store: Storage) => T): T {
+    const data = new Map<string, string>();
+    const store = {
+      getItem: (k: string) => data.get(k) ?? null,
+      setItem: (k: string, v: string) => void data.set(k, v),
+      removeItem: (k: string) => void data.delete(k),
+    } as unknown as Storage;
+    const g = globalThis as { window?: unknown };
+    const had = "window" in g;
+    const before = g.window;
+    g.window = { sessionStorage: store };
+    try {
+      return run(store);
+    } finally {
+      if (had) g.window = before;
+      else delete g.window;
+    }
+  }
+
+  const stuck = (where: { pathname: string; search: string }): Note =>
+    withTabStorage(() => {
+      let got: Note | null = null;
+      signInToSave(where, (n) => (got = n));
+      if (got === null) throw new Error("the save path produced no note");
+      return got;
+    });
+
+  test("🔴 шлях разом із запитом лягає у sessionStorage, і вхід його забере", () => {
+    withTabStorage((store) => {
+      const notes: Note[] = [];
+      signInToSave(
+        { pathname: "/account/listings", search: "?spot=alpenblick" },
+        (n) => notes.push(n),
+      );
+      const raw = store.getItem(RETURN_KEY);
+      expect(raw, "nothing was remembered").not.toBeNull();
+      expect((JSON.parse(raw as string) as { path: unknown }).path).toBe(
+        "/account/listings?spot=alpenblick",
+      );
+      // Те саме читає форма входу — тим самим `takeReturn`.
+      expect(takeReturn(store)).toBe("/account/listings?spot=alpenblick");
+      expect(notes).toEqual([{ text: expect.any(String), signIn: "/login" }]);
+    });
+  });
+
+  test("нотатка у виданому HTML веде на вхід посиланням, а не переходом", () => {
+    const html = renderClient(ListingForm, {
+      listing: LISTING,
+      name: "Camping Alpenblick (mine)",
+      amenities: {},
+      busy: false,
+      ready: true,
+      dirty: true,
+      message: stuck({ pathname: "/account/listings", search: "" }),
+      onName: () => {},
+      onAmenity: () => {},
+      onSave: () => {},
+    });
+    expect(html).toContain('href="/login"');
+    expect(html).toContain("not saved");
+    expect(html).toContain("sign in");
+    // Чернетка лишається на екрані — саме тому це посилання, а не редирект.
+    expect(html).toContain("Camping Alpenblick (mine)");
+  });
+
+  test("звичайна нотатка посилання на вхід не має", () => {
+    const html = renderClient(ListingForm, {
+      listing: LISTING,
+      name: "",
+      amenities: {},
+      busy: false,
+      ready: true,
+      dirty: false,
+      message: { text: "Saved." },
+      onName: () => {},
+      onAmenity: () => {},
+      onSave: () => {},
+    });
+    expect(html).toContain("Saved.");
+    expect(html).not.toContain('href="/login"');
   });
 });
