@@ -8,8 +8,9 @@
 # personal data; GitHub's own documentation says self-hosted runners
 # should almost never be used with public repositories, because any pull
 # request can run code on them. No such runner was ever registered, so
-# every nightly queued, waited and was cancelled — measured over 100 runs
-# on 03.11.2026: 0 successful. The mechanism had not run ONCE.
+# every nightly queued, waited and was cancelled — measured 04.11.2026
+# with `gh run list`: 77 runs, 70 cancelled, 7 skipped, 0 successful.
+# The mechanism had not run ONCE.
 #
 # The same check, as a timer here, asks the same API over the same
 # database and runs no code that did not come through a merged release.

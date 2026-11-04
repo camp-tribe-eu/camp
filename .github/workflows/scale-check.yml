@@ -17,9 +17,10 @@ name: Scale check
 #     runners should almost never be used with public repositories. The
 #     `labeled`-only trigger narrowed the window; it did not close it.
 #  2. No such runner was ever registered. Every nightly queued for the
-#     label, waited, and was cancelled: measured 03.11.2026 over the last
-#     100 runs, 0 successful, 55 cancelled. The mechanism had not run
-#     ONCE in five weeks while looking like coverage.
+#     label, waited, and was cancelled: measured 04.11.2026 with
+#     `gh run list --workflow=scale-check.yml --limit 100`, 77 runs in
+#     all — 70 cancelled, 7 skipped, 0 successful. The mechanism had not
+#     run ONCE in five weeks while looking like coverage.
 #
 # The probes now run from a systemd timer ON the machine, reading its own
 # API over its own database and running no code that did not arrive by a
