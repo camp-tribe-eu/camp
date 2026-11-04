@@ -21,6 +21,15 @@ const PANEL = 'mt-6 max-w-xl rounded-card border border-line-2 bg-surface-2 p-5'
 
 export const LISTINGS_TITLE = 'Your campsite listings';
 
+/**
+ * Рядок під формою після спроби зберегти.
+ *
+ * `signIn` — адреса входу, коли сервер сказав «не ввійшов». Це
+ * ПОСИЛАННЯ, а не перехід: редирект зняв би сторінку разом із
+ * чернеткою, яку людина щойно набрала (CAMP-227, хвіст після #449).
+ */
+export type Note = { text: string; signIn?: string };
+
 export function EmptyView() {
   return (
     <section className={PANEL}>
@@ -57,7 +66,7 @@ export function ListingForm({
   busy: boolean;
   ready: boolean;
   dirty: boolean;
-  message: string | null;
+  message: Note | null;
   onName: (v: string) => void;
   onAmenity: (k: AmenityKey, v: AmenityValue) => void;
   onSave: () => void;
@@ -117,7 +126,17 @@ export function ListingForm({
 
       {message && (
         <p className="mt-4 text-sm text-ink" role="alert">
-          {message}
+          {message.text}
+          {message.signIn && (
+            <>
+              {' '}
+              Copy anything you typed, then{' '}
+              <Link className="underline" href={message.signIn}>
+                sign in
+              </Link>{' '}
+              — you will come back to this page.
+            </>
+          )}
         </p>
       )}
 

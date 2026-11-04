@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { needsLogin, pauseForLogin } from '@/lib/auth-wall';
+import { needsLogin, pauseForLogin, type Where } from '@/lib/auth-wall';
 import {
   AMENITY_KEYS,
   hasChanges,
@@ -13,10 +13,29 @@ import {
   type AmenityValue,
   type Listing,
 } from '@/lib/owner-listings';
-import { EmptyView, ListingForm } from '@/components/owner-listings-view';
+import { EmptyView, ListingForm, type Note } from '@/components/owner-listings-view';
 
 // CAMP-51 / CAMP-86 — стан сторінки «мої листинги». Тонка обгортка:
 // правила в lib/owner-listings.ts, розмітка в owner-listings-view.tsx.
+
+/**
+ * 🔴 CAMP-227, хвіст після #449: ЗБЕРЕЖЕННЯ ВПАЛО НА «НЕ ВВІЙШОВ».
+ *
+ * Та сама пауза, що на читанні вище (`pauseForLogin`): місце повернення
+ * лягає у сховище ЗАРАЗ, разом із запитом, і вхід поверне людину сюди.
+ * Але `go` тут — НЕ навігація. Редирект на /login зняв би сторінку
+ * разом із чернеткою, яка живе лише в стані React і яку людина щойно
+ * набрала. Тому на /login веде посилання в нотатці під формою, і
+ * людина піде ним сама, коли буде готова.
+ *
+ * Окрема функція, бо перевіряється без React: що саме лягло у
+ * `sessionStorage` і що саме отримала нотатка.
+ */
+export function signInToSave(where: Where, note: (n: Note) => void): void {
+  pauseForLogin(where, (to) =>
+    note({ text: 'Your session has ended, so this was not saved.', signIn: to }),
+  );
+}
 
 function useReady(): boolean {
   const [ready, setReady] = useState(false);
@@ -45,7 +64,7 @@ export function OwnerListings() {
   const [listings, setListings] = useState<Listing[] | null>(null);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [busy, setBusy] = useState<string | null>(null);
-  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [notes, setNotes] = useState<Record<string, Note>>({});
 
   useEffect(() => {
     let alive = true;
@@ -129,13 +148,17 @@ export function OwnerListings() {
                         x.slug === l.slug ? { ...x, overrides: res.overrides } : x,
                       ),
                     );
-                    setNotes((n) => ({ ...n, [l.slug]: 'Saved.' }));
+                    setNotes((n) => ({ ...n, [l.slug]: { text: 'Saved.' } }));
                   } else if (res.kind === 'refused') {
-                    setNotes((n) => ({ ...n, [l.slug]: res.message }));
-                  } else if (res.kind === 'signed-out') {
-                    setNotes((n) => ({ ...n, [l.slug]: 'Sign in again to save.' }));
+                    setNotes((n) => ({ ...n, [l.slug]: { text: res.message } }));
+                  } else if (needsLogin(res.kind)) {
+                    // Посилання, не редирект: чернетка вище ще потрібна людині.
+                    signInToSave(
+                      { pathname: window.location.pathname, search: window.location.search },
+                      (note) => setNotes((n) => ({ ...n, [l.slug]: note })),
+                    );
                   } else {
-                    setNotes((n) => ({ ...n, [l.slug]: 'That did not go through.' }));
+                    setNotes((n) => ({ ...n, [l.slug]: { text: 'That did not go through.' } }));
                   }
                 })
                 .finally(() => setBusy(null));
