@@ -1,106 +1,106 @@
 {
-  "bulletinDate": "2026-10-26",
+  "bulletinDate": "2026-11-02",
   "servedUnderName": "2026-09-21",
-  "fetchedAt": "2026-11-04",
+  "fetchedAt": "2026-11-05",
   "unit": "EUR per litre, including taxes",
   "source": "https://energy.ec.europa.eu/data-and-analysis/weekly-oil-bulletin_en",
   "sourceFile": "https://energy.ec.europa.eu/document/download/264c2d0f-f161-4ea3-a777-78faae59bea0_en?filename=Weekly%20Oil%20Bulletin%20Weekly%20prices%20with%20Taxes%20-%202026-09-21.xlsx",
   "licence": "CC BY 4.0",
   "attribution": "European Commission, Weekly Oil Bulletin — © European Union, licensed CC BY 4.0",
   "euAverage": {
-    "petrol": 1.954,
-    "diesel": 2.146
+    "petrol": 1.929,
+    "diesel": 2.154
   },
   "countries": {
     "AT": {
       "name": "Austria",
-      "petrol": 1.772,
-      "diesel": 2.132
+      "petrol": 1.747,
+      "diesel": 2.148
     },
     "BE": {
       "name": "Belgium",
-      "petrol": 1.953,
-      "diesel": 2.375
+      "petrol": 1.914,
+      "diesel": 2.398
     },
     "BG": {
       "name": "Bulgaria",
-      "petrol": 1.625,
-      "diesel": 1.89
+      "petrol": 1.605,
+      "diesel": 1.893
     },
     "HR": {
       "name": "Croatia",
-      "petrol": 1.791,
-      "diesel": 2.005
+      "petrol": 1.749,
+      "diesel": 2.015
     },
     "CY": {
       "name": "Cyprus",
-      "petrol": 1.73,
-      "diesel": 2.005
+      "petrol": 1.716,
+      "diesel": 2.002
     },
     "CZ": {
       "name": "Czechia",
-      "petrol": 1.798,
-      "diesel": 1.95
+      "petrol": 1.765,
+      "diesel": 1.981
     },
     "DK": {
       "name": "Denmark",
-      "petrol": 2.525,
-      "diesel": 2.502
+      "petrol": 2.498,
+      "diesel": 2.529
     },
     "EE": {
       "name": "Estonia",
-      "petrol": 1.887,
-      "diesel": 2.101
+      "petrol": 1.863,
+      "diesel": 2.113
     },
     "FI": {
       "name": "Finland",
-      "petrol": 2.346,
-      "diesel": 2.547
+      "petrol": 2.205,
+      "diesel": 2.433
     },
     "FR": {
       "name": "France",
-      "petrol": 2.181,
-      "diesel": 2.352
+      "petrol": 2.158,
+      "diesel": 2.371
     },
     "DE": {
       "name": "Germany",
-      "petrol": 2.167,
-      "diesel": 2.298
+      "petrol": 2.128,
+      "diesel": 2.282
     },
     "GR": {
       "name": "Greece",
-      "petrol": 2.143,
-      "diesel": 2.127
+      "petrol": 2.125,
+      "diesel": 2.139
     },
     "HU": {
       "name": "Hungary",
-      "petrol": 1.754,
-      "diesel": 1.93
+      "petrol": 1.75,
+      "diesel": 1.978
     },
     "IE": {
       "name": "Ireland",
-      "petrol": 1.971,
-      "diesel": 2.137
+      "petrol": 1.966,
+      "diesel": 2.122
     },
     "IT": {
       "name": "Italy",
-      "petrol": 2.006,
-      "diesel": 2.247
+      "petrol": 2.001,
+      "diesel": 2.238
     },
     "LV": {
       "name": "Latvia",
-      "petrol": 1.932,
-      "diesel": 2.084
+      "petrol": 1.868,
+      "diesel": 2.099
     },
     "LT": {
       "name": "Lithuania",
-      "petrol": 1.927,
-      "diesel": 2.222
+      "petrol": 1.87,
+      "diesel": 2.223
     },
     "LU": {
       "name": "Luxembourg",
-      "petrol": 1.746,
-      "diesel": 2.054
+      "petrol": 1.759,
+      "diesel": 2.11
     },
     "MT": {
       "name": "Malta",
@@ -109,43 +109,43 @@
     },
     "NL": {
       "name": "Netherlands",
-      "petrol": 2.313,
-      "diesel": 2.469
+      "petrol": 2.284,
+      "diesel": 2.468
     },
     "PL": {
       "name": "Poland",
-      "petrol": 1.467,
-      "diesel": 1.781
+      "petrol": 1.456,
+      "diesel": 1.812
     },
     "PT": {
       "name": "Portugal",
-      "petrol": 2.04,
-      "diesel": 2.189
+      "petrol": 2.006,
+      "diesel": 2.205
     },
     "RO": {
       "name": "Romania",
-      "petrol": 1.886,
-      "diesel": 2.037
+      "petrol": 1.881,
+      "diesel": 2.071
     },
     "SK": {
       "name": "Slovakia",
-      "petrol": 1.82,
-      "diesel": 1.97
+      "petrol": 1.785,
+      "diesel": 1.979
     },
     "SI": {
       "name": "Slovenia",
-      "petrol": 1.732,
-      "diesel": 1.909
+      "petrol": 1.675,
+      "diesel": 1.941
     },
     "ES": {
       "name": "Spain",
-      "petrol": 1.751,
-      "diesel": 1.888
+      "petrol": 1.73,
+      "diesel": 1.898
     },
     "SE": {
       "name": "Sweden",
-      "petrol": 1.56,
-      "diesel": 2.037
+      "petrol": 1.555,
+      "diesel": 2.061
     }
   }
 }
