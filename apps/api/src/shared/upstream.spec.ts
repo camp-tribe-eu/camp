@@ -65,7 +65,8 @@ describe('fetchUpstream: request options', () => {
 describe('fetchUpstream: naming', () => {
   // mutation: drop `source` from the message → red
   it('🔴 names the source the caller gave, so the journal says WHOSE server', async () => {
-    const f = (async () => ({ ok: false, status: 500 }) as Response) as unknown as typeof fetch;
+    const f = (async () =>
+      ({ ok: false, status: 500 }) as Response) as unknown as typeof fetch;
     await expect(
       fetchUpstream(f, 'u', 'the roster index', {
         sleep: noSleep,
@@ -78,7 +79,8 @@ describe('fetchUpstream: naming', () => {
   });
 
   it('falls back to "the source" when none is given', async () => {
-    const f = (async () => ({ ok: false, status: 502 }) as Response) as unknown as typeof fetch;
+    const f = (async () =>
+      ({ ok: false, status: 502 }) as Response) as unknown as typeof fetch;
     await expect(
       fetchUpstream(f, 'u', 'x', { sleep: noSleep, log: quiet }),
     ).rejects.toThrow(/^the source is unavailable: x answered HTTP 502/);
@@ -91,14 +93,19 @@ describe('fetchUpstream: naming', () => {
     let calls = 0;
     const f = (async () => {
       calls++;
-      throw Object.assign(new Error('The operation was aborted due to timeout'), {
-        name: 'TimeoutError',
-      });
+      throw Object.assign(
+        new Error('The operation was aborted due to timeout'),
+        {
+          name: 'TimeoutError',
+        },
+      );
     }) as unknown as typeof fetch;
     const log: string[] = [];
     await expect(
       fetchUpstream(f, 'u', 'x', { sleep: noSleep, log: (l) => log.push(l) }),
-    ).rejects.toThrow(/unreachable \(The operation was aborted due to timeout\)/);
+    ).rejects.toThrow(
+      /unreachable \(The operation was aborted due to timeout\)/,
+    );
     expect(calls).toBe(3);
     expect(log).toHaveLength(3);
   });
@@ -107,16 +114,15 @@ describe('fetchUpstream: naming', () => {
 describe('upstreamVerdict with an explicit threshold', () => {
   // mutation: `streak % every === 0` → `streak >= every` → red on 3
   it('🔴 every 2: the second, fourth, sixth fail; the odd ones do not', () => {
-    expect([1, 2, 3, 4, 5, 6].map((n) => upstreamVerdict(n, 2).failUnit)).toEqual([
-      false,
-      true,
-      false,
-      true,
-      false,
-      true,
-    ]);
-    expect(upstreamVerdict(1, 2).say).toMatch(/1 upstream failure\(s\).*NOT failing.*1 more/);
-    expect(upstreamVerdict(2, 2).say).toMatch(/2 upstream failures in a row — failing/);
+    expect(
+      [1, 2, 3, 4, 5, 6].map((n) => upstreamVerdict(n, 2).failUnit),
+    ).toEqual([false, true, false, true, false, true]);
+    expect(upstreamVerdict(1, 2).say).toMatch(
+      /1 upstream failure\(s\).*NOT failing.*1 more/,
+    );
+    expect(upstreamVerdict(2, 2).say).toMatch(
+      /2 upstream failures in a row — failing/,
+    );
   });
 
   it('every 1 is the old behaviour: every failure fails', () => {

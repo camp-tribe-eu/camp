@@ -31,14 +31,20 @@ const noSleep = async () => undefined;
 const NOW = new Date('2026-11-05T12:30:00Z');
 const WINDOW_OK = {
   timeInfo: {
-    timeExtent: [Date.parse('2026-11-04T00:00:00Z'), Date.parse('2026-11-06T00:00:00Z')],
+    timeExtent: [
+      Date.parse('2026-11-04T00:00:00Z'),
+      Date.parse('2026-11-06T00:00:00Z'),
+    ],
   },
   maxValues: [6],
 };
 /** The 03.11.2026 situation (CAMP-439): the raster stopped on 28.10. */
 const WINDOW_STALE = {
   timeInfo: {
-    timeExtent: [Date.parse('2026-10-25T00:00:00Z'), Date.parse('2026-10-28T12:00:00Z')],
+    timeExtent: [
+      Date.parse('2026-10-25T00:00:00Z'),
+      Date.parse('2026-10-28T12:00:00Z'),
+    ],
   },
   maxValues: [6],
 };
@@ -71,11 +77,14 @@ function res(body: unknown, status = 200) {
  * `index` the same for the roster index. Everything else answers well,
  * and every station file is a 404 (the reading is cleared, not kept).
  */
-function eea(script: { raster?: (number | object)[]; index?: (number | object)[] } = {}) {
+function eea(
+  script: { raster?: (number | object)[]; index?: (number | object)[] } = {},
+) {
   const raster = [...(script.raster ?? [WINDOW_OK])];
   const index = [...(script.index ?? [{ contents: [ROSTER_FILE] }])];
   const next = (q: (number | object)[]) => (q.length > 1 ? q.shift()! : q[0]);
-  const answer = (a: number | object) => (typeof a === 'number' ? res('', a) : res(a));
+  const answer = (a: number | object) =>
+    typeof a === 'number' ? res('', a) : res(a);
   const calls = { raster: 0, index: 0, samples: 0 };
   const f = (async (url: string) => {
     if (url === AIR_ROSTER_INDEX_URL) {
@@ -142,8 +151,13 @@ function deps(fetchImpl: typeof fetch, db: DbLike = fakeDb(), e = env()) {
 }
 
 describe('ESCALATE_EVERY is derived from the cadence, not copied', () => {
-  const timer = readFileSync(join(INFRA, 'camptribe-air-quality.timer'), 'utf8');
-  const period = Number(/^OnCalendar=\*-\*-\* 00\/(\d+):\d\d:\d\d UTC$/m.exec(timer)?.[1]);
+  const timer = readFileSync(
+    join(INFRA, 'camptribe-air-quality.timer'),
+    'utf8',
+  );
+  const period = Number(
+    /^OnCalendar=\*-\*-\* 00\/(\d+):\d\d:\d\d UTC$/m.exec(timer)?.[1],
+  );
 
   // mutation: ESCALATE_EVERY = 3 (bathing's number) → red
   it('🔴 is the first run that KNOWS the freshness budget is gone: the smallest N with N × period > budget', () => {
@@ -153,7 +167,9 @@ describe('ESCALATE_EVERY is derived from the cadence, not copied', () => {
     expect(ESCALATE_EVERY).toBe(smallest);
     expect(ESCALATE_EVERY).toBe(2);
     // in hours: a one-off outage is tolerated, a 6-hour one is not
-    expect((ESCALATE_EVERY - 1) * period).toBeLessThanOrEqual(AIR_FRESH_FOR_HOURS);
+    expect((ESCALATE_EVERY - 1) * period).toBeLessThanOrEqual(
+      AIR_FRESH_FOR_HOURS,
+    );
     expect(ESCALATE_EVERY * period).toBeGreaterThan(AIR_FRESH_FOR_HOURS);
   });
 });
@@ -170,17 +186,25 @@ describe('run() while the EEA is down', () => {
     const db = fakeDb();
     expect(await run(['--apply'], deps(eea({ raster: [500] }), db))).toBe(0);
     expect(readStreak(dir)).toBe(1);
-    expect(await run(['--apply'], deps(eea({ raster: [500] }), fakeDb()))).toBe(1);
+    expect(await run(['--apply'], deps(eea({ raster: [500] }), fakeDb()))).toBe(
+      1,
+    );
     expect(readStreak(dir)).toBe(2);
     const journal = out.join('\n');
     expect(journal).toMatch(
       /the EEA ArcGIS server is unavailable: the raster's description answered HTTP 500 on all 3 attempts/,
     );
     expect(journal).toMatch(/the source, not this import/);
-    expect(journal).toMatch(/the stations are in and committed; only the raster could not be read/);
-    expect(journal).toMatch(/1 upstream failure\(s\) in a row — NOT failing the unit; 1 more/);
+    expect(journal).toMatch(
+      /the stations are in and committed; only the raster could not be read/,
+    );
+    expect(journal).toMatch(
+      /1 upstream failure\(s\) in a row — NOT failing the unit; 1 more/,
+    );
     expect(journal).toMatch(/2 upstream failures in a row — failing the unit/);
-    expect(journal).not.toMatch(/\bat (fetchUpstream|getJsonFromSource|rasterWindow)\b/); // words, not a stack
+    expect(journal).not.toMatch(
+      /\bat (fetchUpstream|getJsonFromSource|rasterWindow)\b/,
+    ); // words, not a stack
     expect(db.sql).toContain('COMMIT'); // the stations were kept
     expect(db.sql).toContain('ROLLBACK TO SAVEPOINT stations_done');
   });
@@ -189,7 +213,9 @@ describe('run() while the EEA is down', () => {
   it('🔴 the roster index 500 on all attempts: tolerated before the database is even opened', async () => {
     const never: DbLike = {
       connect: async () => {
-        throw new Error('the database must not be opened when there is no roster');
+        throw new Error(
+          'the database must not be opened when there is no roster',
+        );
       },
     } as unknown as DbLike;
     expect(await run(['--apply'], deps(eea({ index: [500] }), never))).toBe(0);
@@ -214,7 +240,9 @@ describe('run() while the EEA is down', () => {
       }),
     ).toBe(0);
     const journal = out.join('\n');
-    expect(journal).toMatch(/the raster's description: attempt 1 of 3 — HTTP 500, waiting 30 s/);
+    expect(journal).toMatch(
+      /the raster's description: attempt 1 of 3 — HTTP 500, waiting 30 s/,
+    );
     expect(journal).not.toMatch(/attempt 2 of 3/); // the second answered 200: not a failure
     expect(journal).toMatch(/campsites with no station in 15 km\s+0/);
     expect(journal).toMatch(/✓ committed/);
@@ -227,7 +255,9 @@ describe('run() while the EEA is down', () => {
   // 🔴 THE REVERSE. mutation: catch everything → red
   it('🔴 a bug in OUR raster reader still fails loudly, even while the source answers 200', async () => {
     const wrongProduct = { ...WINDOW_OK, maxValues: [5] };
-    expect(await run(['--apply'], deps(eea({ raster: [wrongProduct] })))).toBe(1);
+    expect(await run(['--apply'], deps(eea({ raster: [wrongProduct] })))).toBe(
+      1,
+    );
     expect(out.join('\n')).toMatch(/reports maxValues \[5\], not \[6\]/);
     expect(readStreak(dir)).toBe(0); // not counted as the source's fault
   });
@@ -235,8 +265,12 @@ describe('run() while the EEA is down', () => {
   it('🔴 a roster that is not a list is OURS and throws, with nothing counted', async () => {
     const f = eea();
     const liar = (async (url: string) =>
-      url === airRosterUrl(ROSTER_FILE) ? res({ not: 'a list' }) : f(url)) as unknown as typeof fetch;
-    await expect(run(['--apply'], deps(liar))).rejects.toThrow(/not a non-empty list of stations/);
+      url === airRosterUrl(ROSTER_FILE)
+        ? res({ not: 'a list' })
+        : f(url)) as unknown as typeof fetch;
+    await expect(run(['--apply'], deps(liar))).rejects.toThrow(
+      /not a non-empty list of stations/,
+    );
     expect(readStreak(dir)).toBe(0);
   });
 
@@ -248,9 +282,13 @@ describe('run() while the EEA is down', () => {
 
   it('🔴 a raster that stands still (CAMP-439) still does not fail the unit, and is not counted either', async () => {
     recordFailure(dir, 'yesterday');
-    expect(await run(['--apply'], deps(eea({ raster: [WINDOW_STALE] })))).toBe(0);
+    expect(await run(['--apply'], deps(eea({ raster: [WINDOW_STALE] })))).toBe(
+      0,
+    );
     const journal = out.join('\n');
-    expect(journal).toMatch(/the raster holds 2026-10-25T00:00:00.000Z to 2026-10-28T12:00:00.000Z/);
+    expect(journal).toMatch(
+      /the raster holds 2026-10-25T00:00:00.000Z to 2026-10-28T12:00:00.000Z/,
+    );
     expect(journal).toMatch(/This does NOT fail the unit/);
     expect(readStreak(dir)).toBe(0); // the source answered: the streak is over
   });
@@ -258,7 +296,14 @@ describe('run() while the EEA is down', () => {
   // mutation: drop `if (!stateDir)` → red (would return 0 with nowhere to count)
   it('🔴 without a STATE_DIRECTORY there is nowhere to count, so it fails as before', async () => {
     expect(
-      await run(['--apply'], deps(eea({ raster: [500] }), fakeDb(), env({ STATE_DIRECTORY: undefined }))),
+      await run(
+        ['--apply'],
+        deps(
+          eea({ raster: [500] }),
+          fakeDb(),
+          env({ STATE_DIRECTORY: undefined }),
+        ),
+      ),
     ).toBe(1);
     expect(out.join('\n')).toMatch(/No STATE_DIRECTORY/);
   });
@@ -266,7 +311,9 @@ describe('run() while the EEA is down', () => {
   it('a dry run records nothing and exits 1 so the shell sees it', async () => {
     expect(await run([], deps(eea({ raster: [500] })))).toBe(1);
     expect(readStreak(dir)).toBe(0);
-    expect(out.join('\n')).toMatch(/dry run — the failure streak is not recorded/);
+    expect(out.join('\n')).toMatch(
+      /dry run — the failure streak is not recorded/,
+    );
   });
 
   // mutation: drop `clearStreak` → red
@@ -282,15 +329,24 @@ describe('run() while the EEA is down', () => {
     const f = eea();
     const liar = (async (url: string) => {
       if (url === `${AIR_RASTER_URL}?f=json`)
-        throw new Error('the EEA ArcGIS server is unavailable: answered HTTP 500 on all 3 attempts');
+        throw new Error(
+          'the EEA ArcGIS server is unavailable: answered HTTP 500 on all 3 attempts',
+        );
       return f(url);
     }) as unknown as typeof fetch;
     expect(await run(['--apply'], deps(liar))).toBe(0);
-    expect(out.join('\n')).toMatch(/unreachable \(the EEA ArcGIS server is unavailable/);
+    expect(out.join('\n')).toMatch(
+      /unreachable \(the EEA ArcGIS server is unavailable/,
+    );
   });
 
   it('exits 2 without a DATABASE_URL, as before', async () => {
-    expect(await run(['--apply'], deps(eea(), fakeDb(), env({ DATABASE_URL: undefined })))).toBe(2);
+    expect(
+      await run(
+        ['--apply'],
+        deps(eea(), fakeDb(), env({ DATABASE_URL: undefined })),
+      ),
+    ).toBe(2);
   });
 });
 
@@ -299,7 +355,10 @@ describe('run() while the EEA is down', () => {
 // which is the pre-CAMP-440 behaviour the card exists to end — so the
 // unit file is read here, not recalled.
 describe('camptribe-air-quality.service', () => {
-  const unit = readFileSync(join(INFRA, 'camptribe-air-quality.service'), 'utf8');
+  const unit = readFileSync(
+    join(INFRA, 'camptribe-air-quality.service'),
+    'utf8',
+  );
   it('declares the StateDirectory the streak lives in', () => {
     expect(unit).toMatch(/^StateDirectory=camptribe-air-quality$/m);
   });

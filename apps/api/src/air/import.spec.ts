@@ -294,9 +294,9 @@ describe('failsTheUnit', () => {
   // "never failing" — the streak in $STATE_DIRECTORY decides
   // (air/upstream.spec.ts).
   it('🔴 джерело лежить (UpstreamUnavailable) — не валить на місці, вирішує лічильник', () => {
-    expect(failsTheUnit(new UpstreamUnavailable('HTTP 500 on all 3 attempts'))).toBe(
-      false,
-    );
+    expect(
+      failsTheUnit(new UpstreamUnavailable('HTTP 500 on all 3 attempts')),
+    ).toBe(false);
   });
 
   it('не-помилка теж валить, а не мовчить', () => {

@@ -118,8 +118,7 @@ export async function fetchUpstream(
   for (let i = 1; i <= attempts; i++) {
     let res: Response | null = null;
     try {
-      const init =
-        typeof opts.init === 'function' ? opts.init() : opts.init;
+      const init = typeof opts.init === 'function' ? opts.init() : opts.init;
       res = init ? await fetchImpl(url, init) : await fetchImpl(url);
     } catch (err) {
       const cause = (err as { cause?: { code?: string } })?.cause?.code;
@@ -159,7 +158,10 @@ export interface UpstreamVerdict {
  * `every` is the importer's own number — see the head of this file for
  * why there is no default here.
  */
-export function upstreamVerdict(streak: number, every: number): UpstreamVerdict {
+export function upstreamVerdict(
+  streak: number,
+  every: number,
+): UpstreamVerdict {
   if (!Number.isInteger(streak) || streak < 1) {
     throw new Error(`a streak is a count of failed runs, not ${streak}`);
   }

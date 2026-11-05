@@ -397,10 +397,10 @@ export async function fetchModelledBands(
         ...retry,
         source: ARCGIS,
         sleep:
-      retry.sleep ??
-      (async (ms) => {
-        await sleeper.sleep(ms);
-      }),
+          retry.sleep ??
+          (async (ms) => {
+            await sleeper.sleep(ms);
+          }),
         init: () => ({
           method: 'POST',
           headers: {
@@ -419,7 +419,9 @@ export async function fetchModelledBands(
     };
     // ArcGIS reports failures inside a 200.
     if (json.error)
-      throw new Error(`getSamples error: ${json.error.message ?? 'no message'}`);
+      throw new Error(
+        `getSamples error: ${json.error.message ?? 'no message'}`,
+      );
     if (!Array.isArray(json.samples))
       throw new Error('getSamples returned no samples list');
     const body = json.samples;
