@@ -39,7 +39,17 @@ import {
   fetchStationFile,
   mapPool,
   rasterWindow,
+  type Roster,
 } from './fetch';
+import {
+  UpstreamUnavailable,
+  clearStreak,
+  failsTheUnit as upstreamFailsTheUnit,
+  recordFailure,
+  stateDirectory,
+  upstreamVerdict,
+} from '../shared/upstream';
+import type { RetryOptions } from '../shared/upstream';
 import {
   hourStart,
   parseStation,
@@ -51,7 +61,8 @@ import {
 } from './parse';
 import { AIR_RADIUS_M } from './source';
 
-const DB_URL = process.env.DATABASE_URL;
+/** The slice of pg.Client this import uses; a test hands in a fake. */
+export type DbLike = Pick<Client, 'connect' | 'query' | 'end'>;
 
 /** Station files fetched at once. Polite to a public blob store. */
 const CONCURRENCY = 6;
@@ -248,7 +259,7 @@ export function readingTallyReconciles(
 // ---------------------------------------------------------------------
 
 async function upsertStations(
-  db: Client,
+  db: DbLike,
   roster: string,
   rows: StationRecord[],
 ) {
@@ -291,7 +302,7 @@ async function upsertStations(
   }
 }
 
-async function writeReadings(db: Client, actions: ReadingAction[], at: Date) {
+async function writeReadings(db: DbLike, actions: ReadingAction[], at: Date) {
   const sets = actions.filter(
     (a): a is Extract<ReadingAction, { action: 'set' }> => a.action === 'set',
   );
@@ -380,24 +391,68 @@ const SPOTS_WITHOUT_STATION_SQL = `
 export class RasterNotAdvancing extends Error {}
 
 /**
- * Чи має ця біда з растром повалити юніт.
+ * Чи має ця біда повалити юніт НА МІСЦІ.
  *
  * 🔴 Вирішує ТИП, а не текст повідомлення. Якби ми ловили за словами
  * («the raster holds…»), то перефразування помилки тихо повернуло б
  * щоденні листи — або, гірше, збіг слів у чужій помилці проковтнув би
  * справжню поломку. Плаский `Error` із тим самим текстом ВАЛИТЬ юніт,
- * і так і має бути: мовчить лише те, що ми свідомо назвали зупинкою.
+ * і так і має бути: мовчить лише те, що ми свідомо назвали.
+ *
+ * Названо два випадки: растр стоїть (`RasterNotAdvancing` — не валить,
+ * про нього дзвонить сторож свіжості) і джерело лежить
+ * (`UpstreamUnavailable`, CAMP-440 — не валить на місці, а рахується;
+ * валить кожна ESCALATE_EVERY-та поспіль, див. нижче).
  */
 export const failsTheUnit = (err: unknown): boolean =>
-  !(err instanceof RasterNotAdvancing);
+  !(err instanceof RasterNotAdvancing) && upstreamFailsTheUnit(err);
+
+/**
+ * 🔴 CAMP-440: кожна яка поспіль недоступність EEA валить юніт — і це
+ * число ВИВЕДЕНЕ з каденції, а не скопійоване з купання (там 3).
+ *
+ * Арифметика, усе з коду:
+ *   - таймер ходить кожні 3 год (`OnCalendar=*-*-* 00/3:25:00 UTC`,
+ *     camptribe-air-quality.timer) — 8 прогонів на добу;
+ *   - бюджет свіжості — 4 год (`AIR_FRESH_FOR_HOURS`): старше за це
+ *     сторінка каже «no fresh data», і ті самі 4 год стоять у
+ *     `check-data-freshness.mjs` для air_quality_stations і
+ *     air_quality_modelled;
+ *   - але сторож свіжості ходить РАЗ НА ДОБУ, о 06:00 UTC
+ *     (camptribe-freshness.timer): збій, що почався о 07:00, він
+ *     побачить лише наступного ранку, через 23 год.
+ *
+ * Один невдалий прогін: останнє добре читання на наступному прогоні
+ * має 6 год — сторінка 2 год показувала «no fresh data», і цей прогін
+ * усе полагодив сам. Листа це не варте (так і було 04.11.2026).
+ *
+ * Два поспіль: до наступної нагоди 9 год, сторінка порожня 5 год. Уже
+ * ПЕРШИЙ із двох вибив бюджет — другий прогін це перший, який ЗНАЄ,
+ * що бюджет вибито. Тому поріг 2: перший лист через 6 год збою, далі
+ * один на 6 год (camptribe-notify ще й гасить їх своїм QUIET_HOURS).
+ *
+ * Чому не 3, як у купання: це 9 год — на 5 год пізніше, ніж сторінка
+ * спорожніла, і пізніше за добовий сторож щоразу, коли збій
+ * накриває 02:00–06:00. Лічильник був би повільнішим із двох вартових,
+ * тобто зайвим. Чому не 1: це поведінка до CAMP-440 — лист за кожен
+ * одноразовий 500, який наступний прогін лагодить сам.
+ *
+ * Ціна хибного спрацювання: один лист про чужий сервер, який лежить
+ * понад 6 год, — у словах «the source, not this import», без стека.
+ * Заміряно 05.11.2026 14:59 UTC: обидва хости EEA знову 200, тобто
+ * збій 04.11 тривав менше доби; скільки саме прогонів він накрив би,
+ * невідомо — юніт тоді ще не вмів терпіти.
+ */
+export const ESCALATE_EVERY = 2;
 
 async function refreshModelled(
-  db: Client,
+  db: DbLike,
   now: Date,
   fetchImpl: typeof fetch,
+  retry: RetryOptions,
 ): Promise<ModelledTally> {
   const hourMs = hourStart(now);
-  const win = await rasterWindow(fetchImpl);
+  const win = await rasterWindow(fetchImpl, retry);
   if (hourMs < win.start || hourMs > win.end) {
     throw new RasterNotAdvancing(
       `the raster holds ${new Date(win.start).toISOString()} to ${new Date(win.end).toISOString()}, ` +
@@ -412,6 +467,7 @@ async function refreshModelled(
     spots,
     hourMs,
     fetchImpl,
+    retry,
   );
 
   const tally: ModelledTally = {
@@ -468,18 +524,84 @@ function printPrefixes(label: string, m: Record<string, number>) {
   );
 }
 
-async function main() {
-  const apply = process.argv.includes('--apply');
-  if (!DB_URL) {
+export interface RunDeps {
+  /** The network. Injected by tests. */
+  fetchImpl?: typeof fetch;
+  /** The pause between retries; injected so tests do not wait 30 s. */
+  sleep?: (ms: number) => Promise<void>;
+  /** Where DATABASE_URL and STATE_DIRECTORY are read from. */
+  env?: Record<string, string | undefined>;
+  /** The database; a test hands in a fake that answers queries. */
+  openDb?: (connectionString: string) => DbLike;
+  now?: Date;
+}
+
+/**
+ * CAMP-440: the source did not answer. Say so in words, count it, and
+ * decide — see ESCALATE_EVERY above and shared/upstream.ts for why this
+ * is neither exit 1 nor silence. Returns the exit code.
+ */
+function tolerateUpstream(
+  err: UpstreamUnavailable,
+  apply: boolean,
+  stateDir: string | null,
+  ours: string,
+): number {
+  console.error(`\n✗ ${err.message}`);
+  console.error(`  Nothing of ours failed: ${ours}.`);
+  if (!apply) {
+    console.error(
+      '  (dry run — the failure streak is not recorded; exiting 1 so the shell sees it)',
+    );
+    return 1;
+  }
+  if (!stateDir) {
+    console.error(
+      '  No STATE_DIRECTORY, so there is nowhere to count consecutive failures —\n' +
+        '  failing the unit as before CAMP-440 (StateDirectory= in the .service is\n' +
+        '  what makes an outage tolerable; without it the fallback is loud, not quiet).',
+    );
+    return 1;
+  }
+  const streak = recordFailure(stateDir, err.message);
+  const verdict = upstreamVerdict(streak, ESCALATE_EVERY);
+  console.error(`  ${verdict.say}`);
+  console.error(`  streak kept in ${stateDir}`);
+  return verdict.failUnit ? 1 : 0;
+}
+
+export async function run(argv: string[], deps: RunDeps = {}): Promise<number> {
+  const env = deps.env ?? process.env;
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  const retry: RetryOptions = deps.sleep ? { sleep: deps.sleep } : {};
+  const apply = argv.includes('--apply');
+  const dbUrl = env.DATABASE_URL;
+  if (!dbUrl) {
     console.error(
       'DATABASE_URL is not set. This importer has no default database.',
     );
-    process.exit(2);
+    return 2;
   }
-  const now = new Date();
+  const stateDir = stateDirectory(env);
+  const now = deps.now ?? new Date();
 
   console.log(`run at ${now.toISOString()}\n\nroster`);
-  const roster = await fetchRoster();
+  let roster: Roster;
+  try {
+    roster = await fetchRoster(fetchImpl, retry);
+  } catch (err) {
+    // 🔴 By TYPE. Anything that is not the source being down — a 404,
+    // an index without a roster file, a roster that is not a list —
+    // rethrows and fails the unit exactly as before.
+    if (upstreamFailsTheUnit(err)) throw err;
+    return tolerateUpstream(
+      err as UpstreamUnavailable,
+      apply,
+      stateDir,
+      'no row was parsed and no table was touched; the stored readings age ' +
+        'out on the page as "no fresh data" after AIR_FRESH_FOR_HOURS',
+    );
+  }
   const { stations, tally: st } = selectStations(roster.rows);
   console.log(`  file                                ${roster.file}`);
   console.log(`  rows read                           ${st.read}`);
@@ -500,7 +622,7 @@ async function main() {
   const rt = emptyReadingTally();
   let done = 0;
   const actions = await mapPool(stations, CONCURRENCY, async (s) => {
-    const file = await fetchStationFile(s.code);
+    const file = await fetchStationFile(s.code, fetchImpl);
     if (++done % 500 === 0) console.log(`  … ${done} of ${stations.length}`);
     return planReading(s.code, file, now, rt);
   });
@@ -528,7 +650,10 @@ async function main() {
     throw new Error('the reading tally does not reconcile — refusing to write');
   }
 
-  const db = new Client({ connectionString: DB_URL });
+  const openDb =
+    deps.openDb ??
+    ((connectionString: string) => new Client({ connectionString }));
+  const db = openDb(dbUrl);
   await db.connect();
   let modelledError: Error | null = null;
   try {
@@ -560,7 +685,7 @@ async function main() {
     await db.query('SAVEPOINT stations_done');
     try {
       console.log('\nmodelled raster');
-      const mt = await refreshModelled(db, now, fetch);
+      const mt = await refreshModelled(db, now, fetchImpl, retry);
       console.log(
         `  campsites with no station in ${AIR_RADIUS_M / 1000} km   ${mt.needing}`,
       );
@@ -574,7 +699,7 @@ async function main() {
       }
     } catch (err) {
       // The stations are good; the raster is not. Keep the first, say
-      // so, and exit non-zero after committing.
+      // so, and decide the exit code after committing.
       modelledError = err as Error;
       await db.query('ROLLBACK TO SAVEPOINT stations_done');
     }
@@ -595,11 +720,24 @@ async function main() {
     await db.end();
   }
 
+  let code = 0;
   if (modelledError) {
     console.error(
       `\n✗ the modelled raster was NOT refreshed: ${modelledError.message}`,
     );
-    if (!failsTheUnit(modelledError)) {
+    if (failsTheUnit(modelledError)) {
+      code = 1;
+    } else if (modelledError instanceof UpstreamUnavailable) {
+      // CAMP-440: the EEA's server, not our raster reader. Counted.
+      code = tolerateUpstream(
+        modelledError,
+        apply,
+        stateDir,
+        'the stations are in and committed; only the raster could not be ' +
+          'read, and the stored modelled values age out on the page after ' +
+          'AIR_FRESH_FOR_HOURS',
+      );
+    } else {
       // Не валимо юніт: див. коментар над RasterNotAdvancing. Але
       // кажемо вголос, ХТО тепер про це дзвонить, щоб ніхто не прочитав
       // цей рядок як «ми це ігноруємо».
@@ -611,9 +749,13 @@ async function main() {
           '  (emptyIsStopWhenUnitRan, check-data-freshness.mjs) — once a\n' +
           '  day, not every run.',
       );
-    } else {
-      process.exitCode = 1;
     }
+  }
+  // The source answered everything we asked it (a raster that stands
+  // still is an answer): whatever streak there was is over. Only a real
+  // run clears it; a dry run leaves no trace of itself anywhere.
+  if (apply && stateDir && !(modelledError instanceof UpstreamUnavailable)) {
+    clearStreak(stateDir);
   }
   if (Object.keys(st.unrecognised).length) {
     console.error(
@@ -621,13 +763,18 @@ async function main() {
         `${Object.keys(st.unrecognised).join(', ')}. Their stations were refused, not dropped silently — ` +
         'decide each (EU-27 or AIR_KNOWN_OUTSIDE_EU27 in source.ts) and rerun.',
     );
-    process.exitCode = 3;
+    code = 3;
   }
+  return code;
 }
 
 if (require.main === module) {
-  main().catch((err) => {
-    console.error(err);
-    process.exit(1);
-  });
+  run(process.argv)
+    .then((code) => {
+      process.exitCode = code;
+    })
+    .catch((err) => {
+      console.error(err);
+      process.exit(1);
+    });
 }
