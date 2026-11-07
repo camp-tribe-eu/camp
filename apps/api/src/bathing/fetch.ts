@@ -7,7 +7,11 @@
 
 import { BATHING_LAYER_URL } from './source';
 import type { BathingFeatureAttributes } from './parse';
-import { isUpstreamStatus, UpstreamUnavailable } from './upstream';
+import { fetchUpstream as fetchFromSource } from '../shared/upstream';
+import type { RetryOptions } from '../shared/upstream';
+
+export { ATTEMPTS, RETRY_PAUSE_MS } from '../shared/upstream';
+export type { RetryOptions } from '../shared/upstream';
 
 /**
  * 🔴 The server's own ceiling, not ours.
@@ -18,30 +22,6 @@ import { isUpstreamStatus, UpstreamUnavailable } from './upstream';
  * this whole card exists to avoid.
  */
 export const PAGE_SIZE = 2000;
-
-/**
- * CAMP-440: how many times one request is tried before the source is
- * declared unavailable, and the pause between tries.
- *
- * The same shape as the download loop in .github/workflows/osm-weekly.yml:
- * a loop of SEPARATE calls, each attempt named in the log as
- * "attempt i of N", and the failure named once, after the loop, by the
- * caller. Three attempts thirty seconds apart ride out the common
- * one-off 5xx; the 04.11.2026 outage (the whole server, for longer) is
- * what upstream.ts is for.
- */
-export const ATTEMPTS = 3;
-export const RETRY_PAUSE_MS = 30_000;
-
-export interface RetryOptions {
-  attempts?: number;
-  pauseMs?: number;
-  sleep?: (ms: number) => Promise<void>;
-  log?: (line: string) => void;
-}
-
-const realSleep = (ms: number) =>
-  new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 interface QueryResponse {
   features?: { attributes: BathingFeatureAttributes }[];
@@ -75,52 +55,22 @@ export function countUrl(layer = BATHING_LAYER_URL): string {
 }
 
 /**
- * One request, retried while the SOURCE is the one failing.
- *
- * 🔴 Only a 5xx, a 429 or a transport error (the host unreachable, the
- * connection reset) is retried, and only those become
- * `UpstreamUnavailable` once the attempts are spent. Any other answer —
- * a 200 with an error object, a 404 because the layer moved — is handed
- * back untouched for the caller to fail on, loudly, as before. The pause
- * is injectable so tests do not wait thirty seconds; the loop is not.
+ * CAMP-440: one request, retried while the SOURCE is the one failing —
+ * the shared loop (shared/upstream.ts), named for this source. Three
+ * attempts thirty seconds apart ride out the common one-off 5xx; the
+ * 04.11.2026 outage (the whole server, for longer) is what the streak
+ * counter in upstream.ts is for.
  */
-export async function fetchUpstream(
+export function fetchUpstream(
   fetchImpl: typeof fetch,
   url: string,
   what: string,
   opts: RetryOptions = {},
 ): Promise<Response> {
-  const attempts = opts.attempts ?? ATTEMPTS;
-  const pauseMs = opts.pauseMs ?? RETRY_PAUSE_MS;
-  const sleep = opts.sleep ?? realSleep;
-  const log = opts.log ?? ((line: string) => console.log(line));
-  let last = 'not attempted';
-
-  for (let i = 1; i <= attempts; i++) {
-    let res: Response | null = null;
-    try {
-      res = await fetchImpl(url);
-    } catch (err) {
-      const cause = (err as { cause?: { code?: string } })?.cause?.code;
-      last = `unreachable (${(err as Error)?.message ?? String(err)}${
-        cause ? `, ${cause}` : ''
-      })`;
-    }
-    if (res) {
-      if (!isUpstreamStatus(res.status)) return res;
-      last = `HTTP ${res.status}`;
-    }
-    log(
-      `  ${what}: attempt ${i} of ${attempts} — ${last}` +
-        (i < attempts ? `, waiting ${pauseMs / 1000} s` : ''),
-    );
-    if (i < attempts) await sleep(pauseMs);
-  }
-
-  throw new UpstreamUnavailable(
-    `the EEA ArcGIS server is unavailable: ${what} answered ${last} on all ` +
-      `${attempts} attempts, ${pauseMs / 1000} s apart — the source, not this import`,
-  );
+  return fetchFromSource(fetchImpl, url, what, {
+    source: 'the EEA ArcGIS server',
+    ...opts,
+  });
 }
 
 /**

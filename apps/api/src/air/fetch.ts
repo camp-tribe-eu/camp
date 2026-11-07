@@ -16,6 +16,22 @@
 //              "silent": the station's previous reading is left alone and
 //              is simply a little older, which the page already handles.
 //   ok       — a body.
+//
+// 🔴 CAMP-440: THAT IS FOR THE 4 018 STATION FILES, whose failures are
+// tolerated one station at a time. The three requests whose failure
+// would be the WHOLE run's — the roster, the raster's description and
+// every getSamples batch — go through the shared retry loop instead
+// (shared/upstream.ts): a 5xx, a 429 or an unreachable host is tried
+// three times thirty seconds apart and then named `UpstreamUnavailable`,
+// which import.ts counts rather than dies on. Measured 04.11.2026 18:25
+// UTC: air.discomap answered HTTP 500 on the raster's `?f=json`, the
+// unit failed, and the owner got a letter about the EEA's server. A 4xx
+// and everything inside a 200 are still ours and still fail loudly.
+//
+// Station files stay on the one fast retry below on purpose: 4 018 of
+// them, six at a time, at three attempts thirty seconds apart would be
+// eleven hours against TimeoutStartSec=30min — and a station whose file
+// failed keeps its previous reading anyway.
 
 import {
   AIR_RASTER_BATCH,
@@ -26,9 +42,15 @@ import {
   airStationUrl,
   AIR_BLOB_BASE,
 } from './source';
+import { fetchUpstream } from '../shared/upstream';
+import type { RetryOptions } from '../shared/upstream';
 
 const TIMEOUT_MS = 60_000;
 const RETRY_DELAY_MS = 500;
+
+/** Named in an `UpstreamUnavailable`, so the journal says WHOSE server. */
+const BLOB_STORE = 'the EEA air-quality blob store';
+const ARCGIS = 'the EEA ArcGIS server';
 
 /** Tells the operator of a public blob store who is asking. No secret. */
 const HEADERS = {
@@ -64,14 +86,19 @@ async function bodyText(res: Response, what: string): Promise<string> {
   return text;
 }
 
-async function getJson(
-  url: string,
-  fetchImpl: typeof fetch,
-): Promise<{ status: number; body: unknown; bytes: number }> {
-  const res = await fetchImpl(url, {
-    headers: HEADERS,
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
+interface JsonAnswer {
+  status: number;
+  body: unknown;
+  bytes: number;
+}
+
+/** Fresh per attempt: a timeout signal is spent once it has fired. */
+const requestInit = (): RequestInit => ({
+  headers: HEADERS,
+  signal: AbortSignal.timeout(TIMEOUT_MS),
+});
+
+async function readAnswer(res: Response, url: string): Promise<JsonAnswer> {
   if (res.status === 404) return { status: 404, body: null, bytes: 0 };
   if (!res.ok) throw new Error(`${url} answered HTTP ${res.status}`);
   const text = await bodyText(res, url);
@@ -80,6 +107,39 @@ async function getJson(
     body: parseJson(text),
     bytes: Buffer.byteLength(text),
   };
+}
+
+/** One shot. For the station files — see the head of this file. */
+async function getJson(
+  url: string,
+  fetchImpl: typeof fetch,
+): Promise<JsonAnswer> {
+  return readAnswer(await fetchImpl(url, requestInit()), url);
+}
+
+/**
+ * CAMP-440: the same, retried while the SOURCE is failing and
+ * `UpstreamUnavailable` once the attempts are spent. A 4xx is handed
+ * back on the first attempt and throws a plain Error here, as before.
+ */
+async function getJsonFromSource(
+  url: string,
+  fetchImpl: typeof fetch,
+  what: string,
+  source: string,
+  retry: RetryOptions,
+): Promise<JsonAnswer> {
+  const res = await fetchUpstream(fetchImpl, url, what, {
+    ...retry,
+    source,
+    sleep:
+      retry.sleep ??
+      (async (ms) => {
+        await sleeper.sleep(ms);
+      }),
+    init: requestInit,
+  });
+  return readAnswer(res, url);
 }
 
 async function withOneRetry<T>(run: () => Promise<T>): Promise<T> {
@@ -124,15 +184,26 @@ export interface Roster {
 
 export async function fetchRoster(
   fetchImpl: typeof fetch = fetch,
+  retry: RetryOptions = {},
 ): Promise<Roster> {
-  const idx = await withOneRetry(() =>
-    getJson(AIR_ROSTER_INDEX_URL, fetchImpl),
+  const idx = await getJsonFromSource(
+    AIR_ROSTER_INDEX_URL,
+    fetchImpl,
+    'the roster index',
+    BLOB_STORE,
+    retry,
   );
   if (idx.status !== 200)
     throw new Error(`${AIR_ROSTER_INDEX_URL} answered ${idx.status}`);
   const file = newestRosterFile(idx.body);
   const url = airRosterUrl(file);
-  const res = await withOneRetry(() => getJson(url, fetchImpl));
+  const res = await getJsonFromSource(
+    url,
+    fetchImpl,
+    `the roster ${file}`,
+    BLOB_STORE,
+    retry,
+  );
   if (res.status !== 200) throw new Error(`${url} answered ${res.status}`);
   if (!Array.isArray(res.body) || res.body.length === 0) {
     throw new Error(`${url} is not a non-empty list of stations`);
@@ -210,9 +281,16 @@ export interface RasterWindow {
  */
 export async function rasterWindow(
   fetchImpl: typeof fetch = fetch,
+  retry: RetryOptions = {},
 ): Promise<RasterWindow> {
   const url = `${AIR_RASTER_URL}?f=json`;
-  const res = await withOneRetry(() => getJson(url, fetchImpl));
+  const res = await getJsonFromSource(
+    url,
+    fetchImpl,
+    "the raster's description",
+    ARCGIS,
+    retry,
+  );
   const body = res.body as {
     error?: { message?: string };
     timeInfo?: { timeExtent?: unknown };
@@ -271,6 +349,7 @@ export async function fetchModelledBands(
   points: readonly { lon: number; lat: number }[],
   hourMs: number,
   fetchImpl: typeof fetch = fetch,
+  retry: RetryOptions = {},
 ): Promise<BandsResult> {
   const bands: (number | null)[] = new Array(points.length).fill(null);
   let badValues = 0;
@@ -307,30 +386,45 @@ export async function fetchModelledBands(
       f: 'json',
     });
 
-    const body = await withOneRetry(async () => {
-      const res = await fetchImpl(`${AIR_RASTER_URL}/getSamples`, {
-        method: 'POST',
-        headers: {
-          ...HEADERS,
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: form,
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-      });
-      if (!res.ok) throw new Error(`getSamples answered HTTP ${res.status}`);
-      const json = (await res.json()) as {
-        samples?: { locationId?: unknown; value?: unknown }[];
-        error?: { message?: string };
-      };
-      // ArcGIS reports failures inside a 200.
-      if (json.error)
-        throw new Error(
-          `getSamples error: ${json.error.message ?? 'no message'}`,
-        );
-      if (!Array.isArray(json.samples))
-        throw new Error('getSamples returned no samples list');
-      return json.samples;
-    });
+    // CAMP-440: retried while the SOURCE is failing. A 4xx, an error
+    // object inside a 200 and a body without samples are ours and throw
+    // on the spot, as before.
+    const res = await fetchUpstream(
+      fetchImpl,
+      `${AIR_RASTER_URL}/getSamples`,
+      `getSamples for points ${from}–${from + chunk.length - 1}`,
+      {
+        ...retry,
+        source: ARCGIS,
+        sleep:
+          retry.sleep ??
+          (async (ms) => {
+            await sleeper.sleep(ms);
+          }),
+        init: () => ({
+          method: 'POST',
+          headers: {
+            ...HEADERS,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: form,
+          signal: AbortSignal.timeout(TIMEOUT_MS),
+        }),
+      },
+    );
+    if (!res.ok) throw new Error(`getSamples answered HTTP ${res.status}`);
+    const json = (await res.json()) as {
+      samples?: { locationId?: unknown; value?: unknown }[];
+      error?: { message?: string };
+    };
+    // ArcGIS reports failures inside a 200.
+    if (json.error)
+      throw new Error(
+        `getSamples error: ${json.error.message ?? 'no message'}`,
+      );
+    if (!Array.isArray(json.samples))
+      throw new Error('getSamples returned no samples list');
+    const body = json.samples;
 
     const byId = new Map<number, unknown>();
     for (const s of body) {

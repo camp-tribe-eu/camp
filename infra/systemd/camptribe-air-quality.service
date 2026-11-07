@@ -36,4 +36,16 @@ Nice=10
 IOSchedulingClass=idle
 TimeoutStartSec=30min
 ExecStart=/usr/bin/node dist/air/import.js --apply
+# 🔴 CAMP-440: лічильник поспіль невдалих звернень до EEA живе тут
+# (/var/lib/camptribe-air-quality; systemd створює теку й віддає її
+# користувачу юніта, шлях приходить у $STATE_DIRECTORY). Заміряно
+# 04.11.2026 18:25 UTC: air.discomap віддав 500 на опис растра, і юніт
+# упав з листом власнику про чужу машину. Тепер 5xx/недосяжність після
+# трьох спроб НЕ валить юніт, а рахується; кожна ДРУГА невдача поспіль
+# (два прогони по 3 год = 6 год, бюджет сторінки 4 год — число виведене
+# в air/import.ts, ESCALATE_EVERY) валить, і лист іде через OnFailure.
+# Без цього рядка імпортеру нема де рахувати — і він валить юніт на
+# кожному 5xx, як до CAMP-440: голосно, не тихо. Тест на наявність
+# рядка — apps/api/src/air/upstream.spec.ts.
+StateDirectory=camptribe-air-quality
 ExecStartPost=/bin/rm -f /srv/camptribe/failed/camptribe-air-quality.service
