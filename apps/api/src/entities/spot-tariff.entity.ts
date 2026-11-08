@@ -163,4 +163,13 @@ export class SpotTariff {
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
+
+  /**
+   * When the importer last stated this row from the feed — on insert AND
+   * on `ON CONFLICT DO UPDATE` (CAMP-400). The freshness watch reads this,
+   * not `created_at`: measured 08.11.2026, the upsert never touches
+   * `created_at`, so 13 104 rows held exactly two creation dates.
+   */
+  @Column({ name: 'fetched_at', type: 'timestamptz', default: () => 'now()' })
+  fetchedAt: Date;
 }

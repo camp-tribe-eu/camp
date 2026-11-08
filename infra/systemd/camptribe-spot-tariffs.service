@@ -1,0 +1,67 @@
+# CAMP-400, пункт 2 / CAMP-147: тарифи DATAtourisme → `spot_tariffs`, щотижня.
+#
+# 🔴 ЦЕ БУЛО ЛЮДСЬКИМ КРОКОМ, І СТОРОЖ СВІЖОСТІ ЧЕРВОНІВ ПРАВДИВО. Заміряно
+# на проді 08.11.2026: `spot_tariffs` 13 104 рядки, 12,5 доби від
+# 2026-10-26T21:43Z при бюджеті 10 діб. Таймерів на машині 16 — жодного
+# для тарифів; у `check-data-freshness.mjs` джерело стояло з `unit: null`.
+#
+# 🔴 ЛАНЦЮГ ДОВЕДЕНО НА ЦІЙ МАШИНІ, а не припущено. Обидві ланки вже
+# пройшли тут 26.10.2026 руками: `feed.zip` 809 657 685 Б о 21:35, і
+# `max(created_at)` таблиці — 21:43 того ж вечора. Перевірено ще раз
+# 08.11.2026 сухим прогоном другої ланки на чинному `dist` і живій базі:
+#
+#   wall 44,2 с, CPU 66 с, RSS 128 МБ
+#   129 242 обʼєкти, 2 964 кемпінги зіставлені, 11 170 рядків до запису
+#
+# Перша ланка (завантаження) — 14 с на цій машині (CAMP-400) і 4,5 хв з
+# ноутбука (CAMP-147); `TimeoutStartSec` — стеля для повільної мережі, а
+# не очікування.
+#
+# 🔴 ДВА `ExecStart`, І ДРУГИЙ НЕ БІЖИТЬ, ЯКЩО ВПАВ ПЕРШИЙ. `fetch-feed.mjs`
+# пише через `.part` + `rename` (CAMP-398): обірване завантаження лишає
+# попередній цілий архів. Але імпортувати той старий архів ЗНОВУ ми не
+# хочемо — він лише поставив би свіжу `fetched_at` на торішні числа.
+# Тож збій завантаження валить юніт, лист іде, таблиця лишається як була,
+# і сторож свіжості скаже про це о 06:00, коли вийде бюджет.
+#
+# 🔴 ЧОМУ СТОРОЖ ЧИТАЄ `fetched_at`, А НЕ `created_at`. Імпорт — це
+# `ON CONFLICT DO UPDATE`, і `created_at` він не чіпає: у 13 104 рядках
+# рівно дві дати створення (28.09 і 26.10). Без окремої колонки цей
+# таймер ходив би, а рядок сторожа лишався б червоним щотижня без нових
+# тарифів. Колонку додає міграція `SpotTariffFetchedAt1794600000000`;
+# ДО її виливу з `--migrate` другий крок падає на невідомій колонці — це
+# голосний і правдивий збій, а не тиха робота на старій схемі.
+#
+# Що лишається поза цим юнітом, навмисно: `import.ts --apply` (самі
+# кемпінги з DATAtourisme) пише в таблицю, на якій стоять 57 тисяч
+# сторінок, і потребує власних порогів — CAMP-400, коментар 03.11.
+# Тарифи ж ніколи не створюють кемпінг: ціна без рядка тут рахується і
+# відкидається (`import-prices.ts`).
+#
+# Каденція джерела, заміряна по збережених рядках 08.11.2026: у
+# `source_updated_at` є рядки на КОЖЕН день 13.10–24.10 (від 2 до 717 на
+# день) при завантаженні 26.10 — фід живе щодня з лагом ≈2 доби. Тиждень
+# між обертами — у межах бюджету 10 діб із запасом у 3.
+[Unit]
+Description=CampTribe DATAtourisme tariffs refresh (feed -> spot_tariffs)
+After=postgresql.service network-online.target
+Wants=network-online.target
+OnFailure=camptribe-failed@%n.service
+
+[Service]
+Type=oneshot
+User=camptribe
+Group=camptribe
+WorkingDirectory=/srv/camptribe/current/apps/api
+# Дає обидва секрети обом крокам: DATATOURISME_FEED_URL і DATABASE_URL.
+# Адреса фіду містить ключ, тому вона лише в оточенні — ніколи в argv.
+EnvironmentFile=/srv/camptribe/current/apps/api/.env
+# Поруч живий сайт; читання 810 МБ архіву не конкурує з ним за диск і CPU.
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=30min
+ExecStart=/usr/bin/node /srv/camptribe/current/scripts/datatourisme/fetch-feed.mjs /srv/camptribe/data/datatourisme/feed.zip
+ExecStart=/usr/bin/node dist/datatourisme/import-prices.js /srv/camptribe/data/datatourisme/feed.zip --apply
+# 🔴 Слід знімається лише після УСПІШНОГО прогону: для Type=oneshot
+# ExecStartPost не біжить, якщо котрийсь ExecStart повернув ненуль.
+ExecStartPost=/bin/rm -f /srv/camptribe/failed/camptribe-spot-tariffs.service

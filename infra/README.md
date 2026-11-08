@@ -44,6 +44,8 @@ status=200/CHDIR
 | `systemd/camptribe-route-poi-import.timer` | вівторок 05:30 UTC, `Persistent=true` — через годину після імпорту кемпінгів (одне ядро Postgres), за пів години до сторожа свіжості |
 | `systemd/camptribe-fuel-prices.service` | 🔴 щодня: `import-stations.js --report` (ES/FR/IT → `fuel_station_prices`) |
 | `systemd/camptribe-fuel-prices.timer` | 05:00 UTC, `Persistent=true` |
+| `systemd/camptribe-spot-tariffs.service` | 🔴 щотижня: `fetch-feed.mjs` (фід DATAtourisme → `/srv/camptribe/data/datatourisme/feed.zip`, `.part`+`rename`) → `import-prices.js --apply` (→ `spot_tariffs`, ставить `fetched_at`). Обидва кроки заміряно на машині: 14 с + 44 с (CAMP-400, пункт 2). Потребує міграції `SpotTariffFetchedAt` — до `--migrate` другий крок падає голосно |
+| `systemd/camptribe-spot-tariffs.timer` | четвер 05:10 UTC, `Persistent=true` — поза вівторковим ланцюгом OSM, до сторожа свіжості о 06:00 |
 | `systemd/camptribe-deploy-nightly.service` | 🔴 щонічний деплой: `camptribe-deploy-nightly` (від root; `Nice=10`; `TimeoutStartSec=45min`) |
 | `systemd/camptribe-deploy-nightly.timer` | 13:00 UTC, `Persistent=true` — після найпізнішого заміряного старту `data-refresh` (див. нижче) |
 | `bin/camptribe-deploy-nightly` | `ls-remote` main → порівняти з чинним релізом → `camptribe-deploy deploy --sha … --apply` лише якщо різні; без `--migrate`; не скасовує відкат |

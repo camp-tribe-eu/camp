@@ -1182,10 +1182,21 @@ jobs:
       - name: Install actionlint
         env:
           ACTIONLINT_VERSION: 1.7.7
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          curl -sSL -o actionlint.tgz \
-            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          # 🔴 ЧЕРЕЗ API, А НЕ ПРЯМИМ URL РЕЛІЗУ. 08.11.2026
+          # `github.com/<owner>/<repo>/releases/download/…` віддавав 504
+          # усім (із ранера й з ноутбука, CodeQL так само не дістав свій
+          # бандл), а `curl -sSL` без `-f` зберігав ту відповідь ЯК АРХІВ і
+          # падав уже `tar` («gzip: stdin: not in gzip format»). З `-f` і
+          # шістьма спробами — чесні шість 504. Той самий файл через API
+          # (`gh release download` → objects.githubusercontent.com) прийшов
+          # за 0,9 с: інший шлях, не той самий збій. Дванадцять сторожів за
+          # цим кроком (105–116) були пропущені двічі — цей крок не має
+          # права залежати від одного краю CDN.
+          gh release download -R rhysd/actionlint "v${ACTIONLINT_VERSION}" \
+            -p "actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" -O actionlint.tgz
           tar xzf actionlint.tgz actionlint
           ./actionlint --version
       - name: Workflow files parse and their scripts are sane
@@ -1386,7 +1397,16 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgis/postgis:16-3.4
+        # 🔴 17-3.6, ЯК НА ПРОДІ (17.11 / PostGIS 3.6.4, заміряно 08.11.2026
+        # `select version(), postgis_lib_version()`), А НЕ 16. Сервер 16 тут
+        # був молодший за клієнт ранера, і 07.11.2026 `ubuntu-latest` став
+        # ubuntu-26.04 із pg_restore ≥ 17: той пише `SET transaction_timeout`
+        # у кожен дамп, а 16 цього параметра не знає — нічна репетиція
+        # відновлення червона з 07.11, селфтести move-table і backup-local
+        # упали в #471 на тому ж рядку. Клієнт, новіший за сервер на одну
+        # мажорну, pg_dump/pg_restore підтримують; сервер, старший за прод,
+        # не доводить про прод нічого.
+        image: postgis/postgis:17-3.6
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: camptribe_test
@@ -1568,7 +1588,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgis/postgis:16-3.4
+        image: postgis/postgis:17-3.6
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: camptribe_test
@@ -1617,7 +1637,7 @@ jobs:
     # only be read from a real planner with real statistics.
     services:
       postgres:
-        image: postgis/postgis:16-3.4
+        image: postgis/postgis:17-3.6
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: camptribe_test
@@ -2139,7 +2159,7 @@ jobs:
     timeout-minutes: 75
     services:
       postgres:
-        image: postgis/postgis:16-3.4
+        image: postgis/postgis:17-3.6
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: camptribe_test
@@ -2347,7 +2367,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgis/postgis:16-3.4
+        image: postgis/postgis:17-3.6
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: camptribe_test
@@ -2429,7 +2449,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgis/postgis:16-3.4
+        image: postgis/postgis:17-3.6
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: camptribe_test
