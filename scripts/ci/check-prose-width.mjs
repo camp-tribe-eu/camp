@@ -36,8 +36,23 @@ export const PROSE_CLASS = /\bmax-w-prose(?![\w-])/g;
 /** Файли, де рахуємо: розмітка застосунку. */
 const EXT = /\.(tsx|jsx)$/;
 
+/**
+ * 🔴 Коментарі ВИРІЗАЮТЬСЯ перед лічбою, і це не дрібниця.
+ *
+ * Перша редакція рахувала весь файл. Через це документування правила
+ * збільшувало лічильник: я пояснив у коментарі `layout.tsx`, чому
+ * `max-w-prose` більше не можна, і сторож почервонів — 150 при стелі 149.
+ * Та сама помилка класу трапилась у цій картці тричі: мій перший `grep`
+ * дав 153 замість 149, бо заглядав у `globals.css`, де клас оголошено.
+ *
+ * Інструмент, який карає за опис дефекту, підштовхує прибрати опис.
+ */
+export function stripComments(text) {
+  return text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
+}
+
 export function countIn(text) {
-  return (text.match(PROSE_CLASS) ?? []).length;
+  return (stripComments(text).match(PROSE_CLASS) ?? []).length;
 }
 
 export function walk(dir, out = []) {
@@ -67,7 +82,7 @@ export function budgetFrom(text) {
  * не впав — інакше крок CI, що його грепає, пройде на половині набору.
  */
 function selfTest() {
-  const EXPECTED = 5;
+  const EXPECTED = 6;
   const dir = mkdtempSync(join(tmpdir(), "prose-width-"));
   const write = (name, body) => writeFileSync(join(dir, name), body);
   let done = 0;
@@ -95,6 +110,12 @@ function selfTest() {
   ok("межа слова тримає: max-w-prose-x і max-w-proseish не зараховані",
      countIn(readFileSync(join(dir, "e.tsx"), "utf8")) === 0);
   ok("walk не бачить .ts", files.every((f) => f.endsWith(".tsx")));
+
+  // 🔴 Через це сторож червонів на моєму ж коментарі (150 при стелі 149).
+  ok(
+    "коментар, що ПОЯСНЮЄ правило, не рахується як його порушення",
+    countIn('// чому max-w-prose не можна\n/* і тут max-w-prose */\n<p/>') === 0,
+  );
 
   let threw = false;
   try {
