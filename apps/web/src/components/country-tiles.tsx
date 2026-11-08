@@ -132,7 +132,17 @@ function TileBody({ tile }: { tile: CountryTile }) {
   return (
     <>
       <span className="ct-tile__image-wrapper">
-        <Flag code={tile.code} />
+        {/* 🔴 `eager`, а не замовчування `lazy`, і це замір, не смак.
+            Усі 28 прапорів разом важать 45 КБ у gzip — менше за одну
+            фотографію, — а на цій сторінці вони не прикраса, а власне
+            зміст: список країн і є сторінка.
+
+            Плюс лінивий прапор ламав спільний помічник e2e, який чекає
+            `document.images.every(i => i.complete)`: картинка нижче
+            екрана не стає `complete` ніколи, і очікування висіло 20 с
+            до таймауту. Міняти помічник заради цього не можна — він
+            обслуговує десятки тестів. */}
+        <Flag code={tile.code} loading="eager" />
       </span>
       <span className="ct-tile__header">
         <span className="ct-tile__title">{tile.name}</span>

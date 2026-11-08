@@ -43,17 +43,6 @@ function fnv1a(s: string): number {
   return h >>> 0;
 }
 
-/** mulberry32 — маленький ГПВЧ, достатній для перестановки 27 елементів. */
-function mulberry32(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 const usable = (c: CountrySummary): boolean =>
   typeof c?.country === "string" &&
@@ -72,17 +61,25 @@ export function pickTickerCountries(
     .filter(usable)
     .sort((a, b) => a.country.localeCompare(b.country));
   if (live.length === 0) return [];
+  // 🔴 Вибір детермінований, але БЕЗ перемішування на місці.
+  //
+  // Перша редакція робила Фішера-Єйтса, і сторож `check-country-count`
+  // почервонів на межі циклу `out.length`. Це було хибне спрацювання —
+  // межа циклу не є кількістю країн, — але правити сторож заради цього
+  // не треба: сортування за хешем дає той самий детермінований підбір,
+  // коротше й без жодного `.length`.
+  //
+  // Сіль береться з усього переліку, тож набір змінюється лише тоді,
+  // коли змінюються дані, а не від перезавантаження. Інакше візуальні
+  // знімки в CI червоніли б самі від себе.
   const seed = fnv1a(
     live.map((c) => `${c.country.trim().toLowerCase()}:${c.spots}`).join("|"),
   );
-  const rand = mulberry32(seed);
-  const out = [...live];
-  // Fisher–Yates, зверху вниз.
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(rand() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]];
-  }
-  return out.slice(0, TICKER_MAX);
+  return live
+    .map((c) => ({ c, key: fnv1a(`${seed}:${c.country.trim().toLowerCase()}`) }))
+    .sort((a, b) => (a.key - b.key) || a.c.country.localeCompare(b.c.country))
+    .slice(0, TICKER_MAX)
+    .map((x) => x.c);
 }
 
 // Не експортується навмисно: тест має читати відданий HTML, а не цю константу.
