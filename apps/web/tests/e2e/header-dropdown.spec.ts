@@ -79,7 +79,10 @@ test.describe('🔴 CAMP-448 — розкривач у шапці', () => {
     await li.hover();
     const first = parent.children[0];
     await panel.getByRole('link', { name: first.label, exact: true }).click();
-    await expect(page).toHaveURL(new RegExp(`${first.href.replace(/\//g, '\\/')}$`));
+    // 🔴 Без регулярки: CodeQL назвав побудову з рядка «incomplete string
+    // escaping» — екранувався лише `/`, решта метасимволів ні. Предикат
+    // звіряє шлях як шлях, і екранувати в ньому нема чого.
+    await expect(page).toHaveURL((url) => url.pathname === first.href);
   });
 
   test('клавіатура: Enter на кнопці відкриває, Tab іде в підпункти, Escape закриває й повертає фокус', async ({
@@ -151,6 +154,6 @@ test.describe('🔴 CAMP-448 — розкривач у шапці', () => {
     await page.goto('/');
     const li = page.locator(`header nav[aria-label="Main"] [data-nav-parent="${parent.href}"]`);
     await li.getByRole('link', { name: parent.label, exact: true }).click();
-    await expect(page).toHaveURL(new RegExp(`${parent.href.replace(/\//g, '\\/')}$`));
+    await expect(page).toHaveURL((url) => url.pathname === parent.href);
   });
 });
