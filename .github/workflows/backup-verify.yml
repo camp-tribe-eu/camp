@@ -53,7 +53,7 @@ permissions:
 
 jobs:
   restore:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     services:
       postgres:
         # 🔴 17-3.6, ЯК НА ПРОДІ (17.11 / PostGIS 3.6.4, заміряно 08.11.2026
@@ -334,7 +334,7 @@ jobs:
   alert:
     needs: restore
     if: failure() && github.event_name == 'schedule'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     permissions:
       issues: write
     steps:
@@ -385,7 +385,7 @@ jobs:
   recovered:
     needs: restore
     if: success() && github.event_name == 'schedule'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     permissions:
       issues: write
     steps:

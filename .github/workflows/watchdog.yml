@@ -42,7 +42,7 @@ permissions:
 
 jobs:
   quiet:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     if: github.event.schedule != '23 */3 * * *'
     permissions:
       # To read other workflows' run history.
@@ -135,7 +135,7 @@ jobs:
   # 🔴 Окреме питання й окремий заголовок: змішати їх означало б, що
   # мовчазний cron і мовчазна метеослужба закривають одне одного.
   stale-sources:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     if: github.event.schedule != '23 */3 * * *'
     permissions:
       issues: write
@@ -213,7 +213,7 @@ jobs:
   # мажорі, а не каже «схоже на неповний бамп». Логіка, пороги й чому саме
   # такі — у scripts/ci/check-dependabot-prs.mjs.
   dependabot-prs:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     if: github.event.schedule != '23 */3 * * *'
     # Розклад і ручний запуск водночас створили б два коментарі раніше, ніж
     # котрийсь побачить другий. Другий чекає, а не скасовує першого.
@@ -272,7 +272,7 @@ jobs:
   # an outage.
   uptime:
     if: github.event_name == 'workflow_dispatch' || github.event.schedule == '23 */3 * * *'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     # Two overlapping runs would both fail to find the issue and open two.
     concurrency:
