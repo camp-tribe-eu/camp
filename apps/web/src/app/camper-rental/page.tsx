@@ -21,7 +21,7 @@ import {
 // 🔴 WHAT THIS PAGE IS FOR, GIVEN THAT WE CANNOT SELL ANYTHING YET.
 //
 // Camper rental is the project's primary monetisation route and we have
-// no affiliate accounts (CAMP-98), no partner, no inventory and no
+// сторінка про правила й умови оренди, без цін і без інвентарю:
 // prices. The temptation in that position is to publish a page that
 // looks like a marketplace and is furnished with invented numbers. This
 // is the other thing: a page that answers the questions a first-time
@@ -86,10 +86,6 @@ function faq() {
       // exactly what an assistant repeats without the hedge. The
       // practical reason is true on its own and needs no citation.
       a: "Because we hold none. We link to the companies that rent campers rather than mirroring their prices: a number copied here is stale the week after, and a figure that is wrong is worse than a figure that is absent. The same reasoning is why our trip cost calculator prices fuel from the European Commission bulletin, dated, and asks you for the campsite fee.",
-    },
-    {
-      q: "How does CampTribe make money from this?",
-      a: "The intention is commission on bookings made through partner links. Today there are no partner links on this site at all — the affiliate applications are open and unanswered — so this page earns nothing. When that changes, the disclosure sits beside the link rather than in the footer, and what is paid for will never be the order things appear in.",
     },
     {
       q: "What most often costs more than expected at the counter?",
@@ -160,8 +156,9 @@ export default function CamperRentalHub() {
         <strong className="text-ink">
           There are no prices and no vehicles here.
         </strong>{" "}
-        We hold no rental inventory, we have no partner, and we are not going to
-        invent a fleet to look busier than we are. Every number on these pages
+        We do not mirror rental inventory: a price copied here is stale the
+        week after, and a wrong number is worse than an absent one. Every
+        number on these pages
         is either a count of our own {count(MEASURED.total.spots)} campsite
         records — measured on{" "}
         <time dateTime={MEASURED.measuredAt}>
@@ -171,9 +168,9 @@ export default function CamperRentalHub() {
         where it appears.
       </p>
 
-      {/* 🔴 In the template from day one, above the content it qualifies,
-          and truthful about the fact that it currently qualifies nothing.
-          See components/rental-disclosure.tsx. */}
+      {/* 🔴 У шаблоні від першого дня, НАД контентом, який воно
+          стосується. Поки розкривати нічого — компонент мовчить.
+          Див. components/rental-disclosure.tsx. */}
       <RentalDisclosure offers={offers.length} />
 
       <section
@@ -321,32 +318,6 @@ export default function CamperRentalHub() {
 
       <RentalOfferSlot offers={offers} where="Europe" />
 
-      <section
-        aria-labelledby="missing-heading"
-        className="mt-12 border-t border-line-2 pt-8"
-      >
-        <h2 id="missing-heading" className="text-xl font-semibold text-heading">
-          What this section does not have yet, and why
-        </h2>
-        <p className="mt-3 max-w-prose text-ink-2">
-          No prices, no availability, no vehicle listings and no partners. The
-          affiliate applications are open and unanswered, and until they are
-          answered there is nothing to show — so the slot above stays empty
-          rather than being filled with something that looks like an offer.
-        </p>
-        <p className="mt-3 max-w-prose text-ink-2">
-          When there are partners, they will arrive as plain links in this
-          writing, not as a synchronised feed of somebody else&rsquo;s
-          inventory. That is an architecture decision rather than a stage:
-          mirroring a partner&rsquo;s prices means publishing numbers that are
-          stale the week after, and it is the same reason{" "}
-          <Link className="underline" href="/tools/camper-trip-cost">
-            the trip cost calculator
-          </Link>{" "}
-          prices fuel from the European Commission and asks you for the campsite
-          fee.
-        </p>
-      </section>
 
       <section
         aria-labelledby="faq-heading"

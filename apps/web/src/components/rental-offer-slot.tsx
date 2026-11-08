@@ -7,7 +7,7 @@ import type { Offer } from '@/lib/affiliate';
 //
 // 🔴 THE EMPTY STATE IS THE FEATURE.
 //
-// There are no affiliate accounts yet (CAMP-98), so `offers` is an empty
+// Поки `offers` порожній (CAMP-98) — слот нічого не малює, а не
 // array on every page of this section in every build made today. The easy
 // thing would be to render nothing at all. This renders the slot, says
 // plainly that it is empty and why, and offers the reader the thing we

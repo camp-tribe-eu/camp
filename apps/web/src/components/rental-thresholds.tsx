@@ -4,7 +4,7 @@ import { SHAPES, THRESHOLDS } from '@/data/rental/thresholds';
 //
 // 🔴 This is the table that replaces the one everybody else publishes.
 // The conventional version lists camper models with lengths, masses and a
-// price "from". We have no fleet, no partner and no prices, so every
+// price "from". Цін ми не публікуємо — вони протухають за тиждень, —
 // figure in that table would be invented — see src/data/rental/
 // thresholds.ts for the full reasoning. What is knowable is the set of
 // limits those figures get compared against, each of them written down by

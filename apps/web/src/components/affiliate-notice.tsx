@@ -13,7 +13,7 @@ import Link from 'next/link';
 //
 // So the disclosure sits WITH the link, above the fold of the decision.
 //
-// 🔴 There are no affiliate links on the site yet (CAMP-54, CAMP-68).
+// 🔴 Розкриття зʼявляється разом із посиланням (CAMP-54, CAMP-68).
 // This exists first on purpose: the day a commission link is added, the
 // disclosure is already the way it gets added, rather than a thing
 // somebody remembers to do afterwards.

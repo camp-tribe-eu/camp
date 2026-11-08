@@ -30,7 +30,7 @@
 // pages, so this file enforces the two legs that are about the reader.
 //
 // 🔴 NOTHING HERE IS A PRICE, AN AVAILABILITY OR A COMPANY. We hold no
-// rental inventory and have no partner, and a page that filled the gap
+// чужий інвентар ми не дзеркалимо, а сторінка, що закрила б цю
 // with a plausible "from €69/day" would be worth less than an empty one.
 
 import type { MetricKey } from '@/lib/rental';

@@ -18,7 +18,7 @@
 //
 // 🔴 It is also NOT a feed integration, and that is an architecture
 // decision already taken rather than a gap. Batch synchronisation of
-// partner inventory through network APIs costs weeks and earns nothing
+// дзеркалити чужий інвентар через API мереж — тижні роботи заради
 // at a stage with no traffic; plain tracking links in editorial content
 // cost a day. API integration is earned by traffic. The same reasoning
 // is already written into apps/api/src/entities/rental.entity.ts, which
@@ -288,7 +288,7 @@ export function placementProblems(p: Placement): string[] {
   // 🔴 Booking's strategy writes `aid` on to the URL ITSELF rather than on
   // to a redirector. Point that at somebody else's site and we quietly
   // hand a third party a parameter named after our affiliate account and
-  // track nothing — a link that works perfectly and earns nothing, which
+  // track nothing — посилання працює, а облік не ведеться, тобто
   // is the failure mode this whole file is arranged around.
   if (p.network === 'booking' && url) {
     const host = url.hostname.toLowerCase();

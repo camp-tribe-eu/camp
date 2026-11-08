@@ -28,17 +28,25 @@ test.describe('the rental hub', () => {
     await expect(page.getByTestId('rental-checklist')).toBeVisible();
   });
 
-  test('discloses how it is funded, above the fold rather than in the footer', async ({
+  test('🔴 no commission link and no funding notice — the pair stays consistent', async ({
     page,
   }) => {
     await page.goto('/camper-rental');
-    const disclosure = page.getByTestId('rental-disclosure');
-    await expect(disclosure).toBeVisible();
-    // 🔴 Proximity, not existence. The disclosure has to sit above the
-    // commercial slot it qualifies — a reader decides before they scroll.
-    const disclosureBox = await disclosure.boundingBox();
-    const slotBox = await page.getByTestId('rental-offer-slot').boundingBox();
-    expect(disclosureBox!.y).toBeLessThan(slotBox!.y);
+    // 🔴 ОБОВʼЯЗОК — РОЗКРИТИ ЗВʼЯЗОК ТАМ, ДЕ ВІН Є, а не оголошувати
+    // його відсутність. UCPD ст. 7(2) про момент рішення: читач вирішує,
+    // чи довіряти ПОСИЛАННЮ, поки читає його. Посилання немає — рішення
+    // немає — розкривати нічого.
+    //
+    // Тому тут перевіряється ПАРА, а не наявність: якщо на сторінці
+    // немає комісійного посилання, то й повідомлення про фінансування
+    // бути не повинно. Якщо зʼявиться одне без іншого — цей випадок
+    // почервоніє, у який бік би не розійшлося.
+    const links = await page.getByTestId('affiliate-link').count();
+    const notices = await page.getByTestId('rental-disclosure').count();
+    expect(
+      notices,
+      `посилань ${links}, повідомлень про фінансування ${notices} — має бути або обидва, або жодного`,
+    ).toBe(links > 0 ? 1 : 0);
   });
 
   test('links to exactly the countries that have a page', async ({ page }) => {

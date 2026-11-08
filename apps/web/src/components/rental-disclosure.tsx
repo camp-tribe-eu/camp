@@ -12,20 +12,25 @@ import Link from 'next/link';
 // whether to trust a recommendation while reading it, and a notice below
 // the fold is read after that decision or not at all.
 //
-// 🔴 WHY IT SAYS SOMETHING DIFFERENT WHEN THERE ARE NO LINKS.
+// 🔴 ЧОМУ БЕЗ ПОСИЛАНЬ КОМПОНЕНТ НЕ ПОКАЗУЄ НІЧОГО.
 //
-// Today there are no affiliate links anywhere on this site: the network
-// applications are CAMP-98 and they are not done. A page that announced
-// "some links here earn us commission" with no such link on it would be a
-// false statement made in the name of honesty — small, but this section's
-// entire argument is that we do not overstate.
+// Обовʼязок — розкрити комерційний звʼязок ТАМ, ДЕ ВІН Є. Оголошувати
+// його відсутність не вимагає ні UCPD, ні умови партнерських мереж, і
+// користі читачеві від цього нуль: він не ухвалює рішення про довіру до
+// посилання, якого немає.
 //
-// So the component takes the page's real offer count and tells the truth
-// about it either way. That also means the day the first link appears,
-// the disclosure is already how it appears, rather than something
-// somebody has to remember.
+// Тут раніше стояв абзац, який повідомляв світові, що партнерів у нас
+// немає й на цій сторінці ми нічого не заробляємо. Це не чесність перед
+// читачем — це наша переговорна позиція, викладена конкурентам і
+// майбутнім партнерам. Прибрано 08.11.2026 за рішенням власника.
+//
+// Механіка лишається: щойно зʼявиться перше посилання, розкриття
+// зʼявиться саме, і його не треба буде комусь згадати.
 
 export default function RentalDisclosure({ offers }: { offers: number }) {
+  // Немає посилань — немає про що розкривати.
+  if (offers <= 0) return null;
+
   return (
     <aside
       data-testid="rental-disclosure"
@@ -35,7 +40,7 @@ export default function RentalDisclosure({ offers }: { offers: number }) {
       <h2 className="text-sm font-semibold uppercase tracking-[0.08em] text-heading">
         How this page is paid for
       </h2>
-      {offers > 0 ? (
+
         <p className="mt-2 max-w-prose text-sm leading-6 text-ink">
           <strong className="text-heading">
             Some links on this page are affiliate links.
@@ -50,23 +55,7 @@ export default function RentalDisclosure({ offers }: { offers: number }) {
           </Link>
           .
         </p>
-      ) : (
-        <p className="mt-2 max-w-prose text-sm leading-6 text-ink">
-          <strong className="text-heading">
-            There are no affiliate links on this page yet.
-          </strong>{' '}
-          Camper rental commission is how this site is meant to pay for
-          itself, and we would rather say so than let you find out. We have
-          no rental partner at the moment, so there is nothing here earning
-          us anything — and nothing on this page has been written to make an
-          offer look good. When that changes, every commission link will be
-          marked as one before you click it.{' '}
-          <Link href="/legal/terms#links" className="underline">
-            How this works
-          </Link>
-          .
-        </p>
-      )}
     </aside>
+
   );
 }
