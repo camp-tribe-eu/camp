@@ -46,3 +46,41 @@ export async function openHeaderNav(page: Page): Promise<Locator> {
   }
   return page.getByRole('navigation', { name: 'Main' });
 }
+
+/**
+ * Показати підпункти батька `parentHref` у меню, яке повернув
+ * `openHeaderNav` (CAMP-448).
+ *
+ * 🔴 ДВА ВТІЛЕННЯ, ОДИН ВИКЛИК. Від 1200 px діти живуть у розкривачі
+ * (`site-nav-dropdown.tsx`): закритий він схований через `visibility`, і
+ * для Playwright цих посилань не існує, доки кнопку не натиснуто. У
+ * шухляді ж діти стоять вкладеним списком одразу — кнопки немає, робити
+ * нічого. Тест не має знати, де він; знає цей помічник.
+ *
+ * 🔴 КЛІК ПОВТОРЮЄТЬСЯ з тієї ж причини, що й у `openHeaderNav`: кнопка
+ * приїжджає в розмітці, а відкриває `onClick` після гідрації; ранній клік
+ * пропадає мовчки (CAMP-334).
+ */
+export async function revealSubmenu(
+  menu: Locator,
+  parentHref: string,
+): Promise<void> {
+  const parent = menu.locator(`[data-nav-parent="${parentHref}"]`);
+  const toggle = parent.locator('button[aria-expanded]');
+  if ((await toggle.count()) === 0) return;
+
+  // 🔴 СПЕРШУ СТАН, ПОТІМ ВИДИМІСТЬ. Клік Playwright — це рух миші і
+  // натискання: рух відкриває меню наведенням, натискання-перемикач його
+  // закриває. Firefox встигає перемалювати між ними, Chromium збиває обидва
+  // в одне оновлення. А панель після закриття ще 0,4 с ВИДНО — перехід
+  // `visibility` (число теми). «Видно» саме по собі не означає «відкрито»;
+  // саме на цьому червонів `header-dropdown.spec.ts` у Firefox.
+  const panel = parent.locator('[data-nav-sub]');
+  await expect(async () => {
+    if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
+      await toggle.click();
+    }
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true', { timeout: 1000 });
+    await expect(panel).toBeVisible({ timeout: 1000 });
+  }, `розкривач «${parentHref}» не відкрив підпункти`).toPass({ timeout: 15_000 });
+}

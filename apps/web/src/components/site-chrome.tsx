@@ -3,6 +3,7 @@ import { COMPANY, LEGAL_PAGES, legalPath } from "@/lib/legal";
 import { CookieSettingsLink } from "./cookie-consent";
 import { CurrentYear } from "./current-year";
 import { SiteNavDrawer } from "./site-nav-drawer";
+import { NavDropdown } from "./site-nav-dropdown";
 import type { NavItem } from "@/lib/navigation";
 import { Block } from "@/components/layout";
 
@@ -160,6 +161,9 @@ export function SiteHeader({ nav }: { nav: NavItem[] }) {
               "<style>\n" +
               "            header nav[aria-label='Main'] { display: block !important }\n" +
               "            header [data-testid='burger-open'] { display: none !important }\n" +
+              // CAMP-448: без JS розкривач не відкриється, тож підпункти
+              // стають у ряд поруч із батьком — як і сам ряд меню вище.
+              "            header [data-nav-sub] { position: static !important; visibility: visible !important; opacity: 1 !important }\n" +
               "          </style>",
           }}
         />
@@ -179,15 +183,25 @@ export function SiteHeader({ nav }: { nav: NavItem[] }) {
             🔴 На `xl` і ширше перенос не змінює нічого: там увесь ряд
             однаково в один рядок. Ціна нуль — тому межі в `@media` тут
             немає. */}
+        {/* 🔴 CAMP-448. ДІТИ ЧИТАЮТЬСЯ. До цього тут стояло
+            `nav.map((item) => <Link>)` — і `item.children`, які API
+            віддає, а тип оголошує, не читав ніхто. Підпункт, заведений у
+            базі, не зʼявлявся без жодної помилки; саме так три готові
+            сторінки прожили невидимими. Пункт із дітьми — розкривач
+            (`site-nav-dropdown.tsx`), без дітей — звичайне посилання. */}
         <nav aria-label="Main" className="ml-auto hidden xl:block">
           <ul className="flex flex-wrap items-center justify-end gap-x-5 gap-y-1 text-sm font-medium text-ink-2">
-            {nav.map((item) => (
-              <li key={item.href}>
-                <Link href={item.href} className="hover:text-heading">
-                  {item.label}
-                </Link>
-              </li>
-            ))}
+            {nav.map((item) =>
+              item.children.length > 0 ? (
+                <NavDropdown key={item.href} item={item} />
+              ) : (
+                <li key={item.href}>
+                  <Link href={item.href} className="hover:text-heading">
+                    {item.label}
+                  </Link>
+                </li>
+              ),
+            )}
           </ul>
         </nav>
 
@@ -195,6 +209,15 @@ export function SiteHeader({ nav }: { nav: NavItem[] }) {
       </div>
     </header>
   );
+}
+
+/** Батько, за ним його діти, і так углиб — порядок бази збережено. */
+function flattenNav(items: NavItem[], out: NavItem[] = []): NavItem[] {
+  for (const item of items) {
+    out.push(item);
+    flattenNav(item.children, out);
+  }
+  return out;
 }
 
 /**
@@ -215,10 +238,14 @@ export function SiteFooter({ nav = [] }: { nav?: NavItem[] }) {
             🔴 Правові посилання нижче сюди НЕ переїжджають: вони
             будуються з `LEGAL_PAGES` навмисно (CAMP-56), щоб жодне
             обовʼязкове посилання не можна було випадково видалити з CMS. */}
+        {/* 🔴 CAMP-448: підвал теж читає `children`. Ряд тут плаский, тож
+            діти стають одразу за батьком, у його порядку, — розкривач у
+            підвалі нікому не потрібен, а пункт, який не доїхав, — дефект
+            того самого класу, що й у шапці. */}
         {nav.length > 0 && (
           <nav aria-label="More" className="mb-4">
             <ul className="flex flex-wrap items-center gap-x-4">
-              {nav.map((item) => (
+              {flattenNav(nav).map((item) => (
                 <li key={item.href}>
                   <Link
                     href={item.href}

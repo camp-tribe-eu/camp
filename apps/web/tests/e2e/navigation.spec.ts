@@ -1,5 +1,7 @@
+import { readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { expect, test } from "./api-request";
-import { openHeaderNav } from "./header-nav";
+import { openHeaderNav, revealSubmenu } from "./header-nav";
 
 // CAMP-365 — меню переїхало з коду в базу, і цей файл повертає те, що
 // ми переїздом втратили.
@@ -36,6 +38,58 @@ function flatten(items: NavItem[], out: NavItem[] = []): NavItem[] {
   }
   return out;
 }
+
+const APP_DIR = join(__dirname, "..", "..", "src", "app");
+
+/**
+ * Статичні маршрути застосунку: кожна `page.tsx`, у шляху до якої немає
+ * `[параметра]`. Динамічні (`/camping/[country]`) у меню не бувають —
+ * їх тисячі, і до них ведуть хаби.
+ *
+ * Групи `(name)` не є сегментом адреси; `_private` і `@slot` — не
+ * маршрути. Жодної з трьох конвенцій у `src/app` сьогодні немає, але
+ * помічник їх знає, щоб не почервоніти на власному незнанні, коли
+ * зʼявляться.
+ */
+export function staticRoutes(dir = APP_DIR, prefix = ""): string[] {
+  const out: string[] = [];
+  const entries = readdirSync(dir).sort();
+  if (entries.includes("page.tsx")) out.push(prefix || "/");
+  for (const name of entries) {
+    const full = join(dir, name);
+    if (!statSync(full).isDirectory()) continue;
+    if (name.startsWith("[") || name.startsWith("_") || name.startsWith("@")) {
+      continue;
+    }
+    const segment = /^\(.*\)$/.test(name) ? "" : `/${name}`;
+    out.push(...staticRoutes(full, `${prefix}${segment}`));
+  }
+  return out;
+}
+
+/**
+ * 🔴 СТОРІНКИ, ЯКИМ У МЕНЮ НЕ МІСЦЕ, — З ПРИЧИНОЮ БІЛЯ КОЖНОЇ.
+ *
+ * Явний перелік, а не регулярка: `/^\/account/` сховала б і сторінку,
+ * яку колись захочуть у меню, і ніхто б цього не побачив. Кожен рядок
+ * тут — рішення, і його можна оскаржити поіменно.
+ */
+const NOT_IN_MENU: ReadonlyArray<{ path: string; why: string }> = [
+  { path: "/", why: "головна — це логотип у шапці, він веде на неї з кожної сторінки" },
+  { path: "/login", why: "автентифікація: вхід — дія, не розділ сайту" },
+  { path: "/signup", why: "автентифікація: реєстрація пропонується з екрана входу" },
+  { path: "/forgot-password", why: "автентифікація: лише з екрана входу" },
+  { path: "/reset-password", why: "автентифікація: відкривається з посилання в листі" },
+  { path: "/verify-email", why: "автентифікація: відкривається з посилання в листі" },
+  { path: "/confirm-email-change", why: "автентифікація: відкривається з посилання в листі" },
+  { path: "/gone", why: "технічна сторінка 410 для знятих адрес: читач потрапляє туди лише за старим посиланням" },
+  { path: "/account", why: "кабінет: лише для того, хто ввійшов; публічне меню одне на всіх" },
+  { path: "/account/claim", why: "кабінет: підсторінка кабінету" },
+  { path: "/account/data", why: "кабінет: підсторінка кабінету" },
+  { path: "/account/delete", why: "кабінет: підсторінка кабінету" },
+  { path: "/account/listings", why: "кабінет: підсторінка кабінету" },
+  { path: "/account/settings", why: "кабінет: підсторінка кабінету" },
+];
 
 test.describe("🔴 CAMP-365 — меню з бази", () => {
   test("кожен пункт меню веде на сторінку, яка відкривається", async ({
@@ -138,12 +192,89 @@ test.describe("🔴 CAMP-365 — меню з бази", () => {
     //
     // Тепер тут `flatten`: щойно зʼявиться підпункт, цей тест почервоніє
     // з його назвою, замість того щоб читач не побачив пункт ніколи.
-    for (const item of flatten(body.header ?? [])) {
-      await expect(
-        menu.getByRole('link', { name: item.label, exact: true }).first(),
-        `пункт «${item.label}» є в базі, але читач до нього не дістанеться`,
-      ).toHaveAttribute('href', item.href);
-    }
+    //
+    // 🔴 CAMP-448: підпункт у розкривачі схований, доки батька не
+    // розкрито, — тож перед дитиною відкриваємо її батька. У шухляді
+    // діти видимі одразу, і `revealSubmenu` там нічого не робить.
+    const walk = async (items: NavItem[], parents: NavItem[]) => {
+      for (const item of items) {
+        for (const p of parents) await revealSubmenu(menu, p.href);
+        await expect(
+          menu.getByRole('link', { name: item.label, exact: true }).first(),
+          `пункт «${item.label}» є в базі, але читач до нього не дістанеться`,
+        ).toHaveAttribute('href', item.href);
+        await walk(item.children, [...parents, item]);
+      }
+    };
+    await walk(body.header ?? [], []);
+  });
+
+  // 🔴 CAMP-448 — ЗВОРОТНИЙ НАПРЯМОК. Тест вище тримає «пункт меню →
+  // сторінка існує». Напрямок «сторінка існує → вона в меню» не тримав
+  // ніхто, і саме тому `/tools/camper-trip-cost`,
+  // `/tools/camper-packing-list` і `/camper-rental/providers` прожили
+  // невидимими, доки власник не спитав: «Сторінка є а в меню хедера не
+  // виведена… чого сховав?» (08.11.2026). Два переліки — маршрути в коді
+  // й пункти в базі — розходились тихо.
+  //
+  // Перелік маршрутів береться З КОДУ (кожна `page.tsx` без `[параметра]`
+  // у шляху), пункти — З БАЗИ через той самий API, що й шапка. Винятки —
+  // явним переліком із причиною біля кожного, а не регуляркою: регулярка
+  // «/account.*» сховала б і сторінку, яка в меню мала б бути.
+  test('🔴 кожна видима сторінка є в меню — зворотний напрямок', async ({
+    request,
+  }, testInfo) => {
+    const routes = staticRoutes();
+
+    // 🔴 ВИНЯТОК НА МАРШРУТ, ЯКОГО НЕМАЄ, — ПРОТУХЛИЙ ВИНЯТОК. Без цього
+    // перелік нижче ріс би мовчки: сторінку перейменували, виняток
+    // лишився й колись накриє чуже імʼя.
+    const stale = NOT_IN_MENU.filter((e) => !routes.includes(e.path));
+    expect(
+      stale.map((e) => e.path),
+      'виняток на маршрут, якого в коді вже немає',
+    ).toEqual([]);
+
+    const visible = routes.filter(
+      (r) => !NOT_IN_MENU.some((e) => e.path === r),
+    );
+    // Знаменник: «усі в меню» над порожнім переліком нічого не варте.
+    expect(visible.length, 'видимих маршрутів замало').toBeGreaterThan(5);
+
+    const res = await request.get(`${API}/navigation`);
+    expect(res.ok(), `GET ${API}/navigation → ${res.status()}`).toBe(true);
+    const body = (await res.json()) as Record<string, NavItem[] | undefined>;
+    const roots = [
+      ...(body.header ?? []),
+      ...(body.footer ?? []),
+      ...(body.mobile ?? []),
+    ];
+    const all = flatten(roots);
+    const inMenu = new Set(all.map((i) => i.href));
+    const children = all.length - roots.length;
+
+    const summary =
+      `маршрутів видимих ${visible.length}, у меню ${inMenu.size}, ` +
+      `з них підпунктів ${children}`;
+    console.log(summary);
+    testInfo.annotations.push({ type: 'замір', description: summary });
+
+    const missing = visible.filter((r) => !inMenu.has(r));
+    expect(
+      missing,
+      `сторінки існують, а в меню їх немає — читач туди не потрапить: ` +
+        `${missing.join(', ')}. Або додай пункт (міграція, як ` +
+        `1794700000000-NavigationChildren.ts), або впиши у NOT_IN_MENU ` +
+        `з причиною.`,
+    ).toEqual([]);
+
+    // 🔴 І НАВПАКИ: виняток, який УЖЕ в меню, — теж протухлий. Інакше
+    // перелік винятків і меню знову розійшлися б, цього разу в інший бік.
+    const leaked = NOT_IN_MENU.filter((e) => inMenu.has(e.path));
+    expect(
+      leaked.map((e) => e.path),
+      'сторінка і в меню, і у винятках — одне з двох зайве',
+    ).toEqual([]);
   });
 
   // 🔴 CAMP-397. Мало перевірити, що пункт підвалу ВІДКРИВАЄТЬСЯ — треба,

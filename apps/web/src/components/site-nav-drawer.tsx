@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { NavItem } from "@/lib/navigation";
 
 /**
  * Бургер-меню нижче 1200 px (CAMP-350).
@@ -39,22 +40,27 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * монтуванні не спрацьовує. Тепер це `@keyframes` у globals.css, і
  * тривалість справді береться з токена.
  *
- * 🔴 Вкладеності тут НЕМАЄ, і це не спрощення з ліні. `NavItem` у
- * `site-chrome.tsx` оголошений як `{ href, label }` — поля для дітей не
- * існує, усі шість пунктів плоскі. Зібрати другий рівень і мега-меню
- * для навігації без жодного вкладеного пункту означало б написати код,
- * жодна гілка якого не виконається й жоден тест не доведе. Коли діти
- * зʼявляться (найраніше CAMP-45 і CAMP-54), розміри вже зняті в
- * коментарі до картки.
+ * 🔴 Вкладеність (CAMP-448). Тут стояло: «вкладеності НЕМАЄ, бо
+ * `NavItem` оголошений як `{ href, label }`». Це протухло: меню переїхало
+ * в базу (CAMP-365), API віддає `children`, і три підпункти в ній
+ * зʼявились. Шухляда малює дітей ВКЛАДЕНИМ списком під батьком, одразу
+ * видимим — другого екрана, як у теми (`.header-burger__menu-list--nested`
+ * виїжджає окремою панеллю), тут немає навмисно: це ЧАСТИНА 1 картки, про
+ * те, щоб пункт доїхав до читача, а не про вигляд бургера нижче 1199px.
+ *
+ * Розмір дитини — 1.25 тіла, вага 600; висота рядка та сама 56px, бо
+ * правило 48px не знає про рівні.
  */
-
-type Item = { href: string; label: string };
 
 /** Висота рядка меню. 56 px — те саме число, що кнопка закриття в темі. */
 const ITEM =
   "flex min-h-14 items-center text-[2rem] font-bold leading-tight text-heading";
 
-export function SiteNavDrawer({ items }: { items: Item[] }) {
+/** Підпункт: менший за батька, але не нижчий за зону натискання. */
+const CHILD =
+  "flex min-h-14 items-center text-xl font-semibold leading-tight text-ink-2";
+
+export function SiteNavDrawer({ items }: { items: NavItem[] }) {
   const [open, setOpen] = useState(false);
   const panel = useRef<HTMLDivElement>(null);
   const opener = useRef<HTMLButtonElement>(null);
@@ -234,6 +240,25 @@ export function SiteNavDrawer({ items }: { items: Item[] }) {
                     <Link href={item.href} onClick={close} className={ITEM}>
                       {item.label}
                     </Link>
+                    {item.children.length > 0 && (
+                      <ul
+                        data-nav-children={item.href}
+                        aria-label={`${item.label} pages`}
+                        className="flex flex-col gap-1 ps-6"
+                      >
+                        {item.children.map((child) => (
+                          <li key={child.href}>
+                            <Link
+                              href={child.href}
+                              onClick={close}
+                              className={CHILD}
+                            >
+                              {child.label}
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </li>
                 ))}
               </ul>
