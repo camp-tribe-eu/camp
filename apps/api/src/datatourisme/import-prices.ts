@@ -203,7 +203,7 @@ export async function spotIdsByRef(db: Client): Promise<Map<string, string>> {
   return map;
 }
 
-type Row = [
+export type Row = [
   string, // spot_id
   string, // source_id
   string, // source_ref
@@ -246,8 +246,18 @@ function toRow(spotId: string, t: ParsedTariff, updatedAt: string): Row {
  * re-states the same tariff with the same URI; without this the table
  * would grow a fresh copy of every price every week and the page would
  * print each one four times a month.
+ *
+ * 🔴 `fetched_at = now()` ON THE UPDATE PATH TOO (CAMP-400). The upsert
+ * never touches `created_at`, so that column says when a tariff was
+ * FIRST seen, not when the feed last stated it: measured on production
+ * 08.11.2026, 13 104 rows carried exactly two creation dates (28.09 and
+ * 26.10) although the 26.10 run re-read the whole feed. The freshness
+ * watch reads `fetched_at`; without this clause a weekly timer would run
+ * and the watch would still call the table stale in any week the feed
+ * added no new tariff. `now()` is the transaction's start, so one run
+ * stamps every row it touched with one instant.
  */
-async function insertBatch(db: Client, rows: Row[]): Promise<void> {
+export async function insertBatch(db: Client, rows: Row[]): Promise<void> {
   if (rows.length === 0) return;
   const values: unknown[] = [];
   const tuples = rows.map((r, i) => {
@@ -277,7 +287,8 @@ async function insertBatch(db: Client, rows: Row[]): Promise<void> {
        valid_until = EXCLUDED.valid_until,
        label = EXCLUDED.label,
        label_lang = EXCLUDED.label_lang,
-       source_updated_at = EXCLUDED.source_updated_at`,
+       source_updated_at = EXCLUDED.source_updated_at,
+       fetched_at = now()`,
     values,
   );
 }

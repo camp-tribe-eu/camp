@@ -274,10 +274,24 @@ export const DB_SOURCES = Object.freeze([
       },
     },
     unit: 'camptribe-fuel-prices' },
+  // 🔴 `fetched_at`, НЕ `created_at`. Імпорт тарифів — `ON CONFLICT DO
+  // UPDATE`, і `created_at` він не чіпає. Заміряно на проді 08.11.2026:
+  // 13 104 рядки, рівно дві дати створення — 28.09 (12 402) і 26.10 (702),
+  // хоч 26.10 імпорт перечитав увесь фід. Тобто `max(created_at)` каже
+  // «коли востаннє зʼявився НОВИЙ тариф», а не «коли збирач ходив», і
+  // тиждень без нових тарифів у фіді читався б як зупинка. Колонку додано
+  // міграцією `SpotTariffFetchedAt1794600000000`, імпортер ставить її на
+  // кожному записаному чи переказаному рядку.
+  //
+  // До 08.11 тут стояло `unit: null` із поясненням «ланцюг доведено на
+  // машині, але юніта немає»: таблиця протухла до 12,5 діб при бюджеті
+  // 10, і сторож червонів правдиво. Юніт — `camptribe-spot-tariffs`,
+  // щочетверга 05:10 UTC; каденція самого фіду заміряна по
+  // `source_updated_at`: рядки на кожен день 13.10–24.10, тобто джерело
+  // живе щодня, і бюджет 10 діб ≥ його каденції з запасом.
   { name: 'spot_tariffs (тарифи DATAtourisme)', card: 'CAMP-147',
-    table: 'spot_tariffs', column: 'created_at', budgetHours: 10 * 24,
-    unit: null,
-    manual: 'ланцюг DATAtourisme (809,7 МБ за 14 с) доведено на машині, але юніта немає — CAMP-400, пункт 2' },
+    table: 'spot_tariffs', column: 'fetched_at', budgetHours: 10 * 24,
+    unit: 'camptribe-spot-tariffs' },
   { name: 'spot_links (звʼязки OSM↔DATAtourisme)', card: 'CAMP-144',
     table: 'spot_links', column: 'created_at', budgetHours: 10 * 24,
     unit: 'camptribe-reconcile-sources' },
