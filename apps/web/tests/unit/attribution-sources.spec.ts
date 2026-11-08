@@ -649,6 +649,9 @@ const REFERENCE_HOSTS: Readonly<Record<string, string>> = {
   "cartes.gouv.fr":
     "IGN France’s conditions of use, which its service points to",
   "openfontlicense.org": "SIL Open Font License text",
+  "opensource.org": "MIT License text, under which the flag-icons files are released",
+  "flagicons.lipis.dev":
+    "the flag-icons project (MIT): 27 SVG files vendored into apps/web/public/flags, an asset rather than a data source",
   "maplibre.org":
     "the map library (BSD-3-Clause), a dependency rather than a data source",
   "openmaptiles.org":
