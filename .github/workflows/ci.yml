@@ -1695,6 +1695,16 @@ jobs:
       # Крок читає надруковане: рядок із власною назвою скрипта друкується
       # лише коли виконано рівно EXPECTED випадків, жоден не впав і жоден
       # не пропущено.
+      # 🔴 CAMP-466. CI місяцями ганявся на postgis:16-3.4, тоді як прод —
+      # на 17.11. Тобто УСІ перевірки проходили не на тій мажорній версії,
+      # яку ми запускаємо, і ніхто цього не бачив, доки зовнішня подія не
+      # зробила розбіжність гучною. Образи вирівняли разово (#471) — ніщо
+      # не тримало їх разом далі. Тепер обидва кінці дивляться на одне
+      # записане число, а не один на одного.
+      - name: Postgres major matches what production runs
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/camptribe_test
+        run: ./scripts/ci/assert-pg-major.sh
       - name: Moving one table to production keeps its indexes and its key
         env:
           CAMPTRIBE_SELFTEST_PG_BASE: postgres://postgres:postgres@localhost:5432
