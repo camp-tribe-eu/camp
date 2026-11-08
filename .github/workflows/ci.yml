@@ -266,6 +266,21 @@ jobs:
       - name: Shipped data is inside its freshness budget
         run: node scripts/ci/check-data-freshness.mjs
 
+      # 🔴 CAMP-447. Ширину СТОРІНКИ задавали читальною колонкою: 149 вживань
+      # `max-w-prose` (61ch ≈ 560px) у 54 файлах проти 40 `max-w-wrap`. Звідси
+      # «текст не на всю ширину» на кожному знімку ревю CAMP-441…445.
+      # Дефект ріс сам: 105 вживань 01.10.2026 → 149 на 08.11.2026, бо
+      # page-sections роздавав цей клас кожній секції за замовчуванням.
+      # Сторож не забороняє (це червоніло б 149 разів сьогодні), а тримає
+      # стелю: число не зростає, кожна міграція її опускає.
+      - name: Prose-width guard still catches a page measured as a text column
+        run: |
+          set -o pipefail
+          node scripts/ci/check-prose-width.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-prose-width self-test:' >/dev/null
+      - name: Page width is not a reading column
+        run: node scripts/ci/check-prose-width.mjs
+
       # 🔴 Строк зберігання, який виконує код, а не документ: 12 місяців
       # від закриття заявки, 24 для нерозглянутих — правила в RULES
       # скрипта, юніт systemd і прапорці звірені тут же.
