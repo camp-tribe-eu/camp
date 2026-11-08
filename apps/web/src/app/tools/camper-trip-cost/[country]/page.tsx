@@ -20,6 +20,7 @@ import {
 import { abs, breadcrumbList, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
 import { getCountries } from '@/lib/api';
+import { Block } from '@/components/layout';
 
 // CAMP-55 — one page per member state.
 //
@@ -161,14 +162,14 @@ export default async function CountryTripCostPage({
       </h1>
 
       {c.diesel === null ? (
-        <p className="mt-4 max-w-prose text-ink-2">
+        <Block as="p" measure="read" className="mt-4 text-ink-2">
           The European Commission&rsquo;s bulletin reports no diesel price for{' '}
           {c.name} in the week of {week}. Rather than estimate one, the
           calculator below is set to whatever you choose.
-        </p>
+        </Block>
       ) : (
         <>
-          <p className="mt-4 max-w-prose text-ink-2">
+          <Block as="p" measure="read" className="mt-4 text-ink-2">
             Diesel in {c.name} costs{' '}
             <strong className="text-ink">{euros(c.diesel, 3)}</strong> a litre
             this week, including taxes
@@ -196,10 +197,10 @@ export default async function CountryTripCostPage({
                 .
               </>
             )}
-          </p>
+          </Block>
 
           {worked && (
-            <p className="mt-3 max-w-prose text-ink-2">
+            <Block as="p" measure="read" className="mt-3 text-ink-2">
               In practice: a {EXAMPLE.label.toLowerCase()} doing{' '}
               {EXAMPLE.start} litres per 100 km over{' '}
               {EXAMPLE_KM.toLocaleString('en-GB')} km burns{' '}
@@ -207,13 +208,13 @@ export default async function CountryTripCostPage({
               <strong className="text-ink">{euros(worked.fuel)}</strong> of
               diesel. Change any of those below — especially the consumption,
               which is a starting point and not a measurement of your vehicle.
-            </p>
+            </Block>
           )}
         </>
       )}
 
       {spread !== null && (
-        <p className="mt-3 max-w-prose text-ink-2">
+        <Block as="p" measure="read" className="mt-3 text-ink-2">
           {Math.abs(spread) < 0.02 ? (
             <>
               Petrol and diesel cost almost the same in {c.name} this week —{' '}
@@ -238,14 +239,14 @@ export default async function CountryTripCostPage({
               {TANK_LITRES}-litre tank.
             </>
           )}
-        </p>
+        </Block>
       )}
 
-      <p className="mt-3 max-w-prose text-ink-2">
+      <Block as="p" measure="read" className="mt-3 text-ink-2">
         Campsite prices are not on this page because{' '}
         <strong className="text-ink">we do not hold any</strong>. Enter what you
         expect a pitch to cost and the total will keep the two apart.
-      </p>
+      </Block>
 
       {/* 🔴 The section that makes these 27 pages worth existing
           separately — and the only thing on them that none of
@@ -259,7 +260,7 @@ export default async function CountryTripCostPage({
           <h2 id="borders-heading" className="text-2xl font-bold text-heading">
             Across the border from {c.name}
           </h2>
-          <p className="mt-2 max-w-prose text-ink-2">
+          <Block as="p" measure="read" className="mt-2 text-ink-2">
             {cheaperAcross.length === 0 ? (
               <>
                 Diesel is dearer in every country {c.name} has a land border
@@ -279,9 +280,9 @@ export default async function CountryTripCostPage({
                 .
               </>
             )}
-          </p>
+          </Block>
 
-          <ul className="mt-4 max-w-prose space-y-2">
+          <Block as="ul" measure="narrow" className="mt-4 space-y-2">
             {borders.map((b) => (
               <li
                 key={b.code}
@@ -308,24 +309,24 @@ export default async function CountryTripCostPage({
                 </span>
               </li>
             ))}
-          </ul>
-          <p className="mt-3 max-w-prose text-sm text-ink-3">
+          </Block>
+          <Block as="p" measure="read" className="mt-3 text-sm text-ink-3">
             A tank is taken as {TANK_LITRES} litres to keep the arithmetic
             plain — scale it to your own. Border prices move every week, and
             these are from {week}.
-          </p>
+          </Block>
         </section>
       ) : (
         <section className="mt-10" aria-labelledby="borders-heading">
           <h2 id="borders-heading" className="text-2xl font-bold text-heading">
             {c.name} against the rest of the Union
           </h2>
-          <p className="mt-2 max-w-prose text-ink-2">
+          <Block as="p" measure="read" className="mt-2 text-ink-2">
             {c.name} has no land border with another EU country, so there is no
             cheaper tank to reach by driving — you fill up at the price here.
             What that price is worth is a comparison rather than a decision:
-          </p>
-          <ul className="mt-4 max-w-prose space-y-2">
+          </Block>
+          <Block as="ul" measure="narrow" className="mt-4 space-y-2">
             {union.map((u) => (
               <li
                 key={u.code}
@@ -348,11 +349,11 @@ export default async function CountryTripCostPage({
                 </span>
               </li>
             ))}
-          </ul>
-          <p className="mt-3 max-w-prose text-sm text-ink-3">
+          </Block>
+          <Block as="p" measure="read" className="mt-3 text-sm text-ink-3">
             A tank is taken as {TANK_LITRES} litres to keep the arithmetic
             plain. Figures from {week}, and they move every week.
-          </p>
+          </Block>
         </section>
       )}
 

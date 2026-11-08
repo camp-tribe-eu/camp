@@ -3,6 +3,7 @@ import {
   overnightCoverage,
   type RegionOvernightCounts,
 } from '@/lib/overnight';
+import { Block } from "@/components/layout";
 
 // CAMP-255 — what a country page says about overnight stays.
 //
@@ -35,10 +36,12 @@ export default function OvernightCoverage({
   const asOf = c.readAt ? formatOvernightDay(c.readAt) : null;
 
   return (
-    <section
+    <Block
+      as="section"
+      measure="read"
       data-testid="overnight-coverage"
       aria-labelledby="overnight-coverage-heading"
-      className="mt-6 max-w-prose"
+      className="mt-6"
     >
       <h2
         id="overnight-coverage-heading"
@@ -78,6 +81,6 @@ export default function OvernightCoverage({
           {asOf && <> Counted from our listings as of {asOf}.</>}
         </p>
       )}
-    </section>
+    </Block>
   );
 }

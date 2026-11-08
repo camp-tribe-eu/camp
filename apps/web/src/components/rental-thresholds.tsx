@@ -1,4 +1,5 @@
 import { SHAPES, THRESHOLDS } from '@/data/rental/thresholds';
+import { Block } from '@/components/layout';
 
 // CAMP-4 — the four numbers, and the shapes that run into them.
 //
@@ -20,13 +21,13 @@ export function RentalThresholds() {
       <h2 id="thresholds-heading" className="text-2xl font-bold text-heading">
         The four numbers on the contract that decide the trip
       </h2>
-      <p className="mt-3 max-w-prose text-ink-2">
+      <Block as="p" measure="read" className="mt-3 text-ink-2">
         We cannot tell you what a particular camper weighs or measures — we
         hold no vehicles and no fleet data, and we are not going to guess.
         The rental company can, and the figures are on the paperwork. What
         follows is what each of those figures costs you if you do not read
         it, and who decided the limit.
-      </p>
+      </Block>
 
       <ul className="mt-6 space-y-6">
         {THRESHOLDS.map((t) => (
@@ -37,12 +38,12 @@ export function RentalThresholds() {
             <h3 className="font-narrow text-2xl font-bold text-heading">
               {t.value}
             </h3>
-            <p className="mt-1 max-w-prose font-semibold text-ink">{t.what}</p>
-            <ul className="mt-3 max-w-prose list-disc space-y-2 pl-5 text-ink-2">
+            <Block as="p" measure="read" className="mt-1 font-semibold text-ink">{t.what}</Block>
+            <Block as="ul" measure="read" className="mt-3 list-disc space-y-2 pl-5 text-ink-2">
               {t.decides.map((line) => (
                 <li key={line}>{line}</li>
               ))}
-            </ul>
+            </Block>
             <p className="mt-3 text-sm text-ink-2">
               Source:{' '}
               <a
@@ -71,13 +72,13 @@ export function RentalShapes() {
       <h2 id="shapes-heading" className="text-2xl font-bold text-heading">
         The shapes you will be offered
       </h2>
-      <p className="mt-3 max-w-prose text-ink-2">
+      <Block as="p" measure="read" className="mt-3 text-ink-2">
         Each of these is defined by how it is built, which is the only thing
         about a camper that is true of every example of it. Dimensions and
         masses vary between builds and between model years, so they are on
         the contract rather than here — the column that matters is which of
         the four numbers above to read first.
-      </p>
+      </Block>
 
       <ul className="mt-6 grid gap-4 md:grid-cols-2">
         {SHAPES.map((s) => (

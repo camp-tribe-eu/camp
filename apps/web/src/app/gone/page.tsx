@@ -9,6 +9,7 @@ import { countryName, getCountries, type GoneSpot } from '@/lib/api';
 import GONE from '@/generated/gone.json';
 import GoneNotice from '@/components/gone-notice';
 import { ButtonLink } from '@/components/button';
+import { Block } from '@/components/layout';
 
 // CAMP-73 — the body served, with a 410, at the address of a campsite
 // that no longer exists.
@@ -43,11 +44,11 @@ export default async function GonePage() {
       <h1 className="mt-2 text-3xl font-bold md:text-[42px]">
         This campsite is no longer listed
       </h1>
-      <p className="mt-3 max-w-prose text-ink-2">
+      <Block as="p" measure="read" className="mt-3 text-ink-2">
         We only list campsites that are in OpenStreetMap. When one is removed
         there and stays removed across four weekly imports, we take it down
         rather than leave a page describing a place that is not there.
-      </p>
+      </Block>
 
       <GoneNotice gone={gone} />
 

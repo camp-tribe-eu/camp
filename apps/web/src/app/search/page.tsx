@@ -13,6 +13,7 @@ import SearchEmbed from '@/components/search-embed';
 import { abs, breadcrumbList, jsonLdProps } from '@/lib/jsonld';
 import { getRoutes } from '@/lib/routes';
 import { ButtonLink } from '@/components/button';
+import { Block } from '@/components/layout';
 
 // CAMP-67 — /search.
 //
@@ -76,7 +77,7 @@ export default async function SearchPage() {
       <h1 className="mt-4 text-2xl font-bold text-heading sm:text-3xl">
         Search
       </h1>
-      <p className="mt-2 max-w-prose text-sm text-ink-2">
+      <Block as="p" measure="read" className="mt-2 text-sm text-ink-2">
         {/* 🔴 CAMP-240. `memberStateCount`, not `countries.length`: the
             list has 28 codes and one of them is Åland, which is Finland.
             "Across 28 countries" was a false sentence on a page whose
@@ -86,7 +87,7 @@ export default async function SearchPage() {
           memberStateCount(countries.map((c) => c.country)),
         )}
         . Type a name, a region, or a town or lake nearby.
-      </p>
+      </Block>
 
       <div className="mt-5 max-w-2xl">
         <SearchEmbed />
@@ -121,10 +122,10 @@ export default async function SearchPage() {
         <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-2">
           Not looking for a campsite?
         </h2>
-        <p className="mt-2 max-w-prose text-sm text-ink-2">
+        <Block as="p" measure="read" className="mt-2 text-sm text-ink-2">
           This box searches campsites only. The rest of the site is in these
           places.
-        </p>
+        </Block>
         <ul className="mt-3 space-y-2 text-sm text-ink-2">
           <li>
             <Link className="font-semibold text-heading underline" href="/map">

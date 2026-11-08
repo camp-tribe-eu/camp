@@ -1,4 +1,5 @@
 import type { HubFaqItem, HubTile } from '@/lib/hub-stats';
+import { Block } from '@/components/layout';
 
 // The stat tiles and the FAQ of the hub pages. What is printed is decided
 // in lib/hub-stats.ts; this only lays it out. Both render NOTHING when
@@ -64,7 +65,7 @@ export function HubFaq({
 }) {
   if (items.length === 0) return null;
   return (
-    <section aria-labelledby="hub-faq-heading" className="mt-10 max-w-prose">
+    <Block as="section" measure="read" aria-labelledby="hub-faq-heading" className="mt-10">
       <h2 id="hub-faq-heading" className="text-xl font-bold md:text-[25px]">
         Questions about camping in {region}
       </h2>
@@ -81,6 +82,6 @@ export function HubFaq({
           </details>
         ))}
       </div>
-    </section>
+    </Block>
   );
 }

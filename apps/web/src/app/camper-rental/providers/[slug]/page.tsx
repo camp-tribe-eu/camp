@@ -9,6 +9,7 @@ import {
   serviceLabel,
   type ProviderPage,
 } from "@/lib/rental-providers";
+import { Block } from "@/components/layout";
 
 // CAMP-427 — сторінка однієї компанії, за зразком single product page.
 
@@ -91,12 +92,12 @@ export default async function ProviderPageView({
               сторінка компанії нічим не відрізняється від рядка таблиці,
               і читач не дізнається, чим ця компанія відрізняється від
               сусідньої. Сівалка не пропустить провайдера без вступу. */}
-          {p.intro && <p className="max-w-prose text-ink-2">{p.intro}</p>}
+          {p.intro && <Block as="p" measure="read" className="text-ink-2">{p.intro}</Block>}
 
           {p.whatToKnow && (
             <section className="mt-6">
               <h2 className="text-2xl font-bold text-heading">What to know</h2>
-              <p className="mt-3 max-w-prose text-ink-2">{p.whatToKnow}</p>
+              <Block as="p" measure="read" className="mt-3 text-ink-2">{p.whatToKnow}</Block>
             </section>
           )}
 

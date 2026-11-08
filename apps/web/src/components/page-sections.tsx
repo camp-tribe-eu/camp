@@ -4,6 +4,7 @@ import { PAGE_VALUES, type SectionView } from "@/lib/page-content";
 import { isInternalHref, substitute } from "@/lib/rich-text";
 import Link from "next/link";
 import { FUEL, FUEL_COUNTRIES, longDate } from "@/lib/fuel";
+import { Block, type Measure } from "@/components/layout";
 
 // CAMP-365 — рендер універсальних секцій (модель CAMP-362).
 //
@@ -27,8 +28,8 @@ import { FUEL, FUEL_COUNTRIES, longDate } from "@/lib/fuel";
 
 /**
  * 🔴 `variant` — НЕ ПРИКРАСА. Заміряно рецензією #304: завершальний
- * абзац /tools мав `mt-10 max-w-prose text-ink-3`, а після переїзду
- * дістав типові `max-w-prose space-y-4 text-ink-2` — тобто втратив
+ * абзац /tools мав `mt-10 text-ink-3` на читальній колонці, а після
+ * переїзду дістав типові `space-y-4 text-ink-2` — тобто втратив
  * верхній відступ і приглушений колір, опинившись упритул до переліку
  * 27 країн.
  *
@@ -54,15 +55,30 @@ import { FUEL, FUEL_COUNTRIES, longDate } from "@/lib/fuel";
 type Values = Readonly<Record<string, string>>;
 type RenderProps = { section: SectionView; values: Values };
 
-const PROSE_VARIANTS: Record<string, string> = {
+/**
+ * 🔴 ШИРИНА НАЗВАНА В КОЖНОМУ ВАРІАНТІ, І ТИП ЦЬОГО ВИМАГАЄ (CAMP-447).
+ *
+ * Було: `PROSE_DEFAULT` — рядок класів, у якому читальна колонка
+ * їхала безкоштовно з кожною новою секцією. Замір: 105 вживань 01.10.2026 →
+ * 149 на 08.11.2026, і приріст давало саме це замовчування. Тепер варіант —
+ * це `{ measure, className }`, і `measure` не має значення за замовчуванням:
+ * забутий — не компілюється, а не розповзається.
+ */
+type ProseStyle = { measure: Measure; className: string };
+
+const PROSE_VARIANTS: Record<string, ProseStyle> = {
   // Як було на /tools: відбитий донизу, приглушений.
-  aside: "mt-10 max-w-prose text-ink-3",
+  aside: { measure: "read", className: "mt-10 text-ink-3" },
 };
-const PROSE_DEFAULT = "max-w-prose space-y-4 text-ink-2";
+/** Звичайний абзацний текст секції — читальна колонка, бо це суцільний текст. */
+const PROSE_PLAIN: ProseStyle = {
+  measure: "read",
+  className: "space-y-4 text-ink-2",
+};
 
 function Prose({ section, values }: RenderProps) {
-  const className =
-    (section.variant && PROSE_VARIANTS[section.variant]) || PROSE_DEFAULT;
+  const style =
+    (section.variant && PROSE_VARIANTS[section.variant]) || PROSE_PLAIN;
   return (
     <>
       {section.heading && (
@@ -74,7 +90,8 @@ function Prose({ section, values }: RenderProps) {
         <RichText
           text={section.body}
           values={values}
-          className={className}
+          measure={style.measure}
+          className={style.className}
         />
       )}
     </>
@@ -92,6 +109,7 @@ function Cta({ section, values }: RenderProps) {
         <RichText
           text={section.body}
           values={values}
+          measure="read"
           className="text-sm text-ink-2"
         />
       )}
@@ -323,7 +341,7 @@ function FuelCountries({ section, values }: RenderProps) {
       <h2 id="by-country-heading" className="text-xl font-bold md:text-[25px]">
         {section.heading}
       </h2>
-      {note && <p className="mt-2 max-w-prose text-sm text-ink-2">{note}</p>}
+      {note && <Block as="p" measure="read" className="mt-2 text-sm text-ink-2">{note}</Block>}
       <ul className="mt-4 flex flex-wrap gap-x-2 gap-y-3">
         {countries.map((c) => (
           <li key={c.code}>
@@ -385,9 +403,9 @@ function Hero({ section, values }: RenderProps) {
         </h1>
       )}
       {section.body && (
-        <p className="mt-4 max-w-prose text-ink-2">
+        <Block as="p" measure="read" className="mt-4 text-ink-2">
           {substitute(section.body, values)}
-        </p>
+        </Block>
       )}
     </>
   );
@@ -407,7 +425,7 @@ function Steps({ section, values }: RenderProps) {
               Step {i + 1}
             </span>
             <h3 className="mt-1 text-base font-semibold">{s.term}</h3>
-            <p className="mt-1 max-w-prose text-sm text-ink-2">{s.text}</p>
+            <Block as="p" measure="read" className="mt-1 text-sm text-ink-2">{s.text}</Block>
           </li>
         ))}
       </ol>

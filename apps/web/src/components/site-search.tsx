@@ -18,6 +18,7 @@ import {
   type SearchChunk,
   type SearchIndex,
 } from '@/lib/search-chunks';
+import { Block } from '@/components/layout';
 
 // CAMP-67 — the results.
 //
@@ -363,11 +364,11 @@ export default function SiteSearch({ initialQuery }: { initialQuery: string }) {
       )}
 
       {state.status === 'ready' && query.trim() === '' && (
-        <p className="mt-4 max-w-prose text-sm text-ink-2">
+        <Block as="p" measure="read" className="mt-4 text-sm text-ink-2">
           Searching {total.toLocaleString('en-GB')} campsites. Try a name, a region, or a town or
           lake nearby — results near a place you name are ordered by how
           close they are to it.
-        </p>
+        </Block>
       )}
     </div>
   );

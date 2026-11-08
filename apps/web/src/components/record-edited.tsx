@@ -1,5 +1,6 @@
 import { recordEdit } from '@/lib/record-age';
 import { SOURCES } from '@/lib/sources';
+import { Block } from '@/components/layout';
 
 // CAMP-256 — "Record last edited: June 2023".
 //
@@ -90,7 +91,7 @@ export default function RecordEdited({
 
   return (
     <div data-testid="record-edited" data-band={age.known ? age.band : 'unknown'}>
-      <p className="mt-4 max-w-prose text-sm text-ink-2">
+      <Block as="p" measure="read" className="mt-4 text-sm text-ink-2">
         <span data-boilerplate="record-edited-label">Record last edited:</span>{' '}
         {age.known ? (
           <>
@@ -118,9 +119,11 @@ export default function RecordEdited({
         ) : (
           'Not known'
         )}
-      </p>
-      <p
-        className="mt-1 max-w-prose text-xs leading-5 text-ink-2"
+      </Block>
+      <Block
+        as="p"
+        measure="read"
+        className="mt-1 text-xs leading-5 text-ink-2"
         data-boilerplate={
           age.known
             ? `record-edited-caveat${own ? `-${own.id}` : ''}`
@@ -132,7 +135,7 @@ export default function RecordEdited({
             ? recordEditedCaveatFor(own.name)
             : RECORD_EDITED_CAVEAT
           : RECORD_EDITED_UNKNOWN}
-      </p>
+      </Block>
     </div>
   );
 }

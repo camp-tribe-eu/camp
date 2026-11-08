@@ -84,3 +84,47 @@ test("три варіанти дають три РІЗНІ ширини, а не
   const widths = new Set([of("wide"), of("read"), of("narrow")]);
   expect(widths.size).toBe(3);
 });
+
+// ── CAMP-447, друга половина: 149 місць переїхали на Block ──────────────
+
+test("🔴 Block віддає елементу решту атрибутів — за ними живуть сторожі e2e", () => {
+  // На мігрованих абзацах стоять `data-testid` і `data-boilerplate`: за
+  // ними e2e відрізняє шаблонне речення від того, що має різнитись між
+  // сторінками. Блок, який їх ковтає, робить ті сторожі сліпими, не червоними.
+  // `data-*` у JSX не типізуються, а в обʼєкті — так; звідси окремий запис.
+  const dataAttrs: Record<string, string> = {
+    "data-testid": "air-no-data",
+    "data-boilerplate": "air-no-data",
+  };
+  const html = renderComponent(Block, {
+    children: "x",
+    measure: "read",
+    role: "status",
+    ...dataAttrs,
+  });
+  expect(html).toContain('data-testid="air-no-data"');
+  expect(html).toContain('data-boilerplate="air-no-data"');
+  expect(html).toContain('role="status"');
+});
+
+test("Block стає тим тегом, який названо, а не завжди div", () => {
+  // `<p>`, `<ul>`, `<dl>`, `<blockquote>`, `<figcaption>` — рівно ті теги,
+  // що несли ширину в розмітці. Семантика елемента лишається: e2e шукає
+  // `main p`, читач екрана чує перелік як перелік.
+  for (const tag of ["p", "ul", "dl", "blockquote", "figcaption"] as const) {
+    const html = renderComponent(Block, { children: "x", measure: "read", as: tag });
+    expect(html, `тег ${tag}`).toMatch(new RegExp(`^<${tag}[\\s>]`));
+    expect(html, `тег ${tag}`).toContain(`</${tag}>`);
+  }
+  expect(renderComponent(Block, { children: "x", measure: "read" })).toMatch(/^<div[\s>]/);
+});
+
+test("власний клас блока додається до ширини, а не витісняє її", () => {
+  const html = renderComponent(Block, {
+    children: "x",
+    measure: "read",
+    className: "mt-2 text-sm",
+  });
+  expect(html).toContain("max-w-read");
+  expect(html).toContain("mt-2 text-sm");
+});

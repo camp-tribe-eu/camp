@@ -5,6 +5,7 @@ import {
   OVERNIGHT_LABEL,
   readOvernight,
 } from '@/lib/overnight';
+import { Block } from "@/components/layout";
 
 // CAMP-255 — may a motorhome stay the night here. Said outright, in one of
 // three ways, and never left out.
@@ -51,7 +52,7 @@ export default function OvernightStay({ overnight }: { overnight: unknown }) {
 
       {facts.status !== 'unknown' && source && facts.checkedAt ? (
         <>
-          <p className="mt-2 max-w-prose text-sm" data-testid="overnight-answer">
+          <Block as="p" measure="read" className="mt-2 text-sm" data-testid="overnight-answer">
             <strong className="font-semibold text-heading">
               {OVERNIGHT_LABEL[facts.status]}
             </strong>
@@ -69,19 +70,23 @@ export default function OvernightStay({ overnight }: { overnight: unknown }) {
               {formatOvernightDay(facts.checkedAt)}
             </time>
             .
-          </p>
-          <p
-            className="mt-2 max-w-prose text-xs leading-5 text-ink-2"
+          </Block>
+          <Block
+            as="p"
+            measure="read"
+            className="mt-2 text-xs leading-5 text-ink-2"
             data-boilerplate="overnight-sourced-caveat"
           >
             This is what a mapper recorded, not a ruling, and it can be out of
             date. Signs at the place and the local rules still decide.
-          </p>
+          </Block>
         </>
       ) : (
         <>
-          <p
-            className="mt-2 max-w-prose text-sm"
+          <Block
+            as="p"
+            measure="read"
+            className="mt-2 text-sm"
             data-testid="overnight-answer"
             data-boilerplate="overnight-unknown"
           >
@@ -90,12 +95,12 @@ export default function OvernightStay({ overnight }: { overnight: unknown }) {
             </strong>{' '}
             We have no source that says whether a motorhome may stay the night
             here. That is a gap in the data, not a no.
-          </p>
+          </Block>
           <div data-boilerplate="overnight-checklist">
             <p className="mt-3 text-sm font-medium text-heading">
               Check on the spot or before you go
             </p>
-            <ul className="mt-1 max-w-prose list-disc space-y-1 pl-5 text-sm text-ink-2">
+            <Block as="ul" measure="read" className="mt-1 list-disc space-y-1 pl-5 text-sm text-ink-2">
               {OVERNIGHT_CHECKLIST.map((item) => (
                 <li key={item.what}>
                   <strong className="font-semibold text-heading">
@@ -105,7 +110,7 @@ export default function OvernightStay({ overnight }: { overnight: unknown }) {
                   {item.detail}.
                 </li>
               ))}
-            </ul>
+            </Block>
           </div>
         </>
       )}

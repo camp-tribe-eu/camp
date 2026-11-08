@@ -78,8 +78,9 @@ test.describe("🔴 CAMP-365 — головна", () => {
     await expect(page.locator("main h1")).toHaveClass(
       /max-w-\[18ch\].*text-3xl.*font-bold/,
     );
+    // CAMP-447: ширину дає `<Block measure="read">`, і її клас стоїть першим.
     await expect(page.locator("main p").first()).toHaveClass(
-      /mt-4.*max-w-prose.*text-ink-2/,
+      /max-w-read.*mt-4.*text-ink-2/,
     );
   });
 

@@ -1,5 +1,6 @@
 import { getRegionInsights } from '@/lib/api';
 import { regionInsightDates, regionInsightLines } from '@/lib/region-insights';
+import { Block } from '@/components/layout';
 
 // "Camping in <region>" — the one thing on a region page a competitor
 // cannot copy from the same OpenStreetMap rows: a context COUNTED from
@@ -27,10 +28,12 @@ export default async function RegionInsights({
   if (lines.length === 0) return null;
 
   return (
-    <section
+    <Block
+      as="section"
+      measure="read"
       data-testid="region-insights"
       aria-labelledby="region-insights-heading"
-      className="mt-6 max-w-prose"
+      className="mt-6"
     >
       <h2
         id="region-insights-heading"
@@ -54,6 +57,6 @@ export default async function RegionInsights({
       </ul>
       {/* The day, once: every line above was read on one of these two. */}
       <p className="mt-2 text-sm text-ink-3">{regionInsightDates(lines)}</p>
-    </section>
+    </Block>
   );
 }

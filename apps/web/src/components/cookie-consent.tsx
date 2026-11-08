@@ -10,6 +10,7 @@ import {
   type ConsentChoice,
 } from '@/lib/consent';
 import { Button } from '@/components/button';
+import { Block } from '@/components/layout';
 
 // CAMP-56 — the cookie banner.
 //
@@ -130,7 +131,7 @@ export function ConsentBannerView({
             what the cookie policy promises this is not. The text below
             says the same thing in half the words, and an e2e test holds
             the banner under a fifth of the viewport. */}
-        <div className="max-w-prose">
+        <Block measure="read">
           {/* 🔴 THE SAME WORDS AS THE FIRST SENTENCE OF THE COOKIES PAGE, and a
               test holds them equal. This line used to say "We store nothing
               until you choose", which stopped being true the day the code
@@ -145,7 +146,7 @@ export function ConsentBannerView({
               What we store
             </Link>
           </p>
-        </div>
+        </Block>
 
         {/* 🔴 Reject first in the DOM, so it is also first for a keyboard
             and a screen reader. Same classes on both: if one ever gains a

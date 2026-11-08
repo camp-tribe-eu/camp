@@ -5,6 +5,7 @@ import FuelPriceTable from '@/components/fuel-price-table';
 import { FUEL, isStale, longDate, ranked } from '@/lib/fuel';
 import { abs, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
+import { Block } from '@/components/layout';
 
 // CAMP-55 — "how much does a camper trip cost".
 //
@@ -104,19 +105,19 @@ export default function TripCostPage() {
       <h1 className="text-3xl font-bold leading-tight md:text-[42px]">
         What does a camper trip cost?
       </h1>
-      <p className="mt-4 max-w-prose text-ink-2">
+      <Block as="p" measure="read" className="mt-4 text-ink-2">
         Fuel is the part of a camper budget that moves, and it is the part
         anyone can look up: the European Commission publishes consumer prices
         for every EU country every Thursday. This calculator uses those,
         dated, for the week of {longDate(FUEL.bulletinDate)}.
-      </p>
-      <p className="mt-3 max-w-prose text-ink-2">
+      </Block>
+      <Block as="p" measure="read" className="mt-3 text-ink-2">
         What it does not do is guess at the rest.{' '}
         <strong className="text-ink">We hold no campsite prices</strong> — this
         site links to operators instead of mirroring their rates — so the pitch
         figure is yours to fill in, and the result tells you which half of the
         total came from a measurement and which half came from you.
-      </p>
+      </Block>
 
       {/* 🔴 isStale existed and nothing called it — a guard written and
           then left unwired, which is the same as not having one. If the
@@ -124,15 +125,17 @@ export default function TripCostPage() {
           in its own voice, above the numbers, instead of leaving the
           reader to do date arithmetic on a line of small print. */}
       {isStale(new Date()) && (
-        <p
+        <Block
+          as="p"
+          measure="read"
           data-testid="stale-fuel"
-          className="mt-6 max-w-prose rounded-card border border-amber bg-surface-2 p-4 text-ink"
+          className="mt-6 rounded-card border border-amber bg-surface-2 p-4 text-ink"
         >
           <strong>These prices are out of date.</strong> They are from{' '}
           {longDate(FUEL.bulletinDate)}, and the European Commission has
           published newer ones since. Treat the fuel figures below as
           historical until this page is refreshed.
-        </p>
+        </Block>
       )}
 
       <TripCostCalculator />
@@ -143,14 +146,14 @@ export default function TripCostPage() {
         <h2 id="faq-heading" className="text-2xl font-bold text-heading">
           Questions we can actually answer
         </h2>
-        <dl className="mt-4 max-w-prose space-y-5">
+        <Block as="dl" measure="read" className="mt-4 space-y-5">
           {questions.map((f) => (
             <div key={f.q}>
               <dt className="font-semibold text-heading">{f.q}</dt>
               <dd className="mt-1 text-ink-2">{f.a}</dd>
             </div>
           ))}
-        </dl>
+        </Block>
       </section>
 
       <p className="mt-10 text-ink-2">
