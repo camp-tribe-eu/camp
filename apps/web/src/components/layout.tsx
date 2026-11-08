@@ -24,8 +24,23 @@
  *            Слова власника: «якщо контенту не на всю ширину то просто
  *            табличку вузьку ставимо по центру і воно класно і гармонійно».
  *
- * Ширина контейнера — не з ока: `--global-container-width: 1704px`, читано з
- * `:root` демо-стору теми `theme7-store1.myshopify.com` 08.11.2026.
+ * 🔴 УСІ ТРИ ЧИСЛА — З ТЕМИ, не з ока. Читано з її ж CSS 08.11.2026:
+ *
+ *   .container{max-width:var(--container-width);width:100%;margin:0 auto;
+ *              padding-left:4px;padding-right:4px}
+ *   @media(min-width:1200px){.container{padding-left:12px;padding-right:12px}}
+ *   --container-width: 1704px
+ *
+ *   .content .shopify-policy__container{max-width:840px;margin:0 auto;
+ *                                       padding:40px 20px 60px}
+ *
+ * Драбина порогів теми: 576 / 768 / 992 / 1200.
+ *
+ * ⚠️ ОДНЕ МІСЦЕ, ДЕ МИ НАВМИСНО НЕ КОПІЮЄМО ТЕМУ: бічні поля контейнера.
+ * У неї 4px (12px від 1200), бо кожна її секція додає власні відступи. У нас
+ * секції цього ще не роблять, тож дослівні 4px притиснули б текст до краю
+ * екрана на телефоні. Лишаємо 16px / 24px і прибираємо це відхилення тоді,
+ * коли зʼявиться каталог секцій (CAMP-449).
  */
 import type { ReactNode } from "react";
 
