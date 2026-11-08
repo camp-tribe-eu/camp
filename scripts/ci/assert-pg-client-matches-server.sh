@@ -34,7 +34,7 @@ client_major="${CAMPTRIBE_FAKE_CLIENT_MAJOR:-}"
 if [ -z "$client_major" ]; then
   ver=$(pg_dump --version)
   client_major=$(printf '%s' "$ver" | sed -nE 's/^pg_dump \(PostgreSQL\) ([0-9]+).*/\1/p')
-  [ -n "$client_major" ] || { echo "🔴 не розпізнав версію з «$ver» — мовчати на цьому не можна" >&2; exit 2; }
+  [ -n "$client_major" ] || { echo "🔴 не розпізнав версію з «${ver}» — мовчати на цьому не можна" >&2; exit 2; }
 fi
 
 if [ "$client_major" != "$server_major" ]; then
