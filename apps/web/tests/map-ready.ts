@@ -158,4 +158,35 @@ export async function waitForWildfireNote(
     timeout,
     'нотатка про пожежі',
   );
+  // 🔴 СТАН «ПРИЙШОВ» — ЩЕ НЕ «ЗНАЄ, ЩО В КАДРІ». Нотатка має ДВА
+  // речення для одного й того самого `fresh`: «recorded N burnt areas
+  // across the EU-27» поки мапа не сказала їй свої межі (`inView === null`,
+  // `data-in-view=""`), і «None of the N … is in this view» після. Друге
+  // на один рядок довше. Заміряно 08.11.2026 у CI (#471, перший прогін
+  // `phone › map`): знімок 3144 px проти еталона 3204 px, усе нижче
+  // нотатки зсунуто на 60 px, повтор — зелений. `data-state` при цьому був
+  // `fresh` в обох знімках, тож чекання вище пройшло чесно й зарано.
+  //
+  // `data-in-view` порожній, поки шар пожеж вимкнено (`off`) — тоді й
+  // речення не залежить від кадру, і чекати нема на що.
+  const state = await page.getAttribute(NOTE, 'data-state', { timeout: 1_000 });
+  if (state === 'off') return;
+  try {
+    await page.waitForFunction(
+      (s: string) => {
+        const v = document.querySelector(s)?.getAttribute('data-in-view');
+        return typeof v === 'string' && v !== '';
+      },
+      NOTE,
+      { timeout },
+    );
+  } catch (cause) {
+    const original = cause instanceof Error ? cause.message : String(cause);
+    throw new Error(
+      `нотатка про пожежі: стан «${state}», але data-in-view порожній — ` +
+        'мапа так і не назвала їй свої межі, і речення ще зміниться. ' +
+        `Початкова помилка: ${original}`,
+      { cause },
+    );
+  }
 }

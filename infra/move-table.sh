@@ -303,6 +303,19 @@ show_diff() { head -20 "$RW/$1.diff" 2>/dev/null; head -10 "$RW/$1.acldiff" 2>/d
 # Скрипт відновлення з lock_timeout, який діє. pg_restore пише в кожен скрипт
 # `SET lock_timeout = 0` — його підмінено на наш (і наш стоїть першим рядком,
 # якщо pg_restore цього рядка колись перестане писати).
+#
+# 🔴 `SET transaction_timeout` ПРИБИРАЄТЬСЯ, БО ЙОГО ПИШЕ КЛІЄНТ, А ЧИТАЄ
+# СЕРВЕР, І ЦЕ РІЗНІ ВЕРСІЇ. Параметр є лише з Postgres 17; pg_restore ≥ 17
+# ставить його в шапку КОЖНОГО скрипта, а сервер 16 відповідає
+# `unrecognized configuration parameter "transaction_timeout"` і валить
+# усю транзакцію заміни. Заміряно 08.11.2026: `ubuntu-latest` у CI став
+# ubuntu-26.04 (образ 20261101.186.1) із новим клієнтом, сервіс там —
+# postgis/postgis:16-3.4, і самоперевірка впала 45 разів на одному й тому
+# самому рядку 14 (`psql -1 -f swap.sql`). Локально pg_restore 17.11 пише
+# цей рядок 13-м у виводі `pg_restore -f -`. Прод (17.11) цього не бачив
+# і не побачить — але скрипт мусить працювати з будь-якою парою
+# клієнт/сервер, бо наступна така пара буде «ноутбук 18 → прод 17».
+# `norm_schema` вище вже знає про це для ЗВІРКИ; тут те саме для ЗАМІНИ.
 # $1 = дамп, $2 = куди, $3 = lock_timeout, решта — прапорці pg_restore.
 make_script() {
   local dump="$1" out="$2" lt="$3"; shift 3
@@ -311,7 +324,8 @@ make_script() {
   # диск на проді. pipefail лишає код pg_restore, а не sed.
   pg_restore --clean --if-exists "$@" -f - "$dump" \
     | { printf "SET lock_timeout = '%s';\n" "$lt"
-        sed "1,80s/^SET lock_timeout = 0;\$/SET lock_timeout = '$lt';/"; } > "$out"
+        sed -e "1,80s/^SET lock_timeout = 0;\$/SET lock_timeout = '$lt';/" \
+            -e '1,80{/^SET transaction_timeout = /d;}'; } > "$out"
 }
 
 # 🔴 Нова таблиця стартує БЕЗ статистики (заміряно на 2,27 млн рядків, і рецензентом,
