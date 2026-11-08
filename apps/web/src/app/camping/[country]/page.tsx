@@ -8,6 +8,7 @@ import { ButtonLink } from '@/components/button';
 import { breadcrumbList, collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
 import OvernightCoverage from '@/components/overnight-coverage';
+import { Block } from '@/components/layout';
 
 // CAMP-71, level 1: the country hub.
 //
@@ -98,12 +99,12 @@ export default async function CountryHub(props: { params: Promise<Params> }) {
       <h1 className="mt-4 text-3xl font-bold md:text-[42px]">
         Campsites in {name}
       </h1>
-      <p className="mt-3 max-w-prose text-ink-2">
+      <Block as="p" measure="read" className="mt-3 text-ink-2">
         {spots.toLocaleString('en-GB')} campsites, motorhome parks and camper
         stops across {regions.length} regions. Facilities come from
         OpenStreetMap, and where nobody has recorded them we say so rather
         than guessing.
-      </p>
+      </Block>
 
       {/* Design-audit §11, screen 1: the four figures and the two ways on.
           Which figures are printed is decided in lib/hub-stats.ts — a

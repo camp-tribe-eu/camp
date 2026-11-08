@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { Block } from '@/components/layout';
 
 // CAMP-4 — the commercial disclosure, in the template rather than in the
 // footer, and on every page of this section from its first day.
@@ -36,7 +37,7 @@ export default function RentalDisclosure({ offers }: { offers: number }) {
         How this page is paid for
       </h2>
       {offers > 0 ? (
-        <p className="mt-2 max-w-prose text-sm leading-6 text-ink">
+        <Block as="p" measure="read" className="mt-2 text-sm leading-6 text-ink">
           <strong className="text-heading">
             Some links on this page are affiliate links.
           </strong>{' '}
@@ -49,9 +50,9 @@ export default function RentalDisclosure({ offers }: { offers: number }) {
             How this works
           </Link>
           .
-        </p>
+        </Block>
       ) : (
-        <p className="mt-2 max-w-prose text-sm leading-6 text-ink">
+        <Block as="p" measure="read" className="mt-2 text-sm leading-6 text-ink">
           <strong className="text-heading">
             There are no affiliate links on this page yet.
           </strong>{' '}
@@ -65,7 +66,7 @@ export default function RentalDisclosure({ offers }: { offers: number }) {
             How this works
           </Link>
           .
-        </p>
+        </Block>
       )}
     </aside>
   );

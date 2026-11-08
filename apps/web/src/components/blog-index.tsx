@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { breadcrumbList, collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { pageCount, postDate, type PostSummary } from '@/lib/posts';
 import Breadcrumbs from '@/components/breadcrumbs';
+import { Block } from '@/components/layout';
 
 // CAMP-364 — каталог блогу, один на обидва маршрути.
 //
@@ -68,15 +69,15 @@ export default function BlogIndexView({
       <h1 className="mt-4 text-3xl font-bold leading-tight md:text-[42px]">
         {BLOG_TITLE}
       </h1>
-      <p className="mt-4 max-w-prose text-ink-2">{BLOG_DESCRIPTION}</p>
+      <Block as="p" measure="read" className="mt-4 text-ink-2">{BLOG_DESCRIPTION}</Block>
 
       {posts.length === 0 ? (
         // 🔴 Порожньо сказано словами, а не порожнім списком: читач має
         // зрозуміти, що сторінка працює, а дописів ще немає.
-        <p className="mt-8 max-w-prose text-ink-2" data-testid="blog-empty">
+        <Block as="p" measure="read" className="mt-8 text-ink-2" data-testid="blog-empty">
           Nothing is published yet. When the first post goes up it will appear
           here, newest first.
-        </p>
+        </Block>
       ) : (
         <ul className="mt-8 grid gap-6 md:grid-cols-2">
           {posts.map((p) => (
@@ -99,9 +100,9 @@ export default function BlogIndexView({
                 </p>
               )}
               {p.summary && (
-                <p className="mt-2 max-w-prose text-sm text-ink-2">
+                <Block as="p" measure="read" className="mt-2 text-sm text-ink-2">
                   {p.summary}
-                </p>
+                </Block>
               )}
             </li>
           ))}

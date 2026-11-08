@@ -22,6 +22,7 @@ import {
   type AirState,
 } from '@/lib/air-quality';
 import { SOURCES } from '@/lib/sources';
+import { Block } from '@/components/layout';
 
 // CAMP-164 — what the EEA's air quality index says beside a campsite.
 //
@@ -150,7 +151,7 @@ export function AirQualityPanel({
         )}
         {state.state === 'modelled' && <Modelled state={state} />}
         {state.state === 'no-fresh-data' && (
-          <p className="max-w-prose text-sm leading-6 text-ink-2">
+          <Block as="p" measure="read" className="text-sm leading-6 text-ink-2">
             <strong
               className="text-heading"
               data-testid="air-no-fresh-data"
@@ -161,7 +162,7 @@ export function AirQualityPanel({
             <span data-testid="air-no-fresh-data-why">
               {noFreshDataSentence(state)}
             </span>
-          </p>
+          </Block>
         )}
         {state.state === 'no-data' && (
           // 🔴 One sentence per reason, identical on every page in that
@@ -170,13 +171,15 @@ export function AirQualityPanel({
           // outside the model. Marked, or two such pages differ from one
           // another by nothing but their neighbours: CAMP-168 shipped the
           // same guard red, and it was this same pair of Croatian pages.
-          <p
-            className="max-w-prose text-sm leading-6 text-ink-2"
+          <Block
+            as="p"
+            measure="read"
+            className="text-sm leading-6 text-ink-2"
             data-testid="air-no-data"
             data-boilerplate="air-no-data"
           >
             {noDataSentence(state.reason)}
-          </p>
+          </Block>
         )}
 
         {/* 🔴 Attribution, rendered, in EVERY state — including the two
@@ -323,41 +326,49 @@ function Reading({
       {/* 🔴 The pollutant that sets the level, and whether it is one of
           the modelled ones — the case in which "reported" would be the
           wrong word for the headline. */}
-      <p
-        className="mt-3 max-w-prose text-sm leading-6 text-ink-2"
+      <Block
+        as="p"
+        measure="read"
+        className="mt-3 text-sm leading-6 text-ink-2"
         data-testid="air-culprit"
       >
         {`The level is set by ${reading.culprit}`}
         {culprit?.modelled ? ', which is a modelled estimate' : ''}
         {'.'}
-      </p>
+      </Block>
 
       {particulates && (
-        <p
-          className="mt-2 max-w-prose text-sm leading-6 text-ink-2"
+        <Block
+          as="p"
+          measure="read"
+          className="mt-2 text-sm leading-6 text-ink-2"
           data-testid="air-no-particulates"
           data-boilerplate="air-no-particulates"
         >
           {particulates}
-        </p>
+        </Block>
       )}
 
-      <p
-        className="mt-2 max-w-prose text-sm leading-6 text-ink-2"
+      <Block
+        as="p"
+        measure="read"
+        className="mt-2 text-sm leading-6 text-ink-2"
         data-testid="air-wording"
         data-boilerplate="air-wording"
       >
         {REPORTED_WORDING}
-      </p>
+      </Block>
 
       {mixed && (
-        <p
-          className="mt-2 max-w-prose text-sm leading-6 text-ink-2"
+        <Block
+          as="p"
+          measure="read"
+          className="mt-2 text-sm leading-6 text-ink-2"
           data-testid="air-modelled-wording"
           data-boilerplate="air-modelled-station"
         >
           {MODELLED_STATION_WORDING}
-        </p>
+        </Block>
       )}
     </>
   );
@@ -392,13 +403,15 @@ function Modelled({
         </dd>
       </dl>
 
-      <p
-        className="mt-3 max-w-prose text-sm leading-6 text-ink-2"
+      <Block
+        as="p"
+        measure="read"
+        className="mt-3 text-sm leading-6 text-ink-2"
         data-testid="air-modelled-wording"
         data-boilerplate="air-modelled-point"
       >
         {modelledPointWording()}
-      </p>
+      </Block>
     </>
   );
 }

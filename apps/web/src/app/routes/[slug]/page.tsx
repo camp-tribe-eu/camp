@@ -30,6 +30,7 @@ import RouteSources from '@/components/route-sources';
 import RouteStageServices, {
   RouteFuelPrices,
 } from '@/components/route-services';
+import { Block } from '@/components/layout';
 
 // CAMP-3 / CAMP-45 — one curated route.
 //
@@ -146,9 +147,9 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
         <h1 className="mt-2 text-3xl font-bold leading-tight md:text-[42px]">
           {route.name}
         </h1>
-        <p className="mt-3 max-w-prose text-lg leading-7 text-ink-2">
+        <Block as="p" measure="read" className="mt-3 text-lg leading-7 text-ink-2">
           {route.summary}
-        </p>
+        </Block>
       </header>
 
       <RouteFigures
@@ -190,13 +191,13 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
         <h2 id="about-heading" className="text-xl font-bold md:text-[25px]">
           What this route is for
         </h2>
-        <div className="mt-4 max-w-prose space-y-4 leading-7 text-ink-2">
+        <Block measure="read" className="mt-4 space-y-4 leading-7 text-ink-2">
           {route.intro.map((p, i) => (
             <p key={i}>{p}</p>
           ))}
-        </div>
+        </Block>
 
-        <dl className="mt-6 max-w-prose space-y-4 text-sm leading-6">
+        <Block as="dl" measure="read" className="mt-6 space-y-4 text-sm leading-6">
           <div>
             <dt className="font-semibold text-heading">Best months</dt>
             <dd className="text-ink-2">
@@ -213,14 +214,14 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
               {route.suits.map((t) => TRAVELLER_LABEL[t]).join(', ')}.
             </dd>
           </div>
-        </dl>
+        </Block>
       </section>
 
       <section aria-labelledby="stages-heading" className="mt-12">
         <h2 id="stages-heading" className="text-xl font-bold md:text-[25px]">
           The stages
         </h2>
-        <p className="mt-2 max-w-prose text-sm text-ink-2">
+        <Block as="p" measure="read" className="mt-2 text-sm text-ink-2">
           {/* 🔴 The selection rule, on the page. It is the ODbL Produced
               Work boundary and it is also simply useful: a reader should
               know this is a sample and not a listing. */}
@@ -230,7 +231,7 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
           service. That is a selection, not a list of everything in the area —
           and the distances below are straight-line, like everything else on
           this page.
-        </p>
+        </Block>
 
         {/* CAMP-113. Route level, not station level — the Commission
             publishes one price per country per week, and putting it
@@ -268,10 +269,10 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
                 </div>
 
                 <div className="mt-3 pl-11">
-                  <p className="max-w-prose leading-7 text-ink-2">{stage.why}</p>
+                  <Block as="p" measure="read" className="leading-7 text-ink-2">{stage.why}</Block>
 
                   {stage.pois && stage.pois.length > 0 && (
-                    <ul className="mt-3 max-w-prose space-y-1 text-sm text-ink-2">
+                    <Block as="ul" measure="read" className="mt-3 space-y-1 text-sm text-ink-2">
                       {stage.pois.map((poi) => (
                         <li key={poi.name}>
                           <span className="font-semibold text-heading">
@@ -280,7 +281,7 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
                           — {poi.what}
                         </li>
                       ))}
-                    </ul>
+                    </Block>
                   )}
 
                   {/* CAMP-160: three states — the list, "we looked and hold

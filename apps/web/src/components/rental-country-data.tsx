@@ -13,6 +13,7 @@ import {
 } from '@/lib/rental';
 import { longDate } from '@/lib/fuel';
 import { AMENITY_LABEL } from '@/lib/api';
+import { Block } from '@/components/layout';
 
 // CAMP-4 — the part of a country page that is ours.
 //
@@ -63,9 +64,9 @@ export default function RentalCountryData({
         What our own records say about {inProse(country)}
       </h2>
 
-      <p className="mt-3 max-w-prose text-ink-2">{country.dataIntro}</p>
+      <Block as="p" measure="read" className="mt-3 text-ink-2">{country.dataIntro}</Block>
 
-      <p className="mt-3 max-w-prose text-ink-2">
+      <Block as="p" measure="read" className="mt-3 text-ink-2">
         {lead.kind === 'per-region' ? (
           <>
             We hold{' '}
@@ -103,7 +104,7 @@ export default function RentalCountryData({
             data, and {percent(lead.share)} of everything we hold there.
           </>
         )}
-      </p>
+      </Block>
 
       <table className="mt-5 w-full border-collapse text-sm">
         <caption className="sr-only">
@@ -147,7 +148,7 @@ export default function RentalCountryData({
         </tbody>
       </table>
 
-      <p className="mt-4 max-w-prose text-sm leading-6 text-ink-2">
+      <Block as="p" measure="read" className="mt-4 text-sm leading-6 text-ink-2">
         Counted in our own database on{' '}
         <time dateTime={MEASURED.measuredAt}>{when}</time>.{' '}
         {/* 🔴 The sentence that keeps the table honest. Everything above
@@ -172,7 +173,7 @@ export default function RentalCountryData({
           the map
         </Link>
         .
-      </p>
+      </Block>
     </section>
   );
 }

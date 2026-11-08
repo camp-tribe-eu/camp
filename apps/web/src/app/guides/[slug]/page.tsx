@@ -9,6 +9,7 @@ import {
 } from '@/lib/guides';
 import { abs, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
+import { Block } from '@/components/layout';
 
 // CAMP-66 — one guide.
 //
@@ -122,7 +123,7 @@ export default async function GuidePage(props: { params: Promise<Params> }) {
       </aside>
 
       {guide.body && (
-        <div className="mt-8 max-w-prose space-y-4 text-ink-2">
+        <Block measure="read" className="mt-8 space-y-4 text-ink-2">
           {guide.body.split('\n\n').map((block, i) => {
             if (block.startsWith('- ')) {
               return (
@@ -135,7 +136,7 @@ export default async function GuidePage(props: { params: Promise<Params> }) {
             }
             return <p key={i}>{block}</p>;
           })}
-        </div>
+        </Block>
       )}
     </main>
   );

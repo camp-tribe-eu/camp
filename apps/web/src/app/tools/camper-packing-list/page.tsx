@@ -3,6 +3,7 @@ import Link from 'next/link';
 import PackingListBuilder from '@/components/packing-list-builder';
 import { abs, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
+import { Block } from '@/components/layout';
 
 // CAMP-55 — the packing list.
 //
@@ -40,15 +41,15 @@ export default function PackingListPage() {
       <h1 className="text-3xl font-bold leading-tight md:text-[42px]">
         Camper packing list
       </h1>
-      <p className="mt-4 max-w-prose text-ink-2">
+      <Block as="p" measure="read" className="mt-4 text-ink-2">
         Answer four things and the list adjusts: a tent needs a mallet and
         sleeping mats, a motorhome needs levelling ramps and a water hose, and
         a pitch with electricity needs a cable rather than a power bank. Tick
         things off and the link keeps the ticks, so you can send it to whoever
         is actually loading the van.
-      </p>
+      </Block>
 
-      <section className="mt-6 max-w-prose rounded-card border border-line-2 bg-surface-2 p-4">
+      <Block as="section" measure="read" className="mt-6 rounded-card border border-line-2 bg-surface-2 p-4">
         <h2 className="text-sm font-semibold uppercase tracking-[0.08em] text-ink-2">
           What is not on this list
         </h2>
@@ -63,7 +64,7 @@ export default function PackingListPage() {
           the rules for each country you drive through before you go — your
           national motoring organisation publishes them.
         </p>
-      </section>
+      </Block>
 
       <PackingListBuilder />
 

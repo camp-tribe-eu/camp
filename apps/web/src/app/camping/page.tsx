@@ -4,6 +4,7 @@ import { countryName, getCountries } from '@/lib/api';
 import { memberStateCount } from '@/lib/campsite-count';
 import { collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
+import { Block } from '@/components/layout';
 
 // CAMP-71, level 0. The root of the crawl path: home → here → country →
 // region → campsite is four clicks, which is the card's criterion, and
@@ -44,10 +45,10 @@ export default async function CampingIndex() {
         )}
       />
       <h1 className="text-3xl font-bold md:text-[42px]">Campsites in Europe</h1>
-      <p className="mt-3 max-w-prose text-ink-2">
+      <Block as="p" measure="read" className="mt-3 text-ink-2">
         {total.toLocaleString('en-GB')} campsites, motorhome parks and camper
         stops, from OpenStreetMap. Pick a country to see its regions.
-      </p>
+      </Block>
 
       {countries.length === 0 ? (
         <p className="mt-8 text-ink-2">No countries have been imported yet.</p>

@@ -2,13 +2,13 @@
  * ШИРИНА СТОРІНКИ — ОДНЕ МІСЦЕ, ТРИ НАЗВАНІ ВАРІАНТИ.
  *
  * 🔴 Чому це зʼявилось. Ширина була розсипана по 54 файлах, і в 149 місцях нею
- * служив `max-w-prose` — колонка для ЧИТАННЯ ТЕКСТУ (61ch ≈ 560px), а не
- * ширина сторінки. Проти 40 місць із `max-w-wrap`. Тобто 79% усіх обмежень
+ * служив сирий клас читальної колонки Tailwind (61ch ≈ 560px) — колонка для
+ * ЧИТАННЯ ТЕКСТУ, а не ширина сторінки. Проти 40 місць із `max-w-wrap`. Тобто 79% усіх обмежень
  * ширини в застосунку були читальною колонкою. Саме звідси «текст не на всю
  * ширину» й порожня права половина на знімках ревю власника (CAMP-441…445):
  * 441/42, 441/54, 441/62, 441/72.
  *
- * 🔴 І дефект ріс сам: `page-sections.tsx` видавав `max-w-prose` КОЖНІЙ секції
+ * 🔴 І дефект ріс сам: `page-sections.tsx` видавав цю колонку КОЖНІЙ секції
  * за замовчуванням, тож кожна нова секція успадковувала його, не питаючи.
  * Замір у коментарі `globals.css` від 01.10.2026 — 105 вживань; 08.11.2026 —
  * вже 149. Плюс 44 за пʼять тижнів.
@@ -42,7 +42,12 @@
  * екрана на телефоні. Лишаємо 16px / 24px і прибираємо це відхилення тоді,
  * коли зʼявиться каталог секцій (CAMP-449).
  */
-import type { ReactNode } from "react";
+import type {
+  BlockquoteHTMLAttributes,
+  ElementType,
+  HTMLAttributes,
+  ReactNode,
+} from "react";
 
 /** Ширини, між якими можна обирати. Інших немає навмисно. */
 export type Measure = "wide" | "read" | "narrow";
@@ -112,7 +117,23 @@ export function PageShell({
   );
 }
 
-export interface BlockProps {
+/**
+ * Теги, які блок уміє бути. Перелік — лише те, що в розмітці справді
+ * обмежувалось шириною: абзац, перелік, словник, цитата, підпис, секція.
+ * Заголовки й таблиці сюди не входять навмисно: їм ширину дає батько.
+ */
+export type BlockTag =
+  | "div"
+  | "section"
+  | "article"
+  | "aside"
+  | "p"
+  | "ul"
+  | "dl"
+  | "blockquote"
+  | "figcaption";
+
+export type BlockProps = {
   children: ReactNode;
   /**
    * Яку ширину займає цей блок. Обовʼязково: саме мовчазне замовчування
@@ -120,17 +141,30 @@ export interface BlockProps {
    */
   measure: Measure;
   className?: string;
-  as?: "div" | "section" | "article" | "aside" | "p";
-}
+  as?: BlockTag;
+} & Omit<HTMLAttributes<HTMLElement>, "children" | "className"> &
+  // `cite` живе лише на цитаті; решта атрибутів спільна для всіх тегів.
+  Pick<BlockquoteHTMLAttributes<HTMLElement>, "cite">;
 
-/** Блок усередині сторінки з явно названою шириною. */
+/**
+ * Блок усередині сторінки з явно названою шириною.
+ *
+ * 🔴 Решта атрибутів іде на елемент як є. На цих блоках живуть
+ * `data-testid` і `data-boilerplate` — за ними сторожі e2e відрізняють
+ * шаблонні речення від тих, що мають різнитись між сторінками. Блок, який
+ * їх губить, робить ті сторожі сліпими, не червоними.
+ */
 export function Block({
   children,
   measure,
   className,
-  as: Tag = "div",
+  as = "div",
+  ...rest
 }: BlockProps) {
+  const Tag = as as ElementType;
   return (
-    <Tag className={classes(MEASURE[measure], className)}>{children}</Tag>
+    <Tag className={classes(MEASURE[measure], className)} {...rest}>
+      {children}
+    </Tag>
   );
 }

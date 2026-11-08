@@ -14,6 +14,7 @@ import {
 } from '@/lib/bathing';
 import { SOURCES } from '@/lib/sources';
 import { formatDistance } from '@/lib/api';
+import { Block } from '@/components/layout';
 
 // CAMP-168 — the official bathing water classification, beside a campsite.
 //
@@ -93,9 +94,9 @@ export default function BathingWaterNote({
         {bathingWater ? (
           <Classification bw={bathingWater} />
         ) : (
-          <p className="max-w-prose text-sm leading-6 text-ink-2">
+          <Block as="p" measure="read" className="text-sm leading-6 text-ink-2">
             {noBathingWaterSentence(BATHING_RADIUS_M)}
-          </p>
+          </Block>
         )}
 
         {/* 🔴 Attribution, rendered, with the season in it — not a
@@ -194,9 +195,9 @@ function Classification({ bw }: { bw: BathingWater }) {
         </dd>
       </dl>
 
-      <p className="mt-3 max-w-prose text-sm leading-6 text-ink-2">
+      <Block as="p" measure="read" className="mt-3 text-sm leading-6 text-ink-2">
         {isClassified(bw) ? seasonSentence(bw) : notClassifiedSentence(bw)}
-      </p>
+      </Block>
 
       {/* 🔴 Printed under both, because "Not classified" on its own reads
           as an omission of ours rather than as the authorities' own
@@ -230,12 +231,14 @@ function Classification({ bw }: { bw: BathingWater }) {
           so every page in a build carries the same year. Review raised
           this and it is written down here rather than re-derived: if that
           subquery ever becomes per-record, this marker has to go. */}
-      <p
-        className="mt-2 max-w-prose text-sm leading-6 text-ink-2"
+      <Block
+        as="p"
+        measure="read"
+        className="mt-2 text-sm leading-6 text-ink-2"
         data-boilerplate="bathing-season-context"
       >
         {seasonContextSentence(bw.season)}
-      </p>
+      </Block>
     </>
   );
 }

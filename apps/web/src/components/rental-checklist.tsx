@@ -9,6 +9,8 @@
 // and that is a genuinely useful thing to publish because the rental
 // company has no reason to volunteer it.
 
+import { Block } from "@/components/layout";
+
 interface Item {
   q: string;
   why: string;
@@ -68,12 +70,12 @@ export default function RentalChecklist() {
       <h2 id="checklist-heading" className="text-2xl font-bold text-heading">
         Eight questions to ask before you sign
       </h2>
-      <p className="mt-3 max-w-prose text-ink-2">
+      <Block as="p" measure="read" className="mt-3 text-ink-2">
         None of these has a number we can give you, because none of them has
         a number that is the same twice. What they have in common is that the
         answer is cheap to obtain before the booking and expensive to
         discover after it.
-      </p>
+      </Block>
 
       <ol className="mt-6 space-y-5">
         {ITEMS.map((item, i) => (
@@ -84,7 +86,7 @@ export default function RentalChecklist() {
             <h3 className="font-semibold text-heading">
               <span className="text-ink-3">{i + 1}.</span> {item.q}
             </h3>
-            <p className="mt-2 max-w-prose text-ink-2">{item.why}</p>
+            <Block as="p" measure="read" className="mt-2 text-ink-2">{item.why}</Block>
             {item.source && (
               <p className="mt-2 text-sm text-ink-2">
                 Source:{' '}

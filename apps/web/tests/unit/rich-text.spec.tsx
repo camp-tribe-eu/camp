@@ -15,7 +15,7 @@ import {
 
 test.describe("блоки", () => {
   test("порожній рядок ділить абзаци, «- » робить список, «## » — підзаголовок", () => {
-    const html = renderComponent(RichText, {
+    const html = renderComponent(RichText, { measure: "read",
       text: "Перший.\n\nДругий.\n\n## Розділ\n\n- один\n- два",
     });
     expect(html.match(/<p>/g)?.length, "абзаців не два").toBe(2);
@@ -32,7 +32,7 @@ test.describe("блоки", () => {
 
 test.describe("всередині рядка", () => {
   test("виділення і посилання стають елементами", () => {
-    const html = renderComponent(RichText, {
+    const html = renderComponent(RichText, { measure: "read",
       text: "Текст **важливий** і [туди](/legal/notice).",
     });
     expect(html).toContain("<strong");
@@ -42,18 +42,18 @@ test.describe("всередині рядка", () => {
   });
 
   test('зовнішнє посилання має rel="noopener", внутрішнє — ні', () => {
-    const ext = renderComponent(RichText, {
+    const ext = renderComponent(RichText, { measure: "read",
       text: "[там](https://example.org)",
     });
     expect(ext).toContain('rel="noopener"');
-    const int = renderComponent(RichText, { text: "[тут](/map)" });
+    const int = renderComponent(RichText, { measure: "read", text: "[тут](/map)" });
     expect(int, "внутрішньому посиланню rel не потрібен").not.toContain(
       "noopener",
     );
   });
 
   test("mailto дозволено", () => {
-    const html = renderComponent(RichText, {
+    const html = renderComponent(RichText, { measure: "read",
       text: "[напишіть](mailto:a@b.eu)",
     });
     expect(html).toContain('href="mailto:a@b.eu"');
@@ -149,7 +149,7 @@ test.describe("🔴 чого браузер не виконає", () => {
 
   for (const { where, text } of POSITIONS) {
     test(`розмітка в позиції «${where}» лишається текстом`, () => {
-      const html = renderComponent(RichText, { text });
+      const html = renderComponent(RichText, { measure: "read", text });
       expect(html, `у «${where}» зʼявився живий <img`).not.toContain("<img");
       expect(html, `у «${where}» зʼявився <script`).not.toContain("<script");
       // 🔴 Пара: текст таки показано, екранованим. Без неї твердження
@@ -252,13 +252,13 @@ test.describe("правова розмітка", () => {
     const blocks = parseBlocks("### Підрозділ");
     expect(blocks).toHaveLength(1);
     expect(blocks[0].kind, "третій рівень злився з чимось іншим").toBe("h3");
-    const html = renderComponent(RichText, { text: "### Підрозділ" });
+    const html = renderComponent(RichText, { measure: "read", text: "### Підрозділ" });
     expect(html).toContain("<h3");
     expect(html, "h3 намальовано як h2").not.toContain("<h2");
   });
 
   test("«> » дає рамку, і позначка не лишається у видимому тексті", () => {
-    const html = renderComponent(RichText, {
+    const html = renderComponent(RichText, { measure: "read",
       text: "> **Перевірте.** Дані можуть бути застарілі.\n> Телефонуйте на місце.",
     });
     expect(html).toContain("accent-surface");
@@ -284,7 +284,7 @@ test.describe("правова розмітка", () => {
     const callout = blocks[0] as { kind: "callout"; paragraphs: unknown[] };
     expect(callout.paragraphs, "абзаців у рамці не три").toHaveLength(3);
 
-    const html = renderComponent(RichText, {
+    const html = renderComponent(RichText, { measure: "read",
       text: "> перший\n>\n> другий\n>\n> третій",
     });
     expect(
@@ -301,7 +301,7 @@ test.describe("правова розмітка", () => {
   // «something produced *from* the data» протиставляє похідний твір
   // адаптованій базі — там, де ODbL вимагає різного.
   test("🔴 «*слово*» дає наголос, а «**слово**» лишається виділенням", () => {
-    const html = renderComponent(RichText, {
+    const html = renderComponent(RichText, { measure: "read",
       text: "produced *from* the data, not a **database**",
     });
     expect(html, "наголосу немає").toContain("<em>from</em>");
@@ -321,7 +321,7 @@ test.describe("правова розмітка", () => {
   test("🔴 якір заголовка — той, що написано, а не вирахуваний із тексту", () => {
     const blocks = parseBlocks("## Links to other sites {#links}");
     expect(blocks[0]).toMatchObject({ kind: "h2", id: "links" });
-    const html = renderComponent(RichText, {
+    const html = renderComponent(RichText, { measure: "read",
       text: "## Links to other sites {#links}",
     });
     expect(html, "якоря немає в розмітці").toContain('id="links"');
@@ -332,7 +332,7 @@ test.describe("правова розмітка", () => {
   test("заголовок без якоря лишається без id, а не дістає вигаданий", () => {
     const blocks = parseBlocks("## Просто заголовок");
     expect(blocks[0]).toMatchObject({ kind: "h2", id: null });
-    const html = renderComponent(RichText, { text: "## Просто заголовок" });
+    const html = renderComponent(RichText, { measure: "read", text: "## Просто заголовок" });
     expect(html).not.toContain("id=");
   });
 

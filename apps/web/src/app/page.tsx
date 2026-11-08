@@ -26,6 +26,7 @@ import {
   findSection,
   sectionBySlot,
 } from '@/lib/home-sections';
+import { Block } from '@/components/layout';
 
 // CAMP-41 — the home page.
 //
@@ -253,7 +254,7 @@ function Hero({
               <h2 className="text-base font-semibold">{drive.heading}</h2>
             )}
             {drive?.body && (
-              <p className="mt-1 max-w-prose text-sm text-ink-2">{drive.body}</p>
+              <Block as="p" measure="read" className="mt-1 text-sm text-ink-2">{drive.body}</Block>
             )}
           </div>
         </div>
@@ -330,7 +331,7 @@ function Notable({
         <h2 className="text-xl font-bold md:text-[25px]">{text.heading}</h2>
       )}
       {text?.body && (
-        <p className="mt-2 max-w-prose text-sm text-ink-2">{text.body}</p>
+        <Block as="p" measure="read" className="mt-2 text-sm text-ink-2">{text.body}</Block>
       )}
       <ul className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {spots.map((s) => {

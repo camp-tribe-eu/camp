@@ -41,6 +41,7 @@ import RegionInsights from '@/components/region-insights';
 import RegionDriving from '@/components/region-driving';
 import { countedAsOf, regionFaq, regionTiles } from '@/lib/hub-stats';
 import { HubFaq, HubStatTiles } from '@/components/hub-stats';
+import { Block } from '@/components/layout';
 
 // CAMP-71, level 2: the region hub. Shared by /camping/{c}/{r},
 // /camping/{c}/{r}/page/{n} and /camping/{c}/{r}/filter?… so the first
@@ -158,13 +159,13 @@ export default async function RegionListing({
       <h1 className="mt-4 text-3xl font-bold md:text-[42px]">
         Campsites in {data.region}
       </h1>
-      <p className="mt-3 max-w-prose text-ink-2">
+      <Block as="p" measure="read" className="mt-3 text-ink-2">
         {data.total} {data.total === 1 ? 'site' : 'sites'} in {data.region},{' '}
         {cName}
         {/* The pages of the WHOLE region. A filtered set's pages are
             counted from `matched` and said beside that number. */}
         {!filtering && pages > 1 && ` — page ${page} of ${pages}`}.
-      </p>
+      </Block>
 
       {baseFirstPage && (
         <HubStatTiles tiles={tiles} asOf={countedAsOf(own?.readAt ?? null)} />

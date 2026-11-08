@@ -4,6 +4,7 @@ import { CookieSettingsLink } from "./cookie-consent";
 import { CurrentYear } from "./current-year";
 import { SiteNavDrawer } from "./site-nav-drawer";
 import type { NavItem } from "@/lib/navigation";
+import { Block } from "@/components/layout";
 
 // CAMP-41: the header and footer every page wears.
 //
@@ -230,7 +231,7 @@ export function SiteFooter({ nav = [] }: { nav?: NavItem[] }) {
             </ul>
           </nav>
         )}
-        <p className="max-w-prose">
+        <Block as="p" measure="read">
           Campsite data ©{" "}
           <a
             href="https://www.openstreetmap.org/copyright"
@@ -253,7 +254,7 @@ export function SiteFooter({ nav = [] }: { nav?: NavItem[] }) {
             full sources and licences
           </Link>
           .
-        </p>
+        </Block>
 
         {/* 🔴 CAMP-56: on every page, because that is where a reader
             looks for them and because the E-Commerce Directive expects

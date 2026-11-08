@@ -1,5 +1,6 @@
 import { Shell } from '@/components/account-view';
 import { NEWSLETTER_SETTINGS_WORDING } from '@/lib/consent-wording';
+import { Block } from '@/components/layout';
 
 // CAMP-229 — розмітка сторінки налаштувань. Лише вигляд: що саме станеться,
 // вирішує `lib/settings.ts`, а стан тримає `account-settings.tsx`.
@@ -17,7 +18,7 @@ const PRIMARY = `${BUTTON} bg-btn text-btn-ink transition-colors hover:bg-btn-ho
 const FIELD =
   'mt-1 w-full rounded border border-line-2 bg-surface-2 px-3 py-2 text-sm text-heading';
 const LABEL = 'mt-3 block text-sm font-medium text-ink-2';
-const NOTE = 'mt-2 max-w-prose text-[13px] leading-[1.6] text-ink-2';
+const NOTE = 'mt-2 text-[13px] leading-[1.6] text-ink-2';
 
 /** Повідомлення під формою: або спокійне, або помилка. */
 export function Note({
@@ -30,19 +31,21 @@ export function Note({
   id?: string;
 }) {
   return (
-    <p
+    <Block
+      as="p"
+      measure="read"
       id={id}
       // 🔴 Помилка — це `role="alert"`, спокійне повідомлення — ні.
       // Інакше читач екрана переб'є людину на кожне «готово».
       role={tone === 'bad' ? 'alert' : undefined}
       className={
         tone === 'bad'
-          ? 'mt-2 max-w-prose rounded border border-warn/40 bg-warn/5 p-2.5 text-[13px] leading-[1.6] text-ink-2'
+          ? 'mt-2 rounded border border-warn/40 bg-warn/5 p-2.5 text-[13px] leading-[1.6] text-ink-2'
           : NOTE
       }
     >
       {children}
-    </p>
+    </Block>
   );
 }
 
@@ -215,9 +218,9 @@ export function SettingsLoadingView() {
 export function SettingsErrorView({ onRetry }: { onRetry: () => void }) {
   return (
     <Shell title={SETTINGS_TITLE}>
-      <p className="mt-4 max-w-prose text-ink-2">
+      <Block as="p" measure="read" className="mt-4 text-ink-2">
         We could not load your settings. Nothing has changed.
-      </p>
+      </Block>
       <button className={`${PRIMARY} mt-3`} type="button" onClick={onRetry}>
         Try again
       </button>

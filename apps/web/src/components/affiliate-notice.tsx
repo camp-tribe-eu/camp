@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
+import { Block } from '@/components/layout';
 
 // CAMP-56 — saying that a link earns us money, before it is clicked.
 //
@@ -28,7 +29,7 @@ import Link from 'next/link';
 export function AffiliateNotice({ children }: { children: ReactNode }) {
   return (
     <section data-testid="affiliate-notice">
-      <p className="mb-2 flex max-w-prose items-start gap-2 text-xs leading-5 text-ink-2">
+      <Block as="p" measure="read" className="mb-2 flex items-start gap-2 text-xs leading-5 text-ink-2">
         <AffiliateMark />
         <span>
           If you book through these links we may earn a commission, at no
@@ -39,7 +40,7 @@ export function AffiliateNotice({ children }: { children: ReactNode }) {
           </Link>
           .
         </span>
-      </p>
+      </Block>
       {children}
     </section>
   );

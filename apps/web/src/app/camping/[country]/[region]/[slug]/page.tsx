@@ -41,6 +41,7 @@ import { CampsiteMedia, type Photo } from '@/components/campsite-media';
 import { ScaleTrack, SpotFactsLine } from '@/components/spot-facts';
 import { aroundRows, cleanContext, spotFacts } from '@/lib/spot-facts';
 import ReportProblem from '@/components/report-problem';
+import { Block } from '@/components/layout';
 
 // CAMP-34 — the campsite page.
 //
@@ -221,7 +222,7 @@ function Contact({ spot }: { spot: Spot }) {
   }
   return (
     <Section title="Getting in touch">
-      <dl className="mt-1 grid max-w-prose grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-[auto_1fr]">
+      <Block as="dl" measure="narrow" className="mt-1 grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-[auto_1fr]">
         {site && (
           <>
             <dt className="text-sm text-ink-2">Website</dt>
@@ -288,11 +289,11 @@ function Contact({ spot }: { spot: Spot }) {
             <dd className="text-sm text-ink-2">{operator}</dd>
           </>
         )}
-      </dl>
-      <p className="mt-3 max-w-prose text-xs text-ink-2">
+      </Block>
+      <Block as="p" measure="read" className="mt-3 text-xs text-ink-2">
         Contact details come from OpenStreetMap and are only as current as
         the last person to edit them. We have not called ahead.
-      </p>
+      </Block>
     </Section>
   );
 }
@@ -384,10 +385,10 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
           // 26% of campsites in OSM carry no name at all (measured on 448
           // Slovenian sites). Dropping them would remove a quarter of the
           // map; inventing a name would be worse.
-          <p className="mt-3 max-w-prose text-sm text-ink-2">
+          <Block as="p" measure="read" className="mt-3 text-sm text-ink-2">
             This site has no name in OpenStreetMap. The location is real — the
             name simply has not been recorded by anyone yet.
-          </p>
+          </Block>
         )}
         {/* 🔴 CAMP-199: what WE measured about this place, in words.
 
@@ -423,9 +424,9 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
             repeated here, because two copies of a measurement drift and
             this copy is how the stale one survived its own retraction. */}
         {setting && (
-          <p className="mt-4 max-w-prose text-ink-1" data-testid="setting">
+          <Block as="p" measure="read" className="mt-4 text-ink-1" data-testid="setting">
             {setting}
-          </p>
+          </Block>
         )}
         {/* 🔴 CAMP-FACTS. The mockup's line is "from €/night · type ·
             season · elevation"; three of the four do not exist in our
@@ -476,19 +477,21 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
           knows what it is looking at. */}
       {spot.description && (
         <figure data-testid="source-description" className="mt-6">
-          <blockquote
+          <Block
+            as="blockquote"
+            measure="read"
             lang={spot.descriptionLang ?? undefined}
             cite={
               spot.sources?.find((s) => s.fields.includes('description'))?.ref
             }
-            className="max-w-prose border-l-2 border-line-2 pl-4 text-ink-2"
+            className="border-l-2 border-line-2 pl-4 text-ink-2"
           >
             {spot.description}
-          </blockquote>
-          <figcaption className="mt-2 max-w-prose text-xs text-ink-2">
+          </Block>
+          <Block as="figcaption" measure="read" className="mt-2 text-xs text-ink-2">
             Written by the campsite or its local tourist office, quoted as
             published — see where this comes from, below.
-          </figcaption>
+          </Block>
         </figure>
       )}
 
@@ -561,10 +564,10 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
 
       <Section title="Facilities">
         {known === 0 ? (
-          <p className="max-w-prose text-sm text-ink-2">
+          <Block as="p" measure="read" className="text-sm text-ink-2">
             Nothing has been recorded about this site&rsquo;s facilities. That
             is a gap in the data, not a statement that it has none.
-          </p>
+          </Block>
         ) : null}
         <ul className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {AMENITY_KEYS.map((key) => (
@@ -760,9 +763,9 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
       <WebcamNote webcams={spot.webcams} renderedAt={new Date().toISOString()} />
 
       <Section title="Weather on site">
-        <p className="max-w-prose text-sm text-ink-2">
+        <Block as="p" measure="read" className="text-sm text-ink-2">
           Forecast is not connected yet.
-        </p>
+        </Block>
       </Section>
 
       {data.nearby.length > 0 && (
@@ -796,14 +799,14 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
               measured or a field somebody recorded, which is why a site
               with no computed surroundings gets no section at all rather
               than a page of empty questions. */}
-          <dl className="mt-1 max-w-prose">
+          <Block as="dl" measure="read" className="mt-1">
             {faq.map((f) => (
               <div key={f.q} className="border-b border-line-2 py-3 last:border-0">
                 <dt className="font-semibold text-heading">{f.q}</dt>
                 <dd className="mt-1 text-sm text-ink-2">{f.a}</dd>
               </div>
             ))}
-          </dl>
+          </Block>
         </Section>
       )}
 
@@ -860,16 +863,16 @@ function Around({ spot }: { spot: Spot }) {
   if (rows.length === 0) {
     return (
       <Section title="What&rsquo;s around it">
-        <p className="max-w-prose text-sm text-ink-2">
+        <Block as="p" measure="read" className="text-sm text-ink-2">
           The surroundings of this site have not been calculated yet.
-        </p>
+        </Block>
       </Section>
     );
   }
 
   return (
     <Section title="What&rsquo;s around it">
-      <p className="max-w-prose">{summarise({ ...spot, context: c })}</p>
+      <Block as="p" measure="read">{summarise({ ...spot, context: c })}</Block>
       {/* 🔴 EACH TRACK IS A FIXED SCALE, written at its right-hand end,
           and never the farthest of the other rows: normalised to its
           neighbours a bar would say "far" in a village and "near" in a
@@ -1023,11 +1026,11 @@ function NoPhotos() {
       <h2 className="text-base font-semibold">
         We don&rsquo;t publish pictures we haven&rsquo;t verified
       </h2>
-      <p className="mt-2 max-w-prose text-sm text-ink-2">
+      <Block as="p" measure="read" className="mt-2 text-sm text-ink-2">
         No stock photography and no AI-generated images of places nobody has
         visited. When a photograph appears here, someone stood there and took
         it, and the date it was taken is shown next to it.
-      </p>
+      </Block>
       <p className="mt-4 text-sm">
         <ButtonLink
           href="/contact" variant="primary">

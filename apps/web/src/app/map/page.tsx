@@ -6,6 +6,7 @@ import { collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
 import type { RegionSummary } from '@/lib/map-chunks';
 import { ButtonLink } from '@/components/button';
+import { Block } from '@/components/layout';
 
 // CAMP-31 — /map.
 //
@@ -97,11 +98,11 @@ export default async function MapPage() {
         )}
       />
       <h1 className="text-3xl font-bold md:text-[42px]">Campsite map</h1>
-      <p className="mt-3 max-w-prose text-ink-2">
+      <Block as="p" measure="read" className="mt-3 text-ink-2">
         {onTheMap.toLocaleString('en-GB')} campsites and motorhome parks
         are on this map. Each point is a real entry — nothing is placed
         approximately.
-      </p>
+      </Block>
 
       <div className="mt-6">
         <MapEmbed />
@@ -148,12 +149,12 @@ export default async function MapPage() {
             "The other 0 have no region recorded" is the same kind of
             sentence this card was opened to remove. */}
         {mapOnly > 0 && (
-          <p className="mt-2 max-w-prose text-sm text-ink-2">
+          <Block as="p" measure="read" className="mt-2 text-sm text-ink-2">
             These pages cover the{' '}
             {browsable.toLocaleString('en-GB')} campsites we can name a region
             for. The other {mapOnly.toLocaleString('en-GB')} have no region
             recorded yet, so they are on the map but have no page to browse to.
-          </p>
+          </Block>
         )}
         <ul className="mt-3 flex flex-wrap gap-x-2 gap-y-3">
           {countries.map((c) => (
