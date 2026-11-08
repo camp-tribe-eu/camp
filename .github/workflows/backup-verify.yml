@@ -88,6 +88,11 @@ jobs:
       # уперед від сервера. Відновлення падало на `SET transaction_timeout`,
       # параметрі, якого в PG 16 немає. Сторож бекапа став сліпим саме там, де
       # сліпим бути не можна. Перевірка нижче називає причину ДО падіння.
+      # Версію клієнта не успадковуємо від образу раннера — вона не наша
+      # змінна. Беремо мажор із сервера й ставимо рівно його.
+      - name: Install the pg client the server speaks
+        run: ./scripts/ci/install-pg-client-matching-server.sh
+
       - name: pg client is not newer than the server
         run: ./scripts/ci/assert-pg-client-matches-server.sh
 

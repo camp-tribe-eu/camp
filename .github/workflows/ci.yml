@@ -1684,6 +1684,13 @@ jobs:
       # набір дав «30 passed, 25 failed», і жодне з 25 повідомлень не назвало
       # причини: раннер ubuntu-latest став 26.04, pg_dump поїхав за PG 16.
       # Перевірка нижче червоніє одним зрозумілим рядком замість двадцяти п'яти.
+      # Версію клієнта не успадковуємо від образу раннера — вона не наша
+      # змінна. Беремо мажор із сервера й ставимо рівно його.
+      - name: Install the pg client the server speaks
+        env:
+          CAMPTRIBE_SELFTEST_PG_BASE: postgres://postgres:postgres@localhost:5432
+        run: ./scripts/ci/install-pg-client-matching-server.sh
+
       - name: pg client is not newer than the server
         env:
           CAMPTRIBE_SELFTEST_PG_BASE: postgres://postgres:postgres@localhost:5432
