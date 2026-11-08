@@ -1,5 +1,6 @@
 import { getRegionInsights } from '@/lib/api';
 import { regionDrivingLines, regionInsightDates } from '@/lib/region-insights';
+import { Block } from '@/components/layout';
 
 // "Driving a camper here" (CAMP-404) — the second paragraph of the text
 // "Camping in <region>" begins: what a driver of a motorhome can be told
@@ -33,10 +34,12 @@ export default async function RegionDriving({
   if (lines.length === 0) return null;
 
   return (
-    <section
+    <Block
+      as="section"
+      measure="read"
       data-testid="region-driving"
       aria-labelledby="region-driving-heading"
-      className="mt-6 max-w-prose"
+      className="mt-6"
     >
       <h2
         id="region-driving-heading"
@@ -60,6 +63,6 @@ export default async function RegionDriving({
         ))}
       </ul>
       <p className="mt-2 text-sm text-ink-3">{regionInsightDates(lines)}</p>
-    </section>
+    </Block>
   );
 }

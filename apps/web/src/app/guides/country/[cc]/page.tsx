@@ -7,6 +7,7 @@ import { CatalogueProvenance } from '@/components/catalogue-provenance';
 import { getGuides, PROVENANCE_LABEL } from '@/lib/guides';
 import { breadcrumbList, collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
+import { Block } from '@/components/layout';
 
 // CAMP-210 — one of the two facets that make 1 268 guides reachable.
 //
@@ -111,11 +112,11 @@ export default async function GuidesByCountry(props: {
       </h1>
 
       <CatalogueProvenance guides={entry.guides} />
-      <p className="mt-3 max-w-prose text-ink-2">
+      <Block as="p" measure="read" className="mt-3 text-ink-2">
         {entry.guides.length.toLocaleString('en-GB')} guides, one per region and
         question. Each counts what our records hold — and says how many
         campsites have nothing recorded, which is usually the larger number.
-      </p>
+      </Block>
 
       {groups.map((group) => (
         <section key={group.topic} className="mt-10">

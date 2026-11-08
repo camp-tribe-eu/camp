@@ -5,6 +5,7 @@ import { byCountry, byTopic, TOPICS, unparsed } from '@/lib/guide-facets';
 import { getGuides } from '@/lib/guides';
 import { collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
+import { Block } from '@/components/layout';
 
 // CAMP-66 — the guides index. CAMP-210 — the catalogue it had to become.
 //
@@ -62,17 +63,17 @@ export default async function GuidesIndex() {
       />
 
       <h1 className="text-3xl font-bold leading-tight md:text-[42px]">Guides</h1>
-      <p className="mt-4 max-w-prose text-ink-2">
+      <Block as="p" measure="read" className="mt-4 text-ink-2">
         Each of these answers one question about one region, using counts from
         our own records. They say how many campsites have something recorded —
         and how many have nothing, which is usually the larger number and the
         reason to trust the rest.
-      </p>
+      </Block>
 
       {guides.length === 0 ? (
         // An empty section is worse than no section: it advertises our
         // own backlog. Say so plainly rather than render a bare heading.
-        <p className="mt-8 max-w-prose text-ink-2">There are no guides yet.</p>
+        <Block as="p" measure="read" className="mt-8 text-ink-2">There are no guides yet.</Block>
       ) : (
         <>
           <p className="mt-2 text-sm text-ink-2">
@@ -127,11 +128,11 @@ export default async function GuidesIndex() {
               <h2 className="text-xl font-bold md:text-[25px]">
                 Not filed anywhere
               </h2>
-              <p className="mt-2 max-w-prose text-ink-2">
+              <Block as="p" measure="read" className="mt-2 text-ink-2">
                 {lost.length.toLocaleString('en-GB')} of these do not fit the
                 shape the catalogue sorts by, so they appear here rather than
                 nowhere.
-              </p>
+              </Block>
               <ul className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
                 {lost.map((g) => (
                   <li key={g.slug}>

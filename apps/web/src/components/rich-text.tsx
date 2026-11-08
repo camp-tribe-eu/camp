@@ -1,3 +1,4 @@
+import { Block, type Measure } from "@/components/layout";
 import Link from "next/link";
 import { parseBlocks, substitute, type Inline } from "@/lib/rich-text";
 
@@ -64,16 +65,22 @@ function Spans({ spans }: { spans: Inline[] }) {
 export function RichText({
   text,
   values = {},
-  className = "max-w-prose space-y-4 text-ink-2",
+  measure,
+  className,
 }: {
   text: string;
   values?: Readonly<Record<string, string>>;
+  /**
+   * 🔴 Обовʼязково, як у `Block`: саме мовчазна читальна колонка за
+   * замовчуванням і розповзлась на 149 місць (CAMP-447).
+   */
+  measure: Measure;
   className?: string;
 }) {
   const blocks = parseBlocks(substitute(text, values));
 
   return (
-    <div className={className}>
+    <Block measure={measure} className={className}>
       {blocks.map((b, i) => {
         // 🔴 РОЗБІР ВИЧЕРПНИЙ, І ЦЕ НЕ СТИЛЬ, А ЗАПОБІЖНИК.
         //
@@ -140,6 +147,6 @@ export function RichText({
           }
         }
       })}
-    </div>
+    </Block>
   );
 }

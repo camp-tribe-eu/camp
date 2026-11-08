@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { Button, ButtonLink } from '@/components/button';
+import { Block } from '@/components/layout';
 
 // CAMP-73 — what a reader sees when something on our side breaks.
 //
@@ -49,10 +50,10 @@ export default function Error({
       <h1 className="mt-2 text-3xl font-bold md:text-[42px]">
         This page did not load properly
       </h1>
-      <p className="mt-3 max-w-prose text-ink-2">
+      <Block as="p" measure="read" className="mt-3 text-ink-2">
         The fault is ours, not yours, and nothing you did caused it. Trying
         again often works — the rest of the site is unaffected.
-      </p>
+      </Block>
 
       {/* 🔴 No stack trace and no error message. It would tell a reader
           nothing and could name internal paths. The digest is Next's own

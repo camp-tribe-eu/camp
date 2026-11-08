@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { euros, FUEL, longDate, ranked } from '@/lib/fuel';
+import { Block } from '@/components/layout';
 
 // CAMP-55 — this week's road-fuel prices, all 27 member states.
 //
@@ -37,12 +38,12 @@ export default function FuelPriceTable({
       <h2 id="prices-heading" className="text-2xl font-bold text-heading">
         What a litre costs across the EU
       </h2>
-      <p className="mt-2 max-w-prose text-ink-2">
+      <Block as="p" measure="read" className="mt-2 text-ink-2">
         Consumer prices including taxes, for the week of{' '}
         {longDate(FUEL.bulletinDate)}, cheapest diesel first. Crossing one
         border can move the fuel line of a long trip by a third, which is why
         this table is here rather than a single European average.
-      </p>
+      </Block>
 
       <div className="mt-4 overflow-x-auto">
         <table className="w-full min-w-[420px] border-collapse text-sm">

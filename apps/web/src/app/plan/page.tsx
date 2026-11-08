@@ -3,6 +3,7 @@ import Link from 'next/link';
 import PlanForm from '@/components/plan-form';
 import { alternatesFor } from '@/lib/i18n';
 import { breadcrumbList, jsonLdProps } from '@/lib/jsonld';
+import { Block } from '@/components/layout';
 
 // CAMP-205 — /plan: форма планувальника маршруту.
 // CAMP-391 — і планувальник за нею: `POST /plan` (apps/api/src/plan/).
@@ -60,9 +61,10 @@ export default function PlanPage() {
           асистент, який перечитує сторінку. Жовта рамка — з повідомлення
           про застарілі ціни пального (CAMP-55): та сама мова для «це
           працює не так, як можна подумати». */}
-      <div
+      <Block
+        measure="read"
         data-testid="planner-status"
-        className="mt-6 max-w-prose rounded-card border border-amber bg-surface-2 p-4 text-ink"
+        className="mt-6 rounded-card border border-amber bg-surface-2 p-4 text-ink"
       >
         <p>
           <strong>This planner cuts a straight line into days.</strong> Give it
@@ -77,7 +79,7 @@ export default function PlanPage() {
           campsite is open on your dates. It takes coordinates, not place
           names, because nothing looks names up yet.
         </p>
-      </div>
+      </Block>
 
       <PlanForm />
 
@@ -85,7 +87,7 @@ export default function PlanPage() {
         <h2 id="plan-today-heading" className="text-2xl font-bold text-heading">
           Also on the site
         </h2>
-        <ul className="mt-4 max-w-prose list-disc space-y-2 pl-5 text-ink-2">
+        <Block as="ul" measure="read" className="mt-4 list-disc space-y-2 pl-5 text-ink-2">
           <li>
             <Link className="underline" href="/routes">
               The route library
@@ -106,7 +108,7 @@ export default function PlanPage() {
             : fuel for a drive, from the European Commission&rsquo;s published
             prices.
           </li>
-        </ul>
+        </Block>
       </section>
     </main>
   );

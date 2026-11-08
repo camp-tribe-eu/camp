@@ -15,6 +15,7 @@ import {
   publishableCountries,
   rentalOffers,
 } from "@/lib/rental";
+import { Block } from "@/components/layout";
 
 // CAMP-4 / CAMP-54 — the camper rental landing page.
 //
@@ -147,16 +148,16 @@ export default function CamperRentalHub() {
         Renting a camper in the EU
       </h1>
 
-      <p className="mt-4 max-w-prose text-ink-2">
+      <Block as="p" measure="read" className="mt-4 text-ink-2">
         This page is about the things that are decided before you drive away:
         which licence covers the vehicle, what it is allowed to weigh once
         loaded, what it costs to take on a motorway, and what the contract has
         quietly made your problem. Those answers differ across the twenty-seven
         member states and they are not collected anywhere in one piece, which is
         the only reason this page exists.
-      </p>
+      </Block>
 
-      <p className="mt-4 max-w-prose text-ink-2">
+      <Block as="p" measure="read" className="mt-4 text-ink-2">
         <strong className="text-ink">
           There are no prices and no vehicles here.
         </strong>{" "}
@@ -169,7 +170,7 @@ export default function CamperRentalHub() {
         </time>{" "}
         — or a limit somebody with the authority to set it wrote down, cited
         where it appears.
-      </p>
+      </Block>
 
       {/* 🔴 In the template from day one, above the content it qualifies,
           and truthful about the fact that it currently qualifies nothing.
@@ -183,14 +184,14 @@ export default function CamperRentalHub() {
         <h2 id="mass-line-heading" className="text-2xl font-bold text-heading">
           Almost everything changes at 3 500 kg
         </h2>
-        <p className="mt-3 max-w-prose text-ink-2">
+        <Block as="p" measure="read" className="mt-3 text-ink-2">
           If you read one thing on this page, read this. A single number — the
           maximum authorised mass stamped on the vehicle — decides four separate
           things at once, and they are administered by four different sets of
           people who will not warn you about each other. We went and read each
           of them.
-        </p>
-        <ul className="mt-4 max-w-prose list-disc space-y-3 pl-5 text-ink-2">
+        </Block>
+        <Block as="ul" measure="read" className="mt-4 list-disc space-y-3 pl-5 text-ink-2">
           <li>
             <strong className="text-ink">Your licence.</strong> Category B
             covers motor vehicles up to 3 500 kg. Above that you need C1, which
@@ -221,8 +222,8 @@ export default function CamperRentalHub() {
             everything else you intend to carry — and fresh water weighs a
             kilogram a litre, so a full tank can be a third of it.
           </li>
-        </ul>
-        <p className="mt-4 max-w-prose text-sm leading-6 text-ink-2">
+        </Block>
+        <Block as="p" measure="read" className="mt-4 text-sm leading-6 text-ink-2">
           Sources:{" "}
           <a
             className="underline"
@@ -245,7 +246,7 @@ export default function CamperRentalHub() {
           itself, from which EUR-Lex offers the current consolidated text. A
           member state may transpose the detail differently, and its own
           transport authority is the last word.
-        </p>
+        </Block>
       </section>
 
       <RentalThresholds />
@@ -260,7 +261,7 @@ export default function CamperRentalHub() {
         <h2 id="countries-heading" className="text-2xl font-bold text-heading">
           Twelve member states, in detail
         </h2>
-        <p className="mt-3 max-w-prose text-ink-2">
+        <Block as="p" measure="read" className="mt-3 text-ink-2">
           {/* 🔴 The number is twelve on purpose, and the page says why —
               the same argument CAMP-130 made against publishing 951
               templated guides. A reader is entitled to know whether they
@@ -271,7 +272,7 @@ export default function CamperRentalHub() {
           campsite records say something about it that they do not say about
           anywhere else. Countries where we could not meet both tests do not
           have a page, and would rather not have a thin one.
-        </p>
+        </Block>
 
         <ul className="mt-6 grid gap-4 md:grid-cols-2">
           {countries.map((c) => (
@@ -328,13 +329,13 @@ export default function CamperRentalHub() {
         <h2 id="missing-heading" className="text-xl font-semibold text-heading">
           What this section does not have yet, and why
         </h2>
-        <p className="mt-3 max-w-prose text-ink-2">
+        <Block as="p" measure="read" className="mt-3 text-ink-2">
           No prices, no availability, no vehicle listings and no partners. The
           affiliate applications are open and unanswered, and until they are
           answered there is nothing to show — so the slot above stays empty
           rather than being filled with something that looks like an offer.
-        </p>
-        <p className="mt-3 max-w-prose text-ink-2">
+        </Block>
+        <Block as="p" measure="read" className="mt-3 text-ink-2">
           When there are partners, they will arrive as plain links in this
           writing, not as a synchronised feed of somebody else&rsquo;s
           inventory. That is an architecture decision rather than a stage:
@@ -345,7 +346,7 @@ export default function CamperRentalHub() {
           </Link>{" "}
           prices fuel from the European Commission and asks you for the campsite
           fee.
-        </p>
+        </Block>
       </section>
 
       <section
@@ -359,14 +360,14 @@ export default function CamperRentalHub() {
             text a crawler reads but a reader has to hunt for, and the
             point of this block is that the answer is THERE — in the HTML,
             on first paint, without JavaScript. */}
-        <dl className="mt-4 max-w-prose">
+        <Block as="dl" measure="read" className="mt-4">
           {questions.map((f) => (
             <div key={f.q} className="mt-5 first:mt-0">
               <dt className="font-semibold text-ink">{f.q}</dt>
               <dd className="mt-1 text-ink-2">{f.a}</dd>
             </div>
           ))}
-        </dl>
+        </Block>
       </section>
     </main>
   );

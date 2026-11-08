@@ -27,6 +27,7 @@ import {
   type ServiceKind,
   type StageServices,
 } from '@/lib/route-services';
+import { Block } from '@/components/layout';
 
 // CAMP-113 — what a driver needs between the campsites, beside each stop.
 //
@@ -534,8 +535,10 @@ export function RouteFuelPrices({ prices }: { prices: RouteFuelPrice[] }) {
           publication), so it is boilerplate to the duplicate guard. The
           prices themselves are above and are NOT marked: they differ per
           route and are exactly what the guard should compare. */}
-      <p
-        className="mt-2 max-w-prose text-xs leading-5 text-ink-3"
+      <Block
+        as="p"
+        measure="read"
+        className="mt-2 text-xs leading-5 text-ink-3"
         data-boilerplate="fuel-bulletin"
       >
         {/* 🔴 THIS SENTENCE WAS FALSE THE MOMENT CAMP-154 MERGED, and
@@ -576,7 +579,7 @@ export function RouteFuelPrices({ prices }: { prices: RouteFuelPrice[] }) {
           published every Thursday
         </a>
         .
-      </p>
+      </Block>
     </div>
   );
 }
@@ -614,14 +617,16 @@ export default function RouteStageServices({
             fact about the ground that we would have no basis for. The
             rest of the page is unaffected: the stages, the campsites and
             the reasons are all still there. */}
-        <p
-          className="mt-2 max-w-prose text-sm leading-6 text-ink-3"
+        <Block
+          as="p"
+          measure="read"
+          className="mt-2 text-sm leading-6 text-ink-3"
           data-testid="stage-services-unavailable"
         >
           We could not reach our own database when this page was built, so
           there is nothing to show here. That is a fault of ours, not a
           statement that this stop has no fuel, water or shops.
-        </p>
+        </Block>
       </div>
     );
   }
@@ -654,8 +659,10 @@ export default function RouteStageServices({
           the services block moved the family's worst pair from 11.9% to
           12.6% against a ceiling of 80%, so this is headroom rather
           than a rescue. */}
-      <p
-        className="mt-2 max-w-prose text-xs leading-5 text-ink-3"
+      <Block
+        as="p"
+        measure="read"
+        className="mt-2 text-xs leading-5 text-ink-3"
         data-boilerplate="route-services-selection"
       >
         The nearest one of each, from OpenStreetMap, within{' '}
@@ -673,7 +680,7 @@ export default function RouteStageServices({
         disposal and a fee. &ldquo;Not known&rdquo; means nobody has written
         it down, which is not the same as &ldquo;No&rdquo;. Whether a toilet
         is clean or working is not in open data, so nothing here says.
-      </p>
+      </Block>
     </div>
   );
 }

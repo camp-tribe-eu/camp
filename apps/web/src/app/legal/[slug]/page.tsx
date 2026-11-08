@@ -6,6 +6,7 @@ import { alternatesFor } from '@/lib/i18n';
 import { COMPANY, LEGAL_PAGES, legalPage, legalPath } from '@/lib/legal';
 import { legalDocument, legalSlugs } from '@/lib/legal-content';
 import { breadcrumbList, jsonLdProps, legalPageGraph } from '@/lib/jsonld';
+import { Block } from '@/components/layout';
 
 // CAMP-56 — the legal pages. CAMP-365 — and their text comes from the CMS.
 //
@@ -108,7 +109,7 @@ export default async function LegalPageRoute({
         <h1 className="text-2xl font-bold text-heading sm:text-3xl">
           {doc.title}
         </h1>
-        <p className="mt-2 max-w-prose text-sm text-ink-2">{doc.summary}</p>
+        <Block as="p" measure="read" className="mt-2 text-sm text-ink-2">{doc.summary}</Block>
 
         {/* 🔴 The version and its date, on the page rather than buried in
             a changelog. "Which text applied on the day I used the site"

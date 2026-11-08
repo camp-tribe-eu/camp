@@ -16,6 +16,7 @@ import {
 } from '@/lib/routes';
 import Breadcrumbs from '@/components/breadcrumbs';
 import RouteLibrary, { type RouteCard } from '@/components/route-library';
+import { Block } from '@/components/layout';
 
 // CAMP-3 / CAMP-45 — the route library index.
 //
@@ -90,12 +91,12 @@ export default function RoutesIndex() {
         Camping routes
       </h1>
 
-      <p className="mt-4 max-w-prose text-ink-2">
+      <Block as="p" measure="read" className="mt-4 text-ink-2">
         Twelve routes through the European Union, each one an ordered set of
         stops with the campsites our database actually holds near every stage.
         They are written to be argued with: each says what it is for, when it
         works, what the driving is like, and who it does not suit.
-      </p>
+      </Block>
 
       <RouteLibrary routes={cards} />
 
@@ -114,7 +115,7 @@ export default function RoutesIndex() {
         <h2 id="how-heading" className="text-xl font-bold md:text-[25px]">
           How these routes are put together
         </h2>
-        <div className="mt-4 max-w-prose space-y-4 text-ink-2">
+        <Block measure="read" className="mt-4 space-y-4 text-ink-2">
           <p>
             {/* 🔴 The scaled-content position, stated to the reader rather
                 than only to ourselves in a code comment. It is also the
@@ -161,7 +162,7 @@ export default function RoutesIndex() {
             </Link>{' '}
             uses this week&rsquo;s published fuel prices and your own figures.
           </p>
-        </div>
+        </Block>
       </section>
     </main>
   );

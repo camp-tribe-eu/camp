@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { TRAVELLER_LABEL, type TravellerTag } from '@/lib/route-types';
+import { Block } from '@/components/layout';
 
 // CAMP-45 — the filterable list on /routes.
 //
@@ -204,11 +205,11 @@ export default function RouteLibrary({ routes }: { routes: RouteCard[] }) {
       </section>
 
       {shown.length === 0 ? (
-        <p className="mt-8 max-w-prose text-ink-2">
+        <Block as="p" measure="read" className="mt-8 text-ink-2">
           Nothing matches all of those at once. There are twelve routes in this
           library, not fifty — we would rather have twelve we can stand behind
           than a gap filled with a template.
-        </p>
+        </Block>
       ) : (
         <ul className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-2">
           {shown.map((r) => (

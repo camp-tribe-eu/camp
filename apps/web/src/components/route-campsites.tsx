@@ -7,6 +7,7 @@ import {
   type RouteNeighbour,
   type StageNeighbours,
 } from '@/lib/routes';
+import { Block } from '@/components/layout';
 
 // CAMP-3 / CAMP-45, and CAMP-160 — the campsites beside one stop.
 //
@@ -86,14 +87,16 @@ export default function RouteStageCampsites({
         // "there is none" (a fact about the ground, which we can never
         // make). The rest of the page is unaffected: the stages, the
         // reasons and the services block are all still there.
-        <p
-          className="mt-2 max-w-prose text-sm leading-6 text-ink-3"
+        <Block
+          as="p"
+          measure="read"
+          className="mt-2 text-sm leading-6 text-ink-3"
           data-testid="stage-campsites-unavailable"
         >
           We could not reach our own database when this page was built, so the
           campsites near this stop are not listed here. That is a fault of
           ours, not a statement that nothing is there.
-        </p>
+        </Block>
       ) : spots.length > 0 ? (
         <ul className="mt-2 space-y-1">
           {spots.map((s) => (
@@ -105,14 +108,16 @@ export default function RouteStageCampsites({
         // have nothing within 25 km" is a real and useful fact — and it
         // is a different statement from "there is nothing here", which
         // we cannot make.
-        <p
-          className="mt-2 max-w-prose text-sm text-ink-2"
+        <Block
+          as="p"
+          measure="read"
+          className="mt-2 text-sm text-ink-2"
           data-testid="stage-no-campsites"
         >
           Our database holds no campsite within {formatKm(STAGE_RADIUS_M)} of
           this stop. That is a gap in what has been recorded, not a statement
           that nothing is there.
-        </p>
+        </Block>
       )}
     </div>
   );

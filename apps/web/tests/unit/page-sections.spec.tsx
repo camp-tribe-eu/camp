@@ -236,3 +236,31 @@ test.describe("🔴 секція, якій немає місця в макеті
     expect(() => assertAllSectionsUsed([], ["hero"], "головна")).not.toThrow();
   });
 });
+
+// ── CAMP-447: ширина секції тексту НАЗВАНА, а не успадкована ─────────────
+//
+// `PROSE_DEFAULT` роздавав читальну колонку кожній новій секції мовчки:
+// 105 вживань 01.10.2026 → 149 на 08.11.2026. Тепер кожен варіант називає
+// `measure`, і тип не дає його пропустити.
+
+test("🔴 секція тексту стоїть у читальній колонці, названій через Block", () => {
+  const html = renderComponent(PageSections, {
+    sections: [section({ body: "Абзац.\n\nЩе абзац." })],
+  });
+  expect(html).toContain("max-w-read");
+  expect(html).not.toContain("max-w-prose");
+  // Суцільний текст — не на всю ширину: інакше рядок у 1704px не читається.
+  expect(html).not.toContain("w-full");
+});
+
+test("варіант aside зберігає відступ і приглушений колір на тій самій ширині", () => {
+  // Рецензія #304: завершальний абзац /tools втратив `mt-10 text-ink-3` при
+  // переїзді в CMS. Ширина тепер окремо від решти класів — вони не мають
+  // загубитись удруге.
+  const html = renderComponent(PageSections, {
+    sections: [section({ variant: "aside", body: "Примітка." })],
+  });
+  expect(html).toContain("max-w-read");
+  expect(html).toContain("mt-10");
+  expect(html).toContain("text-ink-3");
+});

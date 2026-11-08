@@ -1,4 +1,5 @@
 import { SOURCES, formatUpdated, type SpotSource } from '@/lib/sources';
+import { Block } from '@/components/layout';
 
 // CAMP-3 / CAMP-45 — attribution for the campsites shown on a route
 // page, and the ODbL position of the page itself.
@@ -77,7 +78,7 @@ export default function RouteSources({
         Where this comes from
       </h2>
 
-      <p className="mt-3 max-w-prose text-sm leading-6 text-ink-2">{note}</p>
+      <Block as="p" measure="read" className="mt-3 text-sm leading-6 text-ink-2">{note}</Block>
 
       {byId.size > 0 && (
         <ul className="mt-4 space-y-3">
@@ -162,8 +163,10 @@ export default function RouteSources({
           page, so it is marked as boilerplate for the near-duplicate
           guard — the same treatment the campsite pages give their
           licence line. */}
-      <p
-        className="mt-4 max-w-prose text-xs leading-5 text-ink-2"
+      <Block
+        as="p"
+        measure="read"
+        className="mt-4 text-xs leading-5 text-ink-2"
         data-boilerplate="odbl-produced-work"
       >
         This route — its stages, their order and everything written about them —
@@ -174,15 +177,17 @@ export default function RouteSources({
         in the region; this page shows {campsiteCount} campsites and{' '}
         {serviceCount} service points, {campsiteCount + serviceCount} objects in
         all.
-      </p>
+      </Block>
 
       {/* 🔴 NOT behind `serviceCount > 0`, and that was a real bug.
           Gating it that way removed the explanation exactly when the
           block is all-absent or could not be built — which is precisely
           when a reader needs to be told that the only source is
           OpenStreetMap and that a gap in it is not a gap in the world. */}
-      <p
-        className="mt-3 max-w-prose text-xs leading-5 text-ink-2"
+      <Block
+        as="p"
+        measure="read"
+        className="mt-3 text-xs leading-5 text-ink-2"
         data-boilerplate="route-services-source"
       >
         {/* 🔴 CAMP-113 is deliberately scoped to one source, and saying so
@@ -195,7 +200,7 @@ export default function RouteSources({
         what is here is what volunteers have mapped and no more. We hold no
         ratings and no photographs of these places, and we will not take either
         from somebody else&rsquo;s site.
-      </p>
+      </Block>
     </section>
   );
 }

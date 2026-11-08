@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { AffiliateLink, AffiliateNotice } from '@/components/affiliate-notice';
 import type { Offer } from '@/lib/affiliate';
+import { Block } from '@/components/layout';
 
 // CAMP-4 — where a commission link goes, and what stands there until one
 // exists.
@@ -48,14 +49,14 @@ export default function RentalOfferSlot({
         >
           Where to rent one in {where}
         </h2>
-        <p className="mt-3 max-w-prose text-ink-2">
+        <Block as="p" measure="read" className="mt-3 text-ink-2">
           We have no rental partner for {where}, so there is nothing here to
           click. We are not going to fill the gap with a company we have no
           relationship with, a price nobody quoted us or a vehicle nobody has
           seen — every other number on this page is one we measured, and a
           made-up one here would tell you exactly how much the rest is worth.
-        </p>
-        <p className="mt-3 max-w-prose text-ink-2">
+        </Block>
+        <Block as="p" measure="read" className="mt-3 text-ink-2">
           What we can give you today is the part that is ours:{' '}
           <Link className="underline" href="/search">
             search
@@ -70,7 +71,7 @@ export default function RentalOfferSlot({
           </Link>{' '}
           prices the fuel from the European Commission&rsquo;s weekly
           bulletin. None of those pays us anything either.
-        </p>
+        </Block>
       </section>
     );
   }
@@ -103,7 +104,7 @@ export default function RentalOfferSlot({
               </h3>
               {/* Our sentence about the partner, never theirs — see the
                   `note` field in lib/affiliate.ts. */}
-              <p className="mt-1 max-w-prose text-ink-2">{offer.note}</p>
+              <Block as="p" measure="read" className="mt-1 text-ink-2">{offer.note}</Block>
             </li>
           ))}
         </ul>

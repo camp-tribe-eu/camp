@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { countryName, getCountries } from '@/lib/api';
 import PathRecovery from '@/components/path-recovery';
 import { ButtonLink } from '@/components/button';
+import { Block } from '@/components/layout';
 
 // CAMP-73 — the 404.
 //
@@ -40,10 +41,10 @@ export default async function NotFound() {
       <h1 className="mt-2 text-3xl font-bold md:text-[42px]">
         That page is not here
       </h1>
-      <p className="mt-3 max-w-prose text-ink-2">
+      <Block as="p" measure="read" className="mt-3 text-ink-2">
         Campsite data comes from OpenStreetMap and we reimport it every week,
         so addresses do change. Nothing is lost — here is the way back in.
-      </p>
+      </Block>
 
       {/* 🔴 A GET form, not a script. It works with JavaScript switched
           off — which matters more here than anywhere else on the site,

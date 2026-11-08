@@ -9,6 +9,7 @@ import {
 import { NEWSLETTER_SIGNUP_WORDING } from '@/lib/consent-wording';
 import { DEFAULT_RETURN, safeReturnPath } from '@/lib/return-path';
 import { Button } from '@/components/button';
+import { Block } from '@/components/layout';
 
 // CAMP-228 — те, що малюють сторінки акаунта: форми й стани «Перевірте
 // пошту», «Підтвердьте пошту», «Посилання застаріло».
@@ -115,9 +116,9 @@ export function SignupFormView({
 }) {
   return (
     <Shell title="Create an account">
-      <p className="mt-4 max-w-prose text-ink-2">
+      <Block as="p" measure="read" className="mt-4 text-ink-2">
         One address and a password. Nothing else is required.
-      </p>
+      </Block>
       <form
         noValidate
         className={PANEL}
@@ -618,14 +619,14 @@ export function ResetFormView({
 export function ResetDoneView() {
   return (
     <Shell title="Password changed">
-      <p className="mt-4 max-w-prose text-ink-2">
+      <Block as="p" measure="read" className="mt-4 text-ink-2">
         Your password is changed, and every session of this account was signed
         out.{' '}
         <Link className={LINK} href="/login">
           Sign in with the new password
         </Link>
         .
-      </p>
+      </Block>
     </Shell>
   );
 }
@@ -690,19 +691,19 @@ export function EmailChangeCheckingView() {
 export function EmailChangedView() {
   return (
     <Shell title="Your email is changed">
-      <p className="mt-4 max-w-prose text-ink-2">
+      <Block as="p" measure="read" className="mt-4 text-ink-2">
         This address is now the one on the account, and it is confirmed — you
         just proved you can read it.{' '}
         <Link className={LINK} href="/login">Sign in</Link> with it and the
         password you already had.
-      </p>
+      </Block>
       {/* 🔴 Сказано прямо, бо інакше людина вирішить, що її «вибило». Зміна
           пошти коштує стільки ж, скільки зміна пароля: пошта — це спосіб
           повернути доступ. */}
-      <p className="mt-3 max-w-prose text-sm text-ink-2">
+      <Block as="p" measure="read" className="mt-3 text-sm text-ink-2">
         Everywhere you were signed in has been signed out, including this
         browser. That is deliberate.
-      </p>
+      </Block>
     </Shell>
   );
 }
@@ -716,12 +717,12 @@ export function EmailChangedView() {
 export function EmailTakenView() {
   return (
     <Shell title="That address is taken">
-      <p className="mt-4 max-w-prose text-ink-2">
+      <Block as="p" measure="read" className="mt-4 text-ink-2">
         Between the letter and this click, an account was created with this
         address. Nothing has changed: your account still has the address it
         had. Pick another one in your settings, or sign in to the account that
         now holds this address.
-      </p>
+      </Block>
     </Shell>
   );
 }
@@ -731,9 +732,9 @@ export function VerifyFailedView({ outcome }: { outcome: Outcome }) {
   return (
     <Shell title="We could not check your link">
       <ErrorBox outcome={outcome} />
-      <p className="mt-4 max-w-prose text-ink-2">
+      <Block as="p" measure="read" className="mt-4 text-ink-2">
         The link has not been used up. Reload this page to try again.
-      </p>
+      </Block>
     </Shell>
   );
 }

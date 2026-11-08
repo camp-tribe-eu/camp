@@ -16,6 +16,7 @@ import {
   rentalCountry,
   rentalOffers,
 } from "@/lib/rental";
+import { Block } from "@/components/layout";
 
 // CAMP-4 / CAMP-54 — one page per member state, and only where it earns
 // one.
@@ -129,7 +130,7 @@ export default async function RentalCountryPage({
         Renting a camper in {inProse(c)}
       </h1>
 
-      <p className="mt-4 max-w-prose text-ink-2">{c.intro}</p>
+      <Block as="p" measure="read" className="mt-4 text-ink-2">{c.intro}</Block>
 
       <RentalDisclosure offers={offers.length} />
 
@@ -146,7 +147,7 @@ export default async function RentalCountryPage({
               <h3 className="text-lg font-semibold text-heading">
                 {fact.title}
               </h3>
-              <p className="mt-2 max-w-prose text-ink-2">{fact.body}</p>
+              <Block as="p" measure="read" className="mt-2 text-ink-2">{fact.body}</Block>
               <p className="mt-3 text-sm text-ink-2">
                 Source:{" "}
                 {fact.source.url.startsWith("/") ? (
@@ -184,7 +185,7 @@ export default async function RentalCountryPage({
           <h2 id="fuel-heading" className="text-xl font-semibold text-heading">
             What the driving costs
           </h2>
-          <p className="mt-3 max-w-prose text-ink-2">
+          <Block as="p" measure="read" className="mt-3 text-ink-2">
             Diesel in {inProse(c)} costs{" "}
             <strong className="text-ink">{euros(fuel.diesel, 3)}</strong> a
             litre in the week of {longDate(FUEL.bulletinDate)}, including taxes,
@@ -199,7 +200,7 @@ export default async function RentalCountryPage({
               Price a trip in {inProse(c)}
             </Link>
             .
-          </p>
+          </Block>
         </section>
       )}
 
@@ -223,7 +224,7 @@ export default async function RentalCountryPage({
         >
           Rental companies
         </h2>
-        <p className="mt-3 max-w-prose text-ink-2">
+        <Block as="p" measure="read" className="mt-3 text-ink-2">
           {rentHere > 0 ? (
             <>
               <Link
@@ -251,7 +252,7 @@ export default async function RentalCountryPage({
               are listed with their services and fleet.
             </>
           )}
-        </p>
+        </Block>
       </section>
 
       <RentalOfferSlot offers={offers} where={inProse(c)} />
@@ -263,7 +264,7 @@ export default async function RentalCountryPage({
         <h2 id="next-heading" className="text-xl font-semibold text-heading">
           Before you book
         </h2>
-        <p className="mt-3 max-w-prose text-ink-2">
+        <Block as="p" measure="read" className="mt-3 text-ink-2">
           The questions that decide what a hire actually costs are the same in
           every member state, and none of them is on the price page:{" "}
           <Link className="underline" href="/camper-rental">
@@ -274,7 +275,7 @@ export default async function RentalCountryPage({
             {count(row?.spots ?? 0)} campsite records
           </Link>{" "}
           are the other half of the plan.
-        </p>
+        </Block>
       </section>
     </main>
   );

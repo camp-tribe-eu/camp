@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Block } from '@/components/layout';
 
 // CAMP-56: the small set of elements the legal pages are built from.
 //
@@ -39,14 +40,14 @@ export function H3({ children, id }: { children: ReactNode; id?: string }) {
 }
 
 export function P({ children }: { children: ReactNode }) {
-  return <p className="mt-3 max-w-prose text-sm leading-6 text-ink-2">{children}</p>;
+  return <Block as="p" measure="read" className="mt-3 text-sm leading-6 text-ink-2">{children}</Block>;
 }
 
 export function UL({ children }: { children: ReactNode }) {
   return (
-    <ul className="mt-3 max-w-prose list-disc space-y-2 pl-5 text-sm leading-6 text-ink-2">
+    <Block as="ul" measure="read" className="mt-3 list-disc space-y-2 pl-5 text-sm leading-6 text-ink-2">
       {children}
-    </ul>
+    </Block>
   );
 }
 
@@ -56,9 +57,9 @@ export function UL({ children }: { children: ReactNode }) {
  */
 export function Callout({ children }: { children: ReactNode }) {
   return (
-    <div className="mt-4 max-w-prose rounded-card border border-line-blue bg-accent-surface p-4 text-sm leading-6 text-heading">
+    <Block measure="read" className="mt-4 rounded-card border border-line-blue bg-accent-surface p-4 text-sm leading-6 text-heading">
       {children}
-    </div>
+    </Block>
   );
 }
 

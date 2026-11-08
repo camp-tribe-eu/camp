@@ -18,6 +18,7 @@ import {
   type ReportDraft,
   type ReportOutcome,
 } from '@/lib/problem-report';
+import { Block } from '@/components/layout';
 
 // «Report a problem» — the form on a campsite page.
 //
@@ -85,9 +86,9 @@ export default function ReportProblem({ slug }: { slug: string }) {
         </summary>
 
         {phase.kind === 'sent' ? (
-          <p role="status" className="mt-4 max-w-prose text-sm">
+          <Block as="p" measure="read" role="status" className="mt-4 text-sm">
             {messageFor('sent')}
-          </p>
+          </Block>
         ) : (
           <form
             noValidate
@@ -97,12 +98,12 @@ export default function ReportProblem({ slug }: { slug: string }) {
               void submit();
             }}
           >
-            <p className="max-w-prose text-sm text-ink-2">
+            <Block as="p" measure="read" className="text-sm text-ink-2">
               Spotted something wrong on this page — a campsite that has
               closed, a pin in the wrong place, a price that has changed? Tell
               us and a person will check it. Nothing on the page changes until
               we have.
-            </p>
+            </Block>
             {!ready && (
               <p className={HINT}>
                 The form comes alive when the page finishes loading.
