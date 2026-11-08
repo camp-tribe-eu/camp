@@ -45,7 +45,7 @@ export class AttributionFlags1794800000000 implements MigrationInterface {
       '## Typefaces {#type}',
       `## Flags {#flags}
 
-The country flags on the [camping index](/camping) are the SVG files of [flag-icons](https://flagicons.lipis.dev/) by Panayiotis Lipiridis, released under the [MIT License](https://opensource.org/license/mit) — Copyright (c) 2013 Panayiotis Lipiridis — and served from our own domain, with the licence text beside them.
+The country flags on the [camping index](/camping) are the SVG files of [flag-icons](https://flagicons.lipis.dev/) by Panayiotis Lipiridis, released under the [MIT License](https://opensource.org/license/mit) — Copyright (c) 2013 Panayiotis Lipiridis — and served from our own domain. This page is where that notice lives: we keep every third-party right in one place rather than scattering licence files beside the assets.
 
 ## Typefaces {#type}`,
     );
