@@ -10,6 +10,7 @@ import {
   stationTallyReconciles,
 } from './import';
 import type { RosterRow } from './parse';
+import { UpstreamUnavailable } from '../shared/upstream';
 
 // CAMP-164: "one bad record costs one record" is a claim, so it is
 // tested as one — with a roster that contains every kind of broken row
@@ -287,6 +288,15 @@ describe('failsTheUnit', () => {
         ),
       ),
     ).toBe(true);
+  });
+
+  // CAMP-440: the second named case. Not failing ON THE SPOT is not
+  // "never failing" — the streak in $STATE_DIRECTORY decides
+  // (air/upstream.spec.ts).
+  it('🔴 джерело лежить (UpstreamUnavailable) — не валить на місці, вирішує лічильник', () => {
+    expect(
+      failsTheUnit(new UpstreamUnavailable('HTTP 500 on all 3 attempts')),
+    ).toBe(false);
   });
 
   it('не-помилка теж валить, а не мовчить', () => {
