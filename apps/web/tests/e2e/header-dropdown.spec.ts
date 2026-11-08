@@ -58,6 +58,7 @@ test.describe('🔴 CAMP-448 — розкривач у шапці', () => {
     // (той самий клас, що й клік по бургеру до гідрації, CAMP-334).
     await expect(async () => {
       await li.hover();
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true', { timeout: 1000 });
       await expect(panel).toBeVisible({ timeout: 1000 });
     }).toPass({ timeout: 15_000 });
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
@@ -99,6 +100,7 @@ test.describe('🔴 CAMP-448 — розкривач у шапці', () => {
     await expect(async () => {
       await toggle.focus();
       await page.keyboard.press('Enter');
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true', { timeout: 1000 });
       await expect(panel).toBeVisible({ timeout: 1000 });
     }).toPass({ timeout: 15_000 });
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
@@ -130,8 +132,24 @@ test.describe('🔴 CAMP-448 — розкривач у шапці', () => {
     const toggle = li.locator('button[aria-expanded]');
     const panel = li.locator('[data-nav-sub]');
 
+    // 🔴 «ВІДКРИТО» — ЦЕ `aria-expanded="true"`, А НЕ «ПАНЕЛЬ ВИДНО». CI
+    // почервонив цей тест лише у Firefox, і причина була в самому тесті.
+    // Клік Playwright — це рух миші, а потім натискання. Рух дає
+    // `mouseenter`, і наведення ВІДКРИВАЄ меню; натискання — клік, і він
+    // як перемикач ЗАКРИВАЄ. У Chromium React збиває обидві події в одне
+    // оновлення (друге бачить ще старий стан), і меню лишається відкритим.
+    // Firefox встигає перемалювати між ними — тож клік закриває щойно
+    // відкрите. А панель при цьому ЩЕ ВИДНО: закриття йде переходом
+    // `visibility` за `--timing-base` (0,4 с, число теми), і весь цей час
+    // елемент видимий. Перша редакція чекала лише `toBeVisible`, брала
+    // панель, що згасає, за відкриту, виходила з циклу зі станом «закрито» —
+    // і наступний клік, замість закрити, відкривав. Заміряно подієвим логом
+    // під паралельним прогоном: `start exp=false`, панель видима.
+    //
+    // Тому тут стверджується СТАН, і лише потім видимість.
     await expect(async () => {
       if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true', { timeout: 1000 });
       await expect(panel).toBeVisible({ timeout: 1000 });
     }).toPass({ timeout: 15_000 });
 

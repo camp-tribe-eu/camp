@@ -69,11 +69,18 @@ export async function revealSubmenu(
   const toggle = parent.locator('button[aria-expanded]');
   if ((await toggle.count()) === 0) return;
 
+  // 🔴 СПЕРШУ СТАН, ПОТІМ ВИДИМІСТЬ. Клік Playwright — це рух миші і
+  // натискання: рух відкриває меню наведенням, натискання-перемикач його
+  // закриває. Firefox встигає перемалювати між ними, Chromium збиває обидва
+  // в одне оновлення. А панель після закриття ще 0,4 с ВИДНО — перехід
+  // `visibility` (число теми). «Видно» саме по собі не означає «відкрито»;
+  // саме на цьому червонів `header-dropdown.spec.ts` у Firefox.
   const panel = parent.locator('[data-nav-sub]');
   await expect(async () => {
     if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
       await toggle.click();
     }
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true', { timeout: 1000 });
     await expect(panel).toBeVisible({ timeout: 1000 });
   }, `розкривач «${parentHref}» не відкрив підпункти`).toPass({ timeout: 15_000 });
 }
