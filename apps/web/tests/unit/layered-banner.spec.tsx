@@ -14,8 +14,22 @@ import { renderComponent } from "./render-component";
 /**
  * Розмітка без піднятого `<style>`: CSS теж згадує класи шарів, тож
  * «класу немає в HTML» мусить дивитись на дерево, а не на правила.
+ *
+ * 🔴 Заміна повторюється до нерухомої точки, а не робиться один раз. CodeQL
+ * назвав однопрохідну форму «incomplete multi-character sanitization», і він
+ * має рацію як правило: після одного проходу залишки можуть скластися в новий
+ * `<style`. Тут на вхід іде наш власний відрендерений HTML, тож справжнього
+ * ризику немає — але хелпер, який ОБІЦЯЄ прибрати стилі, мусить їх прибирати,
+ * інакше тест мовчки дивиться не на те дерево.
  */
-const markup = (html: string) => html.replace(/<style[\s\S]*?<\/style>/g, "");
+const markup = (html: string): string => {
+  let out = html;
+  for (;;) {
+    const next = out.replace(/<style[\s\S]*?<\/style>/g, "");
+    if (next === out) return out;
+    out = next;
+  }
+};
 
 const base = {
   background: { src: "/bg.jpg" },
