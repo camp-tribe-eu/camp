@@ -157,7 +157,7 @@ jobs:
   # A gate that goes quiet on error would stop CI without failing, which
   # is the silent shape this repository keeps finding in its guards.
   gate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     # 🔴 Джоба читає відкриті PR коміта, щоб не будувати те саме двічі
     # (CAMP-269). На публічному репозиторії це проходить і з самим
@@ -186,7 +186,7 @@ jobs:
   security:
     needs: gate
     if: needs.gate.outputs.run == 'yes'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -1394,7 +1394,7 @@ jobs:
   web:
     needs: gate
     if: needs.gate.outputs.run == 'yes'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         # 🔴 17-3.6, ЯК НА ПРОДІ (17.11 / PostGIS 3.6.4, заміряно 08.11.2026
@@ -1585,7 +1585,7 @@ jobs:
   public-build:
     needs: gate
     if: needs.gate.outputs.run == 'yes'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgis/postgis:17-3.6
@@ -1631,7 +1631,7 @@ jobs:
   api:
     needs: gate
     if: needs.gate.outputs.run == 'yes'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # CAMP-32 gave this job a database. The query plan for the map's
     # viewport query is part of the card's acceptance, and a plan can
     # only be read from a real planner with real statistics.
@@ -1680,6 +1680,15 @@ jobs:
       # Крок читає надруковане: рядок із власною назвою скрипта друкується
       # лише коли виконано рівно EXPECTED випадків, жоден не впав і жоден
       # не пропущено.
+      # 🔴 Клієнт Postgres не може бути новіший за сервер. 08.11.2026 цей самий
+      # набір дав «30 passed, 25 failed», і жодне з 25 повідомлень не назвало
+      # причини: раннер ubuntu-latest став 26.04, pg_dump поїхав за PG 16.
+      # Перевірка нижче червоніє одним зрозумілим рядком замість двадцяти п'яти.
+      - name: pg client is not newer than the server
+        env:
+          CAMPTRIBE_SELFTEST_PG_BASE: postgres://postgres:postgres@localhost:5432
+        run: ./scripts/ci/assert-pg-client-matches-server.sh
+
       - name: Moving one table to production keeps its indexes and its key
         env:
           CAMPTRIBE_SELFTEST_PG_BASE: postgres://postgres:postgres@localhost:5432
@@ -2145,7 +2154,7 @@ jobs:
   e2e:
     needs: gate
     if: needs.gate.outputs.run == 'yes'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # 🔴 МЕЖА ЧАСУ, БО БЕЗ НЕЇ ЗАВИСАННЯ КОШТУЄ ШІСТЬ ГОДИН РАННЕРА.
     #
     # Заміряно 26.10.2026: на PR #337 крок `playwright install --with-deps`
@@ -2364,7 +2373,7 @@ jobs:
   visual:
     needs: gate
     if: needs.gate.outputs.run == 'yes'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgis/postgis:17-3.6
@@ -2446,7 +2455,7 @@ jobs:
   lighthouse:
     needs: gate
     if: needs.gate.outputs.run == 'yes'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgis/postgis:17-3.6

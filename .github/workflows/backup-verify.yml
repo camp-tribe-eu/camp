@@ -53,7 +53,7 @@ permissions:
 
 jobs:
   restore:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         # 🔴 17-3.6, ЯК НА ПРОДІ (17.11 / PostGIS 3.6.4, заміряно 08.11.2026
@@ -82,6 +82,14 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+
+      # 🔴 08.11.2026: main і цей сторож почервоніли без жодної зміни коду —
+      # GitHub перевів `ubuntu-latest` з 24.04 на 26.04, і pg_restore поїхав
+      # уперед від сервера. Відновлення падало на `SET transaction_timeout`,
+      # параметрі, якого в PG 16 немає. Сторож бекапа став сліпим саме там, де
+      # сліпим бути не можна. Перевірка нижче називає причину ДО падіння.
+      - name: pg client is not newer than the server
+        run: ./scripts/ci/assert-pg-client-matches-server.sh
 
       # The gate's own logic, before it is trusted to judge anything.
       # A checker that ships broken reports "fine" by never disagreeing.
@@ -321,7 +329,7 @@ jobs:
   alert:
     needs: restore
     if: failure() && github.event_name == 'schedule'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       issues: write
     steps:
@@ -372,7 +380,7 @@ jobs:
   recovered:
     needs: restore
     if: success() && github.event_name == 'schedule'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       issues: write
     steps:

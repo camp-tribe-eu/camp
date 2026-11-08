@@ -60,7 +60,7 @@ permissions:
 
 jobs:
   coverage:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Downloading ~90 MB and asking 27 feeds; generous, but bounded so a
     # hanging source cannot hold a runner all day.
     timeout-minutes: 20

@@ -142,7 +142,7 @@ jobs:
   # Turn the region list into a matrix. It is its own job because a
   # matrix has to be JSON before the jobs it drives are created.
   plan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       regions: ${{ steps.plan.outputs.regions }}
       count: ${{ steps.plan.outputs.count }}
@@ -189,7 +189,7 @@ jobs:
 
   extract:
     needs: plan
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # 🔴 90, А НЕ 45 — БО 45 БУЛО МЕНШЕ ЗА ВЛАСНИЙ БЮДЖЕТ ЗАВАНТАЖЕННЯ.
     #
     # Заміряно 03.11.2026. Крок завантаження нижче робить **чотири**
@@ -508,7 +508,7 @@ jobs:
     # eight countries of fresh data beat none. The completeness check
     # below is what makes the gap loud instead of silent.
     if: always() && needs.plan.result == 'success'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       issues: write
@@ -838,7 +838,7 @@ jobs:
     # лише через таймаут окремого завдання — тобто саме через те, що ми
     # й хочемо почути.
     if: always() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       issues: write
     steps:
