@@ -20,6 +20,8 @@ const CSS =
   "<style>\n" +
   "            header nav[aria-label='Main'] { display: block !important }\n" +
   "            header [data-testid='burger-open'] { display: none !important }\n" +
+  // CAMP-448: без JS підпункти розкривача стають у ряд поруч із батьком.
+  "            header [data-nav-sub] { position: static !important; visibility: visible !important; opacity: 1 !important }\n" +
   '          </style>';
 
 test('сервер віддає той самий CSS, посимвольно', async ({ page }) => {
