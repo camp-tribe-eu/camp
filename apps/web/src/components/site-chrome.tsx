@@ -4,6 +4,7 @@ import { CookieSettingsLink } from "./cookie-consent";
 import { CurrentYear } from "./current-year";
 import { SiteNavDrawer } from "./site-nav-drawer";
 import { NavDropdown } from "./site-nav-dropdown";
+import { SiteHeaderFrame } from "./site-header-frame";
 import type { NavItem } from "@/lib/navigation";
 import { Block } from "@/components/layout";
 
@@ -52,12 +53,22 @@ export function SiteHeader({ nav }: { nav: NavItem[] }) {
 
        Скло — з теми: `.ct-glass` бере `blur(8px)` звідти, а
        непрозорість таку, за якої підпис лишається читабельним на
-       світлому тлі (пояснено в globals.css). */
-    <header
-      data-testid="site-header"
-      className="sticky top-0 border-b border-line-2"
-      style={{ zIndex: "var(--layer-sticky)" }}
-    >
+       світлому тлі (пояснено в globals.css).
+
+       🔴 CAMP-448 (2/2): ОСТРІВ. На прокручуванні шапка стискається в
+       пігулку 480px по центру — і робиться це ВСЕРЕДИНІ `sticky`:
+       `<header>` лишається в потоці тієї самої висоти, стискається
+       внутрішній контейнер. Сам `<header>`, шар скла й ряд тепер малює
+       `SiteHeaderFrame` (site-header-frame.tsx) — там числа теми, поріг
+       і причини. Тут лишається вміст: лого, `<noscript>`, меню, шухляда.
+
+       Дописано до CAMP-374 вище: тема на звичайних сторінках ТЕЖ
+       `sticky` — `.header-section { position: var(--header-position) }`,
+       а `--header-position: sticky` ставить header.liquid; `fixed` у неї
+       лише варіант `--transparent` поверх героя, який і заміряли
+       20.10.2026 на демо-сторі. Тобто острів у `sticky` — це її власна
+       конструкція, а не компроміс. */
+    <SiteHeaderFrame>
       {/* 🔴 СКЛО — НА ОКРЕМОМУ ШАРІ, А НЕ НА САМІЙ `<header>`, І ЦЕ НЕ
           стиль, а виправлення регресії, яку я ж і завіз.
 
@@ -74,12 +85,8 @@ export function SiteHeader({ nav }: { nav: NavItem[] }) {
           контейнера не виникало.
 
           Шар лежить ПІД вмістом і НЕ містить шухляди, тож вікно знову
-          є вікном. */}
-      <div
-        aria-hidden="true"
-        data-testid="site-glass"
-        className="ct-glass pointer-events-none absolute inset-0"
-      />
+          є вікном. Шар і його класи — у `SiteHeaderFrame`; тут він
+          згаданий, бо саме це правило забороняє класти скло на ряд. */}
       {/* 🔴 Wraps below `sm`, and the height grows with it.
 
           The fixed 62px row fitted three links by luck, not by design.
@@ -99,13 +106,17 @@ export function SiteHeader({ nav }: { nav: NavItem[] }) {
           links will need a real one — that belongs to the design card
           CAMP-81, not here. From `sm` up nothing changes at all, so the
           visual baselines are untouched. */}
-      {/* 🔴 `relative` обовʼязковий: шар скла позиційований, а
+      {/* 🔴 Ряд (`relative … min-h-[62px] …`) малює `SiteHeaderFrame`, і
+          `relative` там обовʼязковий: шар скла позиційований, а
           позиційовані елементи малюються ПОВЕРХ непозиційованого
           вмісту. Без цього скло лягло б на самі пункти меню. */}
-      <div className="relative mx-auto flex min-h-[62px] max-w-wrap flex-wrap items-center gap-x-6 gap-y-2 px-4 py-2 sm:h-[62px] sm:flex-nowrap sm:py-0 xl:px-6">
+      {/* 🔴 В ОСТРОВІ ПІДПИС БІЛИЙ — це заміна логотипа теми: у стані
+          `--stacked` вона ховає `.header__heading-logo` і показує
+          `--transparent`-варіант (світлий на темному склі). Емодзі в
+          бурштиновому колі лишається як є. */}
         <Link
           href="/"
-          className="flex items-center gap-2 font-narrow text-[19px] font-bold text-heading"
+          className="flex items-center gap-2 font-narrow text-[19px] font-bold text-heading group-data-[stacked=true]/header:text-[#fff]"
         >
           <span
             aria-hidden="true"
@@ -189,7 +200,22 @@ export function SiteHeader({ nav }: { nav: NavItem[] }) {
             базі, не зʼявлявся без жодної помилки; саме так три готові
             сторінки прожили невидимими. Пункт із дітьми — розкривач
             (`site-nav-dropdown.tsx`), без дітей — звичайне посилання. */}
-        <nav aria-label="Main" className="ml-auto hidden xl:block">
+        {/* 🔴 CAMP-448 (2/2). В ОСТРОВІ ГОРИЗОНТАЛЬНОГО МЕНЮ НЕМАЄ І ВІД
+            1200 px — там лого й бургер. Це тема, не моє: у `main.build.css`
+            `.header .header__menu { display: none }`, і лише
+            `@media (min-width:1200px) .header-section--top-position
+            .header__menu { display: flex }`; десктопний бургер
+            `.header__burger-menu-button--desktop` ховається тільки під
+            `(max-width: 1199.98px)`. Десять пунктів у пігулку 480px і не
+            влізли б. Підпункти в цьому стані читач дістає через шухляду,
+            де діти стоять одразу (site-nav-drawer.tsx).
+
+            `group-data-[stacked=true]/header:hidden` виграє в `xl:block`
+            специфічністю (атрибут + клас проти класу), а не порядком. */}
+        <nav
+          aria-label="Main"
+          className="ml-auto hidden xl:block group-data-[stacked=true]/header:hidden"
+        >
           <ul className="flex flex-wrap items-center justify-end gap-x-5 gap-y-1 text-sm font-medium text-ink-2">
             {nav.map((item) =>
               item.children.length > 0 ? (
@@ -206,8 +232,7 @@ export function SiteHeader({ nav }: { nav: NavItem[] }) {
         </nav>
 
         <SiteNavDrawer items={nav} />
-      </div>
-    </header>
+    </SiteHeaderFrame>
   );
 }
 

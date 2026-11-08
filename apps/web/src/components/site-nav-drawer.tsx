@@ -63,6 +63,7 @@ const CHILD =
 export function SiteNavDrawer({ items }: { items: NavItem[] }) {
   const [open, setOpen] = useState(false);
   const panel = useRef<HTMLDivElement>(null);
+  const root = useRef<HTMLDivElement>(null);
   const opener = useRef<HTMLButtonElement>(null);
 
   const close = useCallback(() => setOpen(false), []);
@@ -80,17 +81,34 @@ export function SiteNavDrawer({ items }: { items: NavItem[] }) {
   // поворот екрана — 1024 портрет → 1366 ландшафт, і там навіть Escape
   // немає.
   //
-  // Межа тут ТА САМА, що в класах: 1200 px. Якщо колись розійдуться —
-  // розійдуться мовчки, тому число названо один раз.
+  // 🔴 CAMP-448 (2/2): УМОВА — «КОРІНЬ ПАНЕЛІ СПРАВДІ СХОВАНИЙ», А НЕ
+  // «ВІКНО ≥ 1200». Доти тут стояло `if (wide.matches) close()`, і це
+  // було те саме число другим способом. В острові шухляда — єдиний шлях
+  // до меню й на десктопі (`group-data-[stacked=true]/header:block`
+  // перебиває `xl:hidden`), і зі старою умовою вона закривалась у той
+  // самий кадр, що й відкривалась: заміряно e2e, a11y-дерево без діалогу
+  // «Main menu» на 1280 px після прокручування. Тепер питаємо CSS про
+  // те, чого сторож насправді боїться: панелі не видно, а замок на
+  // `body` лишився. Межа живе лише в класах; тут її більше немає.
+  //
+  // Слухаємо і зміну медіа-запиту (перехід через 1200 px), і
+  // прокручування (повернення на верх розгортає смугу й повертає
+  // `xl:hidden`). Замок `overflow: hidden` на `body` робить друге
+  // майже неможливим, але «майже» — не причина лишати діру.
   useEffect(() => {
     if (!open) return;
     const wide = window.matchMedia("(min-width: 1200px)");
-    const onWide = () => {
-      if (wide.matches) close();
+    const closeIfHidden = () => {
+      const el = root.current;
+      if (!el || getComputedStyle(el).display === "none") close();
     };
-    onWide();
-    wide.addEventListener("change", onWide);
-    return () => wide.removeEventListener("change", onWide);
+    closeIfHidden();
+    wide.addEventListener("change", closeIfHidden);
+    window.addEventListener("scroll", closeIfHidden, { passive: true });
+    return () => {
+      wide.removeEventListener("change", closeIfHidden);
+      window.removeEventListener("scroll", closeIfHidden);
+    };
   }, [open, close]);
 
   useEffect(() => {
@@ -152,6 +170,20 @@ export function SiteNavDrawer({ items }: { items: NavItem[] }) {
           Скла на самій кнопці немає навмисно: вона лежить НА скляній
           шапці, і скло поверх скла нічого не додає — лише другий шар
           розмиття там, де під ним уже розмито. */}
+      {/* 🔴 CAMP-448 (2/2). В ОСТРОВІ БУРГЕР Є Й ВІД 1200 px, бо
+          горизонтальне меню там сховане (site-chrome.tsx; тема:
+          `.header__menu` видиме лише в `--top-position`). Стан читається
+          з `data-stacked` на `<header>` (site-header-frame.tsx), а
+          `group-data-[…]:grid` виграє в `xl:hidden` специфічністю, не
+          порядком.
+
+          Кольори острова — теми, header.liquid за замовчуванням:
+            stacked_menu_btn_bg #fff, stacked_menu_btn_color #000,
+            stacked_menu_btn_border transparent
+          (`.header-section--stacked .header__icon` у main.build.css).
+          Наведення в острові лишає біле: власного hover для stacked у
+          теми немає, а `hover:bg-surface-2` на темному склі дав би сіру
+          пляму замість кнопки. */}
       <button
         ref={opener}
         type="button"
@@ -160,7 +192,7 @@ export function SiteNavDrawer({ items }: { items: NavItem[] }) {
         aria-controls="site-nav-drawer"
         aria-label="Open the menu"
         onClick={() => setOpen(true)}
-        className="ml-auto grid h-14 w-14 shrink-0 place-items-center rounded-card text-heading ct-button-motion hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-line-blue xl:hidden"
+        className="ml-auto grid h-14 w-14 shrink-0 place-items-center rounded-card text-heading ct-button-motion hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-line-blue xl:hidden group-data-[stacked=true]/header:grid group-data-[stacked=true]/header:bg-[#fff] group-data-[stacked=true]/header:text-[#000] group-data-[stacked=true]/header:hover:bg-[#fff]"
       >
         <svg
           width="20"
@@ -181,10 +213,15 @@ export function SiteNavDrawer({ items }: { items: NavItem[] }) {
       {/* 🔴 Панель у DOM тільки коли відкрита. Схована через `hidden`
           вона лишалась би в послідовності читання для частини читачів
           екрана, і шість посилань зачитувались би двічі. */}
+      {/* 🔴 `xl:hidden` на корені панелі — щоб перехід через 1200 px не
+          лишив сторінку замкненою під нею (burger-menu.spec.ts). В
+          острові ж шухляда — єдиний шлях до меню й на десктопі, тож
+          `group-data-[stacked=true]/header:block` повертає її. */}
       {open && (
         <div
           id="site-nav-drawer"
-          className="fixed inset-0 xl:hidden"
+          ref={root}
+          className="fixed inset-0 xl:hidden group-data-[stacked=true]/header:block"
           style={{ zIndex: "var(--layer-pop-out-overlay)" }}
         >
           {/* Затемнення. Клік по ньому закриває — як у темі. */}
