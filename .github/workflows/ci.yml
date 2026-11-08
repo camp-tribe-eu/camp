@@ -1184,7 +1184,12 @@ jobs:
           ACTIONLINT_VERSION: 1.7.7
         run: |
           set -euo pipefail
-          curl -sSL -o actionlint.tgz \
+          # 🔴 `-f` і `--retry`: без них 5xx від GitHub зберігається ЯК АРХІВ,
+          # і падає вже `tar` («gzip: stdin: not in gzip format») — двічі
+          # поспіль 08.11.2026 (#471), того ж ранку, коли CodeQL діставав
+          # 504 на свій бандл. `-f` робить відповідь-помилку кодом виходу
+          # curl, `--retry-all-errors` повторює її, а не лише обриви.
+          curl -sSL -f --retry 5 --retry-all-errors --retry-delay 10 -o actionlint.tgz \
             "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
           tar xzf actionlint.tgz actionlint
           ./actionlint --version
@@ -1386,7 +1391,16 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgis/postgis:16-3.4
+        # 🔴 17-3.6, ЯК НА ПРОДІ (17.11 / PostGIS 3.6.4, заміряно 08.11.2026
+        # `select version(), postgis_lib_version()`), А НЕ 16. Сервер 16 тут
+        # був молодший за клієнт ранера, і 07.11.2026 `ubuntu-latest` став
+        # ubuntu-26.04 із pg_restore ≥ 17: той пише `SET transaction_timeout`
+        # у кожен дамп, а 16 цього параметра не знає — нічна репетиція
+        # відновлення червона з 07.11, селфтести move-table і backup-local
+        # упали в #471 на тому ж рядку. Клієнт, новіший за сервер на одну
+        # мажорну, pg_dump/pg_restore підтримують; сервер, старший за прод,
+        # не доводить про прод нічого.
+        image: postgis/postgis:17-3.6
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: camptribe_test
@@ -1568,7 +1582,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgis/postgis:16-3.4
+        image: postgis/postgis:17-3.6
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: camptribe_test
@@ -1617,7 +1631,7 @@ jobs:
     # only be read from a real planner with real statistics.
     services:
       postgres:
-        image: postgis/postgis:16-3.4
+        image: postgis/postgis:17-3.6
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: camptribe_test
@@ -2139,7 +2153,7 @@ jobs:
     timeout-minutes: 75
     services:
       postgres:
-        image: postgis/postgis:16-3.4
+        image: postgis/postgis:17-3.6
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: camptribe_test
@@ -2347,7 +2361,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgis/postgis:16-3.4
+        image: postgis/postgis:17-3.6
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: camptribe_test
@@ -2429,7 +2443,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgis/postgis:16-3.4
+        image: postgis/postgis:17-3.6
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: camptribe_test
