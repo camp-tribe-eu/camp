@@ -31,7 +31,46 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const API = process.env.API_BASE_URL ?? 'http://localhost:3001';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const out = path.join(here, '..', 'src', 'generated');
-const MAX_BYTES = 256 * 1024;
+/**
+ * 🔴 CAMP-476. СТЕЛЯ БУЛА ЧИСЛОМ ІЗ ЧУЖОГО ПРОДУКТУ, І ЦЕ ЗУПИНИЛО ПРОД.
+ *
+ * 09.11.2026 викат упав: «gone list is 258.8 KB, over its 256.0 KB edge
+ * budget». Причина не в списку — у премісі самої стелі. `edge-budget.mjs`
+ * чесно пише її походження: «1 MB on Cloudflare Workers», і додає, що
+ * хост насправді Cloudflare PAGES, і що «nobody has measured what Pages
+ * allows a middleware bundle to weigh».
+ *
+ * 🔴 Заміряно на машині 09.11.2026 — не Pages і не Workers:
+ *
+ *     systemctl: camptribe-web.service — CampTribe web (next start)
+ *     ss -lntp:  next-server на 127.0.0.1:3000, caddy на :80 і :443
+ *
+ * Тобто сторінки віддає `next start` на нашому власному сервері за
+ * Caddy. Cloudflare стоїть попереду як CDN. Платформного обмеження на
+ * бандл middleware тут немає ВЗАГАЛІ: він виконується в Node нашого ж
+ * процесу.
+ *
+ * 🔴 Що тоді справді обмежує. Пам'ять і час розбору на старті. Заміряно
+ * на JSON тієї самої форми (5 940 записів зі шляхом, назвою й найближчим
+ * сусідом):
+ *
+ *     938.6 KB   →   розбір 1.6 мс, у пам'яті 1.5 МБ
+ *
+ * Тобто навіть учетверо більший за сьогоднішній список коштує півтори
+ * мілісекунди на старті процесу. 256 KB було не бюджетом, а чужим
+ * числом.
+ *
+ * Нова стеля — 1 МБ. Це не «скільки влізе», а свідомий бюджет пам'яті:
+ * за ним список перестає бути списком і має переїхати в пошук поза
+ * бандлом, як і пише `edge-budget.mjs`. Попередження на 80% лишається,
+ * тож стеля говоритиме задовго до стіни.
+ *
+ * ⚠️ І головне: сьогоднішні 258.8 KB — це НЕ нормальний ріст. 5 948
+ * рядків позначені зниклими одним імпортом 24.09, 94% із них без назви,
+ * а їхні `osm_ref` вказують на ворота й водорозбірні колонки, які ніколи
+ * не були кемпінгами. Справжнє виправлення — CAMP-477, а не ця стеля.
+ */
+const MAX_BYTES = 1024 * 1024;
 
 /**
  * Чи можна записувати цей список — і що сказати про нього в лог.
@@ -441,10 +480,20 @@ async function selfTestBuild(check) {
   // 🔴 Стеля для edge-бандла. Без цього випадку рядок
   // `enforceEdgeBudget` можна було прибрати або пересунути ПІСЛЯ
   // запису, і жодна фікстура цього не помічала: усі вони крихітні.
-  const huge = Array.from({ length: 9000 }, (_, i) => ({
-    path: `/fr/paca/campsite-with-a-fairly-long-slug-number-${i}`,
+  //
+  // 🔴 РОЗМІР РЕПЕТИЦІЇ РАХУЄТЬСЯ ВІД СТЕЛІ, А НЕ СТОЇТЬ ЧИСЛОМ.
+  // Було 9 000 шляхів — рівно стільки, щоб перевалити 256 KB. Коли
+  // стеля стала 1 МБ (CAMP-476), репетиція мовчки перестала перевіряти
+  // те, заради чого написана: 9 000 більше не переважували. Тобто
+  // число, підібране під стару стелю, перетворило сторожа на декорацію
+  // в ту саму мить, коли стелю зрушили.
+  const SAMPLE_PATH = '/fr/paca/campsite-with-a-fairly-long-slug-number-';
+  const perRow = JSON.stringify({ path: `${SAMPLE_PATH}000000` }).length + 1;
+  const enough = Math.ceil((MAX_BYTES * 1.2) / perRow);
+  const huge = Array.from({ length: enough }, (_, i) => ({
+    path: `${SAMPLE_PATH}${i}`,
   }));
-  const over = await run(huge, at(9000, 0, 90));
+  const over = await run(huge, at(enough, 0, 90));
   check(over.blew === true, '🔴 список, більший за стелю edge-бандла, валить збірку');
   check(
     over.written.length === 0,
