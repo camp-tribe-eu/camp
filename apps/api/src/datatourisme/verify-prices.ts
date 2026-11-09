@@ -21,7 +21,11 @@
 
 import 'dotenv/config';
 import { Client } from 'pg';
-import { DISPLAYABLE_TARIFF_SQL, tariffsSql } from '../spots/tariffs';
+import {
+  DISPLAYABLE_TARIFF_SQL,
+  TARIFF_STALE_AFTER_DAYS,
+  tariffsSql,
+} from '../spots/tariffs';
 
 const DB_URL =
   process.env.DATABASE_URL ?? 'postgres://localhost:5432/camptribe_dev';
@@ -107,23 +111,33 @@ const MUST_BE_ZERO: { name: string; sql: string }[] = [
            WHERE label IS NOT NULL AND label_lang IS NULL`,
   },
   {
-    name: '🔴 the read path serves no tariff without a validity period',
+    name: '🔴 the read path serves no price the feed has stopped republishing',
     // 🔴 This asks the SHIPPED QUERY, not the table.
     //
-    // It used to be `WHERE <displayable> AND valid_from IS NULL AND
-    // valid_until IS NULL` — which is `(A OR B) AND NOT A AND NOT B`, a
-    // tautology returning 0 rows against any database whatsoever,
-    // including one where `DISPLAYABLE_TARIFF_SQL` had been deleted. The
-    // single check the card's central prohibition rests on could not
-    // fail, which is worse than not having it.
+    // CAMP-475 moved the prohibition. Until 09.11.2026 it was "no tariff
+    // without a validity period", and that is now the OPPOSITE of what we
+    // do: an undated price is shown, marked "Season not stated". What is
+    // still forbidden is a price the source has stopped republishing —
+    // about which no sentence on the page could be true.
     //
-    // `tariffsSql` is what `spots.service.ts` builds the page payload
-    // with. Running it and inspecting what comes out is the only version
-    // of this question that can answer it.
+    // 🔴 AND IT IS NOT ASKED AS A TAUTOLOGY. The previous wording of the
+    // old check was `<displayable> AND valid_from IS NULL AND valid_until
+    // IS NULL` — `(A OR B) AND NOT A AND NOT B`, zero rows against any
+    // database at all, including one where the predicate had been
+    // deleted. Here the two sides are counted SEPARATELY: what the
+    // shipped query serves for a campsite, against how many of its rows
+    // are fresh. Delete the predicate from `tariffsSql` and the served
+    // side grows past the fresh side on every campsite with a stale row.
+    //
+    // `>` and not `<>` on purpose: the shipped query may narrow further
+    // (currency, mode), and serving FEWER than the fresh rows is not this
+    // check's business. Serving MORE can only mean a stale row got out.
     sql: `SELECT count(*)::int AS n
-            FROM camping_spots s,
-                 LATERAL json_array_elements(${tariffsSql('s.id')}) AS e
-           WHERE e->>'validFrom' IS NULL AND e->>'validUntil' IS NULL`,
+            FROM camping_spots s
+           WHERE (SELECT count(*)
+                    FROM json_array_elements(${tariffsSql('s.id')}))
+               > (SELECT count(*) FROM spot_tariffs t
+                   WHERE t.spot_id = s.id AND ${DISPLAYABLE_TARIFF_SQL})`,
   },
   {
     name: 'the read path is not simply returning nothing',
@@ -157,11 +171,16 @@ const MUST_BE_ZERO: { name: string; sql: string }[] = [
  * the same reason.
  *
  * What is planted is the one thing the schema does NOT refuse and the
- * card forbids outright: a tariff with no validity period. The CHECK
- * constraints stop a backwards range, a missing amount and an unlabelled
- * language; nothing in the table stops an undated price reaching a page
- * except `DISPLAYABLE_TARIFF_SQL`, which is exactly what this has to
- * prove still works.
+ * rule forbids outright: a price the feed has stopped republishing. The
+ * CHECK constraints stop a backwards range, a missing amount and an
+ * unlabelled language; nothing in the table stops a stale price reaching
+ * a page except `DISPLAYABLE_TARIFF_SQL`, which is exactly what this has
+ * to prove still works.
+ *
+ * 🔴 And the undated row is planted too, for the opposite reason: since
+ * CAMP-475 it MUST come back. A predicate that quietly tightened again
+ * would otherwise cost us 42% of every price we hold without a single
+ * check going red.
  *
  * Everything happens inside a transaction that is rolled back.
  */
@@ -172,7 +191,7 @@ const MUST_BE_ZERO: { name: string; sql: string }[] = [
  * rehearsal deleted from the middle printed one tick instead of two and
  * the run still said "self-test passed". The count is asserted below.
  */
-const EXPECTED_REHEARSALS = 2;
+const EXPECTED_REHEARSALS = 3;
 
 async function selfTest(db: Client): Promise<boolean> {
   let rehearsed = 0;
@@ -224,28 +243,65 @@ async function selfTest(db: Client): Promise<boolean> {
     rehearsed++;
     console.log('  ✓ self-test: a dated tariff is served');
 
-    // 2. An UNDATED tariff must NOT come back. This is the card's
-    //    central prohibition, and the only thing enforcing it is the
-    //    predicate under test.
+    // 2. An UNDATED but FRESH tariff MUST come back — owner's decision
+    //    of 09.11.2026. Until then this rehearsal asserted the opposite,
+    //    and leaving it would have made the verifier confirm a rule the
+    //    code no longer has.
     await db.query(
       `INSERT INTO spot_tariffs
          (spot_id, source_id, source_ref, min_price, currency,
-          source_updated_at)
+          source_updated_at, fetched_at)
        VALUES ($1, 'self-test', 'urn:self-test-undated', 2.00, 'EUR',
-               CURRENT_DATE)`,
+               CURRENT_DATE, now())`,
       [spot.id],
     );
     const withUndated = await served();
-    if (withUndated.undated > 0 || withUndated.total !== withDated.total) {
+    if (
+      withUndated.undated !== before.undated + 1 ||
+      withUndated.total !== withDated.total + 1
+    ) {
       console.error(
-        `  ✗ self-test: an undated tariff reached the read path ` +
-          `(${withUndated.undated} undated of ${withUndated.total}). ` +
+        `  ✗ self-test: an undated tariff did NOT reach the read path ` +
+          `(${withUndated.undated} undated of ${withUndated.total}, ` +
+          `expected ${before.undated + 1} of ${withDated.total + 1}). ` +
+          `Since CAMP-475 an undated price is shown, marked "Season not ` +
+          `stated" — a predicate still hiding it is the defect.`,
+      );
+      return false;
+    }
+    rehearsed++;
+    console.log('  ✓ self-test: an undated tariff is served');
+
+    // 3. A STALE tariff must NOT come back. This is what the prohibition
+    //    became, and the only thing enforcing it is the predicate under
+    //    test.
+    //
+    //    🔴 `now() - interval '…'` counted from the newest row IN THE
+    //    TABLE, not from today: the window is relative to the feed's own
+    //    last collection, and a database whose newest row is itself old
+    //    would otherwise plant something the predicate calls fresh.
+    await db.query(
+      `INSERT INTO spot_tariffs
+         (spot_id, source_id, source_ref, min_price, currency,
+          source_updated_at, fetched_at)
+       VALUES ($1, 'self-test', 'urn:self-test-stale', 3.00, 'EUR',
+               CURRENT_DATE,
+               (SELECT max(fetched_at) FROM spot_tariffs)
+                 - interval '${TARIFF_STALE_AFTER_DAYS} days'
+                 - interval '1 second')`,
+      [spot.id],
+    );
+    const withStale = await served();
+    if (withStale.total !== withUndated.total) {
+      console.error(
+        `  ✗ self-test: a stale tariff reached the read path ` +
+          `(${withStale.total} served, expected ${withUndated.total}). ` +
           `DISPLAYABLE_TARIFF_SQL is not filtering.`,
       );
       return false;
     }
     rehearsed++;
-    console.log('  ✓ self-test: an undated tariff is refused by the read path');
+    console.log('  ✓ self-test: a stale tariff is refused by the read path');
     if (rehearsed !== EXPECTED_REHEARSALS) {
       console.error(
         `  ✗ self-test: ${rehearsed} rehearsals ran, expected ${EXPECTED_REHEARSALS}`,
@@ -286,7 +342,8 @@ async function main() {
       // 🔴 The line names this file: a CI step grepping for a generic
       // "self-test passed" can be satisfied by another script's output.
       console.log(
-        '\n✓ verify-prices self-test: 2 rehearsals over the tariff read path',
+        `\n✓ verify-prices self-test: ${EXPECTED_REHEARSALS} rehearsals ` +
+          `over the tariff read path`,
       );
       return;
     }

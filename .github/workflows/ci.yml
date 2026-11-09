@@ -2053,19 +2053,23 @@ jobs:
           node scripts/gen-gone.mjs --self-test | tee /dev/stderr \
             | grep -c 'gen-gone self-test:' >/dev/null
 
-      # CAMP-147. The card's own acceptance clause is "no displayed price
-      # exists without a validity period", and the only thing enforcing it
-      # in SQL is `DISPLAYABLE_TARIFF_SQL`. Until now the check that would
-      # catch it breaking ran when a human remembered to run it.
+      # CAMP-147, moved by CAMP-475 (09.11.2026). The clause used to be
+      # "no displayed price exists without a validity period"; the owner
+      # replaced it with "show the price, say the season is not stated,
+      # and name the source". What `DISPLAYABLE_TARIFF_SQL` still enforces
+      # alone is the other half: a price the feed has STOPPED
+      # republishing never reaches a page.
       #
-      # 🔴 Two steps, like the filter check above: first prove the
+      # 🔴 Three rehearsals, like the filter check above: first prove the
       # comparison can fail, then believe the run that says it passed. The
-      # self-test plants an undated tariff inside a rolled-back
-      # transaction and requires the SHIPPED read query to refuse it —
-      # which is also what makes this meaningful on a fixture database
-      # where `spot_tariffs` is empty and every invariant is trivially
-      # zero.
-      - name: Price check still catches an undated tariff
+      # self-test plants a dated row (must be served), an undated fresh
+      # row (must be served — the half that would otherwise tighten back
+      # silently and cost 42% of every price we hold) and a stale row
+      # (must be refused), inside a rolled-back transaction, and asks the
+      # SHIPPED read query about each — which is also what makes this
+      # meaningful on a fixture database where `spot_tariffs` is empty and
+      # every invariant is trivially zero.
+      - name: Price check still catches a stale tariff, and still shows an undated one
         working-directory: apps/api
         env:
           DATABASE_URL: ${{ env.CI_DATABASE_URL }}
