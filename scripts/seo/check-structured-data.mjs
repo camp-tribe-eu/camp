@@ -39,6 +39,39 @@ const SELF_TEST = args.includes('--self-test');
 // about (CAMP-286).
 const ROOT = flagValue(args, '--dir') ?? 'apps/web/.next/server/app';
 
+/**
+ * 🔴 ПЕРЕХОПЛЕНИЙ МАРШРУТ — НЕ СТОРІНКА, І ВИМАГАТИ ВІД НЬОГО JSON-LD
+ * ОЗНАЧАЄ ВИМАГАТИ ДРУГОЇ КОПІЇ РОЗМІТКИ НА ОДНІЙ СТОРІНЦІ.
+ *
+ * CAMP-460 додав шухляду гіда перехопленим маршрутом
+ * `app/guides/@modal/(.)[slug]`. Збірка пише його HTML окремими
+ * файлами, але жоден із них не є адресою: вони вкладаються в сторінку
+ * при клієнтському переході й ніколи не існують самі.
+ *
+ * Якби ми «полагодили» це, додавши JSON-LD у шухляду, сторінка з
+ * відкритою шухлядою несла б ДВА блоки `Article` з одним `@id` — рівно
+ * та помилка, проти якої цей сторож і написаний.
+ *
+ * 🔴 ПЕРША РЕДАКЦІЯ ЦЬОГО ПРАВИЛА ЛОВИЛА `@modal` — І НЕ СПРАЦЮВАЛА.
+ * Я написав її, дивлячись на дерево ВИХІДНИКІВ, а не на вихід збірки.
+ * CI показав справжній шлях:
+ *
+ *     ✗ 5 page(s) carry no JSON-LD at all:
+ *        guides/(.)hr-zadarska-accessible
+ *
+ * Next викидає імʼя слота (`@modal`) і лишає МАРКЕР ПЕРЕХОПЛЕННЯ —
+ * `(.)`, `(..)`, `(...)`. Саме його й треба впізнавати. Урок записано
+ * тут, бо наступний, хто додасть слот, зробить ту саму помилку.
+ *
+ * 🔴 ПРАВИЛО ВУЗЬКЕ: сегмент має ПОЧИНАТИСЯ з `(.` — тобто бути
+ * маркером перехоплення. `guides/(.)x` пропускається,
+ * `guides/(marketing)/x` — ні (групи маршрутів Next зі шляху й так
+ * зникають), і `guides/x(.)y` теж ні.
+ */
+export const isParallelSlot = (label) =>
+  label.split('/').some((seg) => seg.startsWith('@') || seg.startsWith('(.'));
+
+
 const INDEX = JSON.parse(
   readFileSync(new URL('./schema-index.json', import.meta.url), 'utf8'),
 );
@@ -785,6 +818,30 @@ if (invokedDirectly && SELF_TEST) {
         (passed ? 'accepted' : `rejected (${errors[0]})`),
     );
   }
+  // 🔴 РЕПЕТИЦІЯ ПРАВИЛА ПРО СЛОТ. Воно вимикає вимогу «кожна сторінка
+  // несе JSON-LD» для цілого класу файлів, тож мусить бути вузьким —
+  // інакше одного дня ним накриють справжню сторінку.
+  for (const [label, want] of [
+    // Справжній шлях із виводу CI, а не вигаданий.
+    ['guides/(.)hr-zadarska-accessible', true],
+    ['guides/(..)x', true],
+    ['guides/@modal/(.)at-tyrol-dogs', true],
+    ['@modal/x', true],
+    ['guides/modal/x', false],
+    ['guides/at-tyrol-dogs', false],
+    ['tools/camper-trip-cost@v2', false],
+    ['guides/(marketing)/x', false],
+    ['guides/x(.)y', false],
+  ]) {
+    ran++;
+    const got = isParallelSlot(label);
+    const good = got === want;
+    if (!good) failures++;
+    console.log(
+      `${good ? '✓' : '✗'} slot «${label}»: ${got ? 'пропущено' : 'перевіряється'}`,
+    );
+  }
+
   // Broken JSON, which cannot be expressed as an object literal.
   const broken = validateHtml(
     '<script type="application/ld+json">{"@type": Campground}</script>',
@@ -798,7 +855,7 @@ if (invokedDirectly && SELF_TEST) {
   // 🔴 CAMP-286: counted and asserted, and the line names this file —
   // a grep for "the validator rejects every broken case" is prose any
   // script could print.
-  const EXPECTED_CASES = 35;
+  const EXPECTED_CASES = 44;
   if (ran !== EXPECTED_CASES) {
     failures++;
     console.log(`✗ ${ran} cases ran, expected ${EXPECTED_CASES}`);
@@ -891,11 +948,13 @@ if (allErrors.length) {
 // зламалось, і JSON-LD там був би неправдою. Заміряно 27.10.2026: без
 // цього рядка перевірка червоніє на 16.2.12 рівно одним записом.
 const ERROR_PAGES = new Set(['_not-found', '_global-error', '404', '500', 'gone']);
+
 const missing = files
   .map((f) => path.relative(ROOT, f).replace(/\.html$/, ''))
   .filter(
     (label) =>
       !ERROR_PAGES.has(label) &&
+      !isParallelSlot(label) &&
       !readFileSync(path.join(ROOT, `${label}.html`), 'utf8').includes(
         'application/ld+json',
       ),
