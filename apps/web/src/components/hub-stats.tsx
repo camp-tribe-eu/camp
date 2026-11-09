@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import type { HubFaqItem, HubTile } from '@/lib/hub-stats';
 import { Block } from '@/components/layout';
 
@@ -6,6 +7,62 @@ import { Block } from '@/components/layout';
 // handed nothing — no empty grid, no heading over no questions — so a
 // region whose counts failed to arrive looks like today's page, not like
 // a broken one.
+//
+// CAMP-451: both are drawn by the theme's rules now, not by bare borders.
+//
+// 🔴 TILES — the `collection-card` surface of Fuse (`collection-card.
+// build.css`, read from the `fuse 1.0.1.zip` archive 09.11.2026): an
+// outer frame `padding:4px` (≥992: 8px) with radius `--global-border-
+// radius` on `--color-background-secondary`, and an inner panel with
+// radius `calc(r * .75)`. The grid gap is the theme's `list-collections`
+// row-gap: 8px, 12px from 992.
+//
+// 🔴 FAQ — the theme's FAQ accordion (`faq-simple.build.css`, 47 rules,
+// 4 860 bytes, and `snippets/faq-accordion-item.liquid`), literally:
+//
+//   .faq__items-category-list{display:flex;flex-direction:column;gap:4px}
+//                                                          ≥992: gap:12px
+//   .faq__accordion-item{border-radius:calc(var(--global-border-radius)*.75);
+//       background:var(--color-background-secondary)}     ≥992: radius r
+//   .faq__accordion-item-control{gap:12px;padding:8px 16px}
+//                                                ≥992: 16px 20px 16px 32px
+//   .faq-simple__item-title-text{font-size:var(--body-font-size);
+//       font-weight:600;line-height:1.5;text-align:start}
+//                                        ≥992: 1.5 × body, line-height 1.333
+//   .faq__accordion-item-icon{width:48px;height:40px;flex-shrink:0;
+//       border-radius:calc(r*.75);border:1px solid var(--color-border-primary);
+//       display:flex;align-items:center;justify-content:center}
+//                                        ≥992: 80×64, radius calc(r*1.25)
+//   .faq__accordion-item.is-active .faq__accordion-item-icon-plus{
+//       transform:rotate(90deg)}
+//   .faq__accordion-item-inner{padding:0 16px 8px;display:flex;
+//       flex-direction:column;gap:12px}
+//
+// 🔴 WHERE WE KNOWINGLY DO NOT COPY THE THEME — named, not fudged: the
+// theme opens and closes items with JavaScript (`<button aria-expanded>`
+// + `section-faq.build.js`). Here the item stays a `<details>`/`<summary>`
+// pair: it opens without any script, which is the crawl criterion of
+// CAMP-71 and what hub-screens.spec.tsx counts. The theme's look — the
+// rounded item, the control row, the plus in a bordered box that turns
+// into a minus — is drawn on top of it; the native `▶` marker is hidden.
+//
+// 🔴 CSS TRAVELS IN THE HTML (`<style href precedence>`), as in
+// ticker.tsx: a test reads the rule from the served markup, not from a
+// constant.
+
+// Not exported on purpose: a test must read the served HTML, not this.
+const STATS_CSS = `
+.ct-stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:0}
+.ct-stat{display:flex;flex-direction:column;padding:4px;border-radius:var(--r,16px);background-color:var(--color-surface-2)}
+.ct-stat:last-child:nth-child(odd){grid-column:span 2}
+.ct-stat__panel{display:grid;gap:2px;flex:1 1 auto;padding:12px 16px;border-radius:calc(var(--r,16px) * .75);background-color:var(--color-surface)}
+.ct-stat__label{font-size:.75rem;color:var(--color-ink-2)}
+.ct-stat__value{font-size:1.25rem;font-weight:700;font-variant-numeric:tabular-nums;color:var(--color-heading)}
+.ct-stat__note{margin-top:2px;font-size:.75rem;color:var(--color-ink-2)}
+.ct-stats__as-of{margin-top:8px;font-size:.75rem;color:var(--color-ink-2)}
+@media(min-width:768px){.ct-stats{grid-template-columns:repeat(var(--ct-stats-cols,3),1fr);gap:12px}.ct-stat:last-child:nth-child(odd){grid-column:auto}}
+@media(min-width:992px){.ct-stat{padding:8px}}
+`;
 
 export function HubStatTiles({
   tiles,
@@ -19,42 +76,54 @@ export function HubStatTiles({
   // As many columns as tiles, never an empty cell: the mock-up's four
   // are three on most pages today (lib/hub-stats.ts), and a fourth cell
   // with nothing in it reads as a figure that failed to load.
-  const cols =
-    tiles.length >= 4
-      ? 'md:grid-cols-4'
-      : tiles.length === 3
-        ? 'md:grid-cols-3'
-        : tiles.length === 2
-          ? 'md:grid-cols-2'
-          : 'md:grid-cols-1';
+  const cols = Math.min(4, tiles.length);
   return (
-    <section aria-label="Key figures" className="mt-6">
-      <dl
-        className={`grid grid-cols-2 gap-px overflow-hidden rounded border border-line-2 bg-line-2 ${cols}`}
-      >
+    <section
+      aria-label="Key figures"
+      className="mt-6"
+      style={{ '--ct-stats-cols': String(cols) } as CSSProperties}
+    >
+      <style href="ct-stats" precedence="ct-components">
+        {STATS_CSS}
+      </style>
+      <dl className="ct-stats">
         {tiles.map((t) => (
-          <div
-            key={t.key}
-            // On two columns an odd last tile takes the whole row, for
-            // the same reason: no empty cell.
-            className="grid gap-0.5 bg-surface px-4 py-3.5 odd:last:col-span-2 md:odd:last:col-span-1"
-          >
-            <dt className="text-xs text-ink-2">{t.label}</dt>
-            <dd>
-              <strong className="text-xl font-bold tabular-nums text-heading">
-                {t.value}
-              </strong>
-              {/* A block, not a span: the note is its own line for a reader
-                  and its own token for a test that reads the HTML. */}
-              {t.note && <p className="mt-0.5 text-xs text-ink-2">{t.note}</p>}
-            </dd>
+          // On two columns an odd last tile takes the whole row, for
+          // the same reason: no empty cell (`.ct-stat:last-child:nth-child(odd)`).
+          <div key={t.key} className="ct-stat">
+            <div className="ct-stat__panel">
+              <dt className="ct-stat__label">{t.label}</dt>
+              <dd>
+                <strong className="ct-stat__value">{t.value}</strong>
+                {/* A block, not a span: the note is its own line for a reader
+                    and its own token for a test that reads the HTML. */}
+                {t.note && <p className="ct-stat__note">{t.note}</p>}
+              </dd>
+            </div>
           </div>
         ))}
       </dl>
-      {asOf && <p className="mt-2 text-xs text-ink-2">{asOf}</p>}
+      {asOf && <p className="ct-stats__as-of">{asOf}</p>}
     </section>
   );
 }
+
+// Not exported on purpose: a test must read the served HTML, not this.
+const FAQ_CSS = `
+.ct-faq{display:flex;flex-direction:column;gap:4px;margin-top:12px}
+.ct-faq__item{border-radius:calc(var(--r,16px) * .75);background-color:var(--color-surface-2)}
+.ct-faq__control{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 16px;cursor:pointer;list-style:none;font-weight:600;line-height:1.5;text-align:start;word-break:break-word;color:var(--color-heading)}
+.ct-faq__control::-webkit-details-marker{display:none}
+.ct-faq__control::marker{content:""}
+.ct-faq__control:focus-visible{outline:1px solid var(--color-heading);outline-offset:-2px;border-radius:inherit}
+.ct-faq__icon{display:flex;flex-shrink:0;align-items:center;justify-content:center;width:48px;height:40px;border-radius:calc(var(--r,16px) * .75);border:1px solid var(--color-line-2);color:var(--color-heading)}
+.ct-faq__icon svg{width:16px;height:16px}
+.ct-faq__plus-v{transform-origin:center;transition:transform .2s}
+.ct-faq__item[open] .ct-faq__plus-v{transform:rotate(90deg)}
+.ct-faq__inner{display:flex;flex-direction:column;gap:12px;padding:0 16px 8px;color:var(--color-ink-2)}
+@media(min-width:992px){.ct-faq{gap:12px}.ct-faq__item{border-radius:var(--r,16px)}.ct-faq__control{padding:16px 20px 16px 32px;font-size:1.5rem;line-height:1.333}.ct-faq__icon{width:80px;height:64px;border-radius:calc(var(--r,16px) * 1.25)}.ct-faq__inner{padding:0 32px 16px}}
+@media(prefers-reduced-motion:reduce){.ct-faq__plus-v{transition:none}}
+`;
 
 export function HubFaq({
   items,
@@ -66,19 +135,35 @@ export function HubFaq({
   if (items.length === 0) return null;
   return (
     <Block as="section" measure="read" aria-labelledby="hub-faq-heading" className="mt-10">
+      <style href="ct-faq" precedence="ct-components">
+        {FAQ_CSS}
+      </style>
       <h2 id="hub-faq-heading" className="text-xl font-bold md:text-[25px]">
         Questions about camping in {region}
       </h2>
-      <div className="mt-3 grid gap-2">
+      <div className="ct-faq">
         {items.map((f) => (
-          <details
-            key={f.key}
-            className="rounded border border-line-2 bg-surface-2 px-3.5 py-3"
-          >
-            <summary className="cursor-pointer font-semibold text-heading">
-              {f.question}
+          <details key={f.key} className="ct-faq__item">
+            <summary className="ct-faq__control">
+              <span className="ct-faq__question">{f.question}</span>
+              <span className="ct-faq__icon" aria-hidden="true">
+                {/* The theme's `plus-minus` icon: two bars; the vertical one
+                    turns 90° onto the horizontal when the item is open. */}
+                <svg viewBox="0 0 16 16" fill="none" focusable="false">
+                  <path d="M2 8h12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                  <path
+                    className="ct-faq__plus-v"
+                    d="M8 2v12"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </span>
             </summary>
-            <p className="mt-2 text-sm text-ink-2">{f.answer}</p>
+            <div className="ct-faq__inner">
+              <p className="text-sm">{f.answer}</p>
+            </div>
           </details>
         ))}
       </div>
