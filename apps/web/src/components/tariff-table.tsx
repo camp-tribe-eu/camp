@@ -4,10 +4,40 @@ import {
   formatPrice,
   groupTariffs,
   isRenderableTariff,
+  NO_SEASON_LABEL,
   policyLabel,
   type Tariff,
 } from '@/lib/tariffs';
 import { formatUpdated, SOURCES } from '@/lib/sources';
+
+/**
+ * Один спливний блок на всю таблицю; кожен значок «i» — його викликач
+ * (CAMP-475). Сталий рядок, а не `useId()`: компонент серверний, і
+ * `popoverTarget` мусить збігтись із `id` у тій самій відданій розмітці.
+ * На сторінці одна таблиця цін, тож двох таких блоків не буває.
+ */
+const NOTE_ID = 'tariff-price-note';
+
+/**
+ * 🔴 ВИГЛЯД ЇДЕ В РОЗМІТЦІ, щоб тест читав правило з ВІДДАНОГО HTML, а
+ * не з константи компонента — як у `pagination.tsx` і `hub-stats.tsx`.
+ *
+ * Розміри значка — з правила теми про зону натискання: 24px видимого
+ * кружка мало для пальця, тому зона розсунута псевдоелементом до 44px
+ * (CAMP-345 вимагає 48 для самостійних кнопок; цей значок стоїть
+ * усередині рядка таблиці поруч із числом, тож 44 — компроміс, і він
+ * названий, а не випадковий).
+ */
+const PRICE_NOTE_CSS = `
+.ct-price{display:inline-flex;align-items:center;gap:6px}
+.ct-price__i{position:relative;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;flex:0 0 auto;border:1px solid var(--color-line-2);border-radius:50%;background:var(--color-surface);color:var(--color-ink-2);font-size:11px;font-weight:700;line-height:1;cursor:pointer}
+.ct-price__i::after{content:"";position:absolute;top:50%;left:50%;width:44px;height:44px;transform:translate(-50%,-50%)}
+.ct-price__i:hover,.ct-price__i:focus-visible{border-color:var(--color-heading);color:var(--color-heading)}
+.ct-price__i:focus-visible{outline:2px solid var(--color-line-blue);outline-offset:2px}
+.ct-price__noseason{font-style:italic}
+.ct-price__popup{max-width:420px;margin:auto;padding:16px 20px;border:1px solid var(--color-line-2);border-radius:var(--r,16px);background:var(--color-surface);color:var(--color-ink);font-size:.875rem;line-height:1.6}
+.ct-price__popup::backdrop{background:color-mix(in srgb, var(--ink) 35%, transparent)}
+`;
 
 // CAMP-147 — the campsite's price list.
 //
@@ -88,12 +118,32 @@ function Rows({
               )}
             </th>
             <td className="py-2 pr-3 font-semibold text-heading tabular-nums">
-              {price}
+              <span className="ct-price">
+                {price}
+                {/* 🔴 CAMP-475. Той самий спливний блок на всі рядки —
+                    один `popover`, багато викликачів. Нативний, тож
+                    відкривається без жодного JS, закривається Escape і
+                    кліком повз, і доступний із клавіатури. Ховер ОДИН
+                    тут був би недоступним: з клавіатури навести не
+                    можна. */}
+                <button
+                  type="button"
+                  popoverTarget={NOTE_ID}
+                  className="ct-price__i"
+                  aria-label="Where this price comes from"
+                >
+                  i
+                </button>
+              </span>
             </td>
             <td className="py-2 text-ink-2">
-              <time dateTime={t.validFrom ?? t.validUntil ?? undefined}>
-                {period}
-              </time>
+              {period === null ? (
+                <span className="ct-price__noseason">{NO_SEASON_LABEL}</span>
+              ) : (
+                <time dateTime={t.validFrom ?? t.validUntil ?? undefined}>
+                  {period}
+                </time>
+              )}
               {marker && (
                 // Said on the row as well as in the heading, because a
                 // screen reader reaching this cell may not still have
@@ -116,11 +166,9 @@ function Rows({
 
 export default function TariffTable({
   tariffs,
-  withheld = 0,
   now,
 }: {
   tariffs: Tariff[] | undefined;
-  withheld?: number;
   /** Injected so a test can stand on a fixed day. Defaults to today. */
   now?: Date;
 }) {
@@ -147,6 +195,9 @@ export default function TariffTable({
       aria-labelledby="tariffs-heading"
       className="mt-8 rounded-card border border-line-2 bg-surface-2 p-4"
     >
+      <style href="ct-price-note" precedence="ct-components">
+        {PRICE_NOTE_CSS}
+      </style>
       <h2
         id="tariffs-heading"
         className="text-sm uppercase tracking-[0.08em] text-ink-2"
@@ -156,8 +207,9 @@ export default function TariffTable({
 
       <p className="mt-2 text-sm leading-6 text-ink-2">
         <span data-boilerplate="tariffs-intro">
-          Published by the operator, not by us. Each price is shown with the
-          season it applies to, because these are seasonal rates.
+          Published by the operator, not by us. Where the source states a
+          season, it is shown beside the price; where it states none, the
+          row says so.
         </span>{' '}
         {source && (
           <>
@@ -285,20 +337,24 @@ export default function TariffTable({
         </div>
       )}
 
-      {withheld > 0 && (
-        // 🔴 The gap, stated. The source publishes these with no season
-        // at all and we will not print an undated price — but a table
-        // that silently holds back two thirds of a price list has
-        // misrepresented it by omission.
-        <p
-          className="mt-4 text-sm leading-6 text-ink-2"
-          data-testid="tariffs-withheld"
-        >
-          The source publishes {withheld} further{' '}
-          {withheld === 1 ? 'price' : 'prices'} for this campsite with no
-          validity period. We do not show a price we cannot date.
-        </p>
-      )}
+      {/* 🔴 CAMP-475. Застереження, яким оплачено показ недатованої ціни.
+          Воно НЕ ховається у спливному блоці цілком: речення про те, що
+          ціну встановлює оператор, стоїть у розмітці завжди, і читач
+          екрана чує його без жодної взаємодії. Спливний блок — це спосіб
+          не захаращувати таблицю, а не спосіб заховати застереження. */}
+      <div
+        popover="auto"
+        id={NOTE_ID}
+        className="ct-price__popup"
+        data-testid="tariffs-price-note"
+      >
+        Prices come from the campsite&rsquo;s own listing in an official
+        tourism network, and some of them carry no stated season. They can
+        change. The final price is set by the campsite, not by us &mdash;
+        please confirm it with them when you book. We are not the seller and
+        take no payment.
+      </div>
+
     </section>
   );
 }

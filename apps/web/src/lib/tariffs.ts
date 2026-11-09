@@ -200,8 +200,34 @@ export function hasValidityPeriod(t: Tariff): boolean {
   return day(t.validFrom) !== null || day(t.validUntil) !== null;
 }
 
+/**
+ * 🔴 CAMP-475: БІЛЬШЕ НЕ ФІЛЬТРУЄ ЗА ПЕРІОДОМ, і це рішення власника,
+ * а не спрощення.
+ *
+ * Правило «не показуємо ціну, яку не можемо датувати» (CAMP-147) ховало
+ * 5 757 рядків із 13 560 — 42% усього, що ми маємо. Через нього свіжу
+ * датовану ціну показували 884 кемпінги з 23 911 французьких, тобто
+ * 3,7% сторінок. Власник 09.11.2026: «показуй ціни де є, дата може бути
+ * показана чи відсутня тут, але треба поставити … фінальна ціна може
+ * відрізнятись, просимо уточнити у провайдера».
+ *
+ * Плата за це — застереження біля кожної ціни (значок «i» у таблиці) і
+ * чесна позначка «Season not stated» у колонці періоду. Мовчки показати
+ * недатоване число було б рівно тією брехнею, проти якої писався
+ * CAMP-147; показати його з поясненням — інша річ.
+ *
+ * ⚠️ Свіжість фільтрується НЕ тут, а в SQL (`spots/tariffs.ts`): рядок,
+ * якого фід більше не називає, — не «ціна без дати», а ціна, яку джерело
+ * зняло, і її не показуємо далі.
+ */
 export function displayableTariffs(tariffs: Tariff[]): Tariff[] {
-  return tariffs.filter(hasValidityPeriod);
+  // 🔴 ФІЛЬТР ЛИШИВСЯ, АЛЕ ЗМІНИВ ПРЕДМЕТ: було «має період», стало «має
+  // суму». Перша редакція цієї правки повертала масив як є — і рядок без
+  // числа доходив до групування, тож компонент бачив непорожню групу,
+  // малював секцію «What it costs» і ПОРОЖНЮ таблицю під нею: `Rows`
+  // викидав рядок уже всередині. Тест «рядок малюється цілим або ніяк»
+  // це спіймав.
+  return tariffs.filter(isRenderableTariff);
 }
 
 /**
@@ -223,7 +249,10 @@ export function displayableTariffs(tariffs: Tariff[]): Tariff[] {
  * is reachable only here, and both now fail a test when removed.
  */
 export function isRenderableTariff(t: Tariff): boolean {
-  return formatPrice(t) !== null && formatPeriod(t) !== null;
+  // 🔴 CAMP-475: період більше НЕ обовʼязковий — недатована ціна тепер
+  // малюється з позначкою «Season not stated». Сума лишається
+  // обовʼязковою: рядок без числа — це не ціна ні за яким правилом.
+  return formatPrice(t) !== null;
 }
 
 export type TariffGroups = {
@@ -366,6 +395,15 @@ export function formatPeriod(t: Tariff): string | null {
   if (until) return `until ${shortDate(until)}`;
   return null;
 }
+
+/**
+ * Те, що друкується в колонці періоду, коли періоду немає (CAMP-475).
+ *
+ * Окремою константою, а не рядком у розмітці: те саме речення читає
+ * тест, і воно ж має лишитись єдиним — два різні формулювання «дати
+ * немає» на одній сторінці читались би як два різні факти.
+ */
+export const NO_SEASON_LABEL = 'Season not stated';
 
 /** What the tariff is for, in one phrase: "Bare pitch, per night". */
 export function describeTariff(t: Tariff): string {

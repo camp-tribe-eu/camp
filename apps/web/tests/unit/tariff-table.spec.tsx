@@ -153,10 +153,28 @@ test.describe('the panel keeps its other promises', () => {
     expect(text).toContain('31 August 2026');
   });
 
-  test('🔴 the withheld count is stated, not swallowed', () => {
-    const text = visibleText(render([current], { withheld: 8 }));
-    expect(text).toContain('8 further');
-    expect(text).toContain('cannot date');
+  test('🔴 застереження про ціну стоїть у розмітці, а не лише у спливному блоці', () => {
+    // CAMP-475. Недатовану ціну тепер показуємо, і платою за це є це
+    // застереження. Воно НЕ сміє бути доступним лише після кліку:
+    // читач екрана має почути його без жодної взаємодії, тож текст
+    // живе у відданому HTML, а `popover` лише ховає його візуально.
+    const text = visibleText(render([current]));
+    expect(text).toContain('The final price is set by the campsite');
+    expect(text).toContain('confirm it with them when you book');
+    expect(text).toContain('not the seller');
+  });
+
+  test('🔴 біля кожної ціни є значок «i», і він веде на той самий блок', () => {
+    const html = render([
+      current,
+      tariff({ validFrom: '2026-11-02', validUntil: '2026-12-30' }),
+    ]);
+    const targets = [...html.matchAll(/popovertarget="([^"]+)"/gi)].map((m) => m[1]);
+    expect(targets.length, 'значків «i» не стільки, скільки цін').toBe(2);
+    expect(new Set(targets).size, 'значки ведуть на різні блоки').toBe(1);
+    expect(html).toContain(`id="${targets[0]}"`);
+    // Доступне імʼя, бо сама літера «i» ним бути не може.
+    expect(html).toContain('aria-label="Where this price comes from"');
   });
 
   test('nothing is claimed when there is nothing to show', () => {
@@ -164,10 +182,22 @@ test.describe('the panel keeps its other promises', () => {
     expect(nothing(undefined)).toBe(true);
   });
 
-  test('🔴 an undated tariff cannot be rendered even if one arrives', () => {
-    // The API filters these in SQL and `groupTariffs` filters them
-    // again. This is the third lock, at the last possible moment.
-    expect(nothing([tariff({ validFrom: null, validUntil: null })])).toBe(true);
+  test('🔴 недатована ціна МАЛЮЄТЬСЯ — і каже, що сезону немає', () => {
+    // CAMP-475, рішення власника: «показуй ціни де є, дата може бути
+    // показана чи відсутня». Раніше тут стояв протилежний тест — три
+    // замки на недатований рядок. Тепер замок один і він про інше:
+    // рядок без СУМИ не малюється ніколи.
+    const text = visibleText(
+      render([tariff({ validFrom: null, validUntil: null })]),
+    );
+    expect(text).toContain('Season not stated');
+    expect(text).toContain('€18');
+  });
+
+  test('🔴 рядок без суми не малюється й тепер — послаблення стосувалось дати, не числа', () => {
+    expect(
+      nothing([tariff({ validFrom: null, validUntil: null, minPrice: null, maxPrice: null })]),
+    ).toBe(true);
   });
 
   test('the operator’s own words carry their language', () => {

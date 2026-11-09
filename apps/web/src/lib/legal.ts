@@ -224,8 +224,13 @@ export const LEGAL_PAGES: LegalPage[] = [
     // 1.1 (02.11.2026, debt #29): supermarket only, slug suffix is global,
     // two decisions computed rather than stored, and the tags of a merged
     // duplicate are kept. Migration 1793802000000-DatabaseHonestClaims.
-    version: '1.1',
-    effectiveFrom: '2026-11-02',
+    //
+    // 1.2 (09.11.2026, CAMP-475): the rule for showing a price changed, so
+    // the sentence describing it had to. An undated price is now shown,
+    // marked "Season not stated"; a price the feed has stopped
+    // republishing is dropped. Migration 1794900000000-DatabaseUndatedPrices.
+    version: '1.2',
+    effectiveFrom: '2026-11-09',
   },
   {
     slug: 'notice',

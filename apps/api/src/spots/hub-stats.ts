@@ -1,6 +1,6 @@
 import { notSecondarySql } from './links';
 import { overnightStatusSql } from './overnight';
-import { DISPLAYABLE_TARIFF_SQL } from './tariffs';
+import { HUB_PRICE_TARIFF_SQL } from './tariffs';
 
 // The figures behind the hub pages' stat tiles and FAQ (design-audit §11,
 // screens 1 and 2), counted from OUR rows, one row per region of a
@@ -67,7 +67,12 @@ export const HUB_STATS_SQL = `
          AND t.currency = 'EUR'
          AND t.mode = 'Overnight'
          AND t.min_price > 0
-         AND ${DISPLAYABLE_TARIFF_SQL}
+         -- 🔴 CAMP-475: СУВОРІШЕ, НІЖ НА СТОРІНЦІ КЕМПІНГУ, і це свідомо.
+         -- Сторінка показує недатовану ціну з позначкою «Season not
+         -- stated» і нотою про джерело — читач бачить, чого це число
+         -- варте. Плитка хаба показує ОДНЕ число без жодного контексту,
+         -- тож тут лишається й умова про дату.
+         AND ${HUB_PRICE_TARIFF_SQL}
     ) p ON true
    WHERE lower(s.country) = lower($1)
      AND s.region IS NOT NULL AND s.missing_since IS NULL

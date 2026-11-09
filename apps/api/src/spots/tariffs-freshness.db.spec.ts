@@ -173,18 +173,23 @@ test(`🔴 межа рівно на ${TARIFF_STALE_AFTER_DAYS} добах: на 
   expect(await shownCount()).toBe(2);
 });
 
-test('🔴 «withheld» рахує лише СВІЖІ недатовані — бо речення на сторінці про те, що джерело публікує ЗАРАЗ', async () => {
-  // Текст на сторінці: «The source publishes N further prices for this
-  // campsite with no validity period». Про рядок, якого фід більше не
-  // публікує, це речення хибне двічі: джерело його вже не публікує, і
-  // період у нього міг бути. Тому застарілий рядок не показується і НЕ
-  // рахується ніде.
+test('🔴 CAMP-475: недатована свіжа ціна ПОКАЗУЄТЬСЯ, застаріла — ні, і прихованих більше немає', async () => {
+  // Рішення власника 09.11.2026. Речення «The source publishes N further
+  // prices … with no validity period» зі сторінки зникло разом із самим
+  // приховуванням: недатований свіжий рядок тепер видно, з позначкою
+  // «Season not stated» і нотою про джерело ціни.
+  //
+  // 🔴 А застарілий рядок і далі не показується й не рахується ніде: про
+  // те, чого джерело БІЛЬШЕ НЕ ПУБЛІКУЄ, будь-яке речення хибне.
   const base = new Date('2026-11-09T06:00:00Z');
   await tariff({ ref: 'shown', dated: true, fetchedAt: at(base, 0) });
   await tariff({ ref: 'undated-fresh', dated: false, fetchedAt: at(base, 0) });
   await tariff({ ref: 'undated-stale', dated: false, fetchedAt: at(base, 30) });
   await tariff({ ref: 'dated-stale', dated: true, fetchedAt: at(base, 30) });
 
-  expect(await shownCount()).toBe(1);
-  expect(await withheldCount()).toBe(1);
+  // Двоє свіжих — датований і недатований. Двоє застарілих — ні.
+  expect(await shownCount()).toBe(2);
+  // Категорія «приховано» спорожніла: ховати за відсутність дати ми
+  // перестали, а застарілий рядок сюди ніколи й не рахувався.
+  expect(await withheldCount()).toBe(0);
 });
