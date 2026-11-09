@@ -94,10 +94,9 @@ async function tariff(opts: {
 
 /** Те, що віддає читальний шлях: назви `source_ref` показаних тарифів. */
 async function shown(): Promise<string[]> {
-  const { rows } = await db.query(
-    `SELECT ${tariffsSql('$1::uuid')} AS t`,
-    [SPOT],
-  );
+  const { rows } = await db.query(`SELECT ${tariffsSql('$1::uuid')} AS t`, [
+    SPOT,
+  ]);
   // `tariffsSql` не віддає source_ref назовні — звіряємо за кількістю й ціною.
   return (rows[0].t as unknown[]).map(() => 'row');
 }
@@ -160,7 +159,11 @@ test(`🔴 межа рівно на ${TARIFF_STALE_AFTER_DAYS} добах: на 
             - interval '${TARIFF_STALE_AFTER_DAYS} days' AS edge`,
   );
   const edge: Date = rows[0].edge;
-  await tariff({ ref: 'on-the-line', dated: true, fetchedAt: edge.toISOString() });
+  await tariff({
+    ref: 'on-the-line',
+    dated: true,
+    fetchedAt: edge.toISOString(),
+  });
   await tariff({
     ref: 'past-the-line',
     dated: true,
