@@ -76,8 +76,16 @@ test.describe("🔴 CAMP-365 — головна", () => {
   test("🔴 заголовок і вступ лишились тих самих класів", async ({ page }) => {
     await page.goto("/");
     await expect(page.locator("main h1")).toHaveClass(
-      /max-w-\[18ch\].*text-3xl.*font-bold/,
+      /max-w-\[18ch\].*text-3xl/,
     );
+    // 🔴 ВАГА ПЕРЕВІРЯЄТЬСЯ ОБЧИСЛЕНОЮ, А НЕ КЛАСОМ (CAMP-467). Раніше тут
+    // стояло `font-bold` у тому ж регулярному виразі, і це було слабше
+    // твердження, ніж здається: клас на місці ще не означає, що правило
+    // доїхало. Тепер вагу всіх h1…h6 задає одне правило в globals.css
+    // (700, як у темі), класів ваги на заголовках немає взагалі, і
+    // перевірка тут питає браузер, а не розмітку — тобто ловить і
+    // загублений клас, і загублене правило.
+    await expect(page.locator("main h1")).toHaveCSS("font-weight", "700");
     // CAMP-447: ширину дає `<Block measure="read">`, і її клас стоїть першим.
     await expect(page.locator("main p").first()).toHaveClass(
       /max-w-read.*mt-4.*text-ink-2/,

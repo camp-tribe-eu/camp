@@ -37,6 +37,7 @@ import {
 } from '@/lib/hub-filters';
 import { breadcrumbList, collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { ButtonLink } from '@/components/button';
+import { Pagination } from '@/components/pagination';
 import RegionInsights from '@/components/region-insights';
 import RegionDriving from '@/components/region-driving';
 import { countedAsOf, regionFaq, regionTiles } from '@/lib/hub-stats';
@@ -201,11 +202,28 @@ export default async function RegionListing({
         </ul>
       )}
 
+      {/* CAMP-451: the theme's paginator (components/pagination.tsx).
+          Plain links, no JavaScript — the card's criterion is an unaided
+          crawl, and a paginator built on a click handler is invisible to
+          it. A filtered or sorted set's pages live in the query string
+          rather than in `/page/N` — those addresses are the unfiltered
+          set's, made by the build — and carry `rel="nofollow"` (relFor). */}
       {pages > 1 &&
         (hasState(q) ? (
-          <FilteredPagination base={base} q={q} pages={pages} />
+          <Pagination
+            className="mt-8"
+            page={q.page}
+            pages={pages}
+            href={(n) => hubHref(base, withPage(q, n))}
+            rel={(n) => relFor(hubHref(base, withPage(q, n)))}
+          />
         ) : (
-          <Pagination base={base} page={page} pages={pages} />
+          <Pagination
+            className="mt-8"
+            page={page}
+            pages={pages}
+            href={(n) => (n === 1 ? base : `${base}/page/${n}`)}
+          />
         ))}
 
       {baseFirstPage && <HubFaq items={faq} region={data.region} />}
@@ -513,67 +531,6 @@ function SpotListCard({ spot, href }: { spot: SpotCard; href: string }) {
         <p className="mt-2 text-xs text-ink-2">Facilities not recorded</p>
       )}
     </li>
-  );
-}
-
-/**
- * Plain links, no JavaScript — the card's criterion is an unaided crawl,
- * and a paginator built on a click handler is invisible to it.
- */
-function Pagination({
-  base,
-  page,
-  pages,
-}: {
-  base: string;
-  page: number;
-  pages: number;
-}) {
-  const href = (n: number) => (n === 1 ? base : `${base}/page/${n}`);
-  return (
-    <nav aria-label="Pagination" className="mt-8 flex flex-wrap gap-x-2 gap-y-3">
-      {Array.from({ length: pages }, (_, i) => i + 1).map((n) => (
-        <ButtonLink
-          key={n}
-          href={href(n)}
-          aria-current={n === page ? 'page' : undefined} variant={n === page ? 'accent' : 'chip'} size="sm" className="min-w-12 tabular-nums">
-          {n}
-        </ButtonLink>
-      ))}
-    </nav>
-  );
-}
-
-/**
- * The same paginator for a filtered or sorted set, whose pages live in
- * the query string rather than in `/page/N` — those addresses are the
- * unfiltered set's, made by the build. Same markup, same plain links.
- */
-function FilteredPagination({
-  base,
-  q,
-  pages,
-}: {
-  base: string;
-  q: HubQuery;
-  pages: number;
-}) {
-  return (
-    <nav aria-label="Pagination" className="mt-8 flex flex-wrap gap-x-2 gap-y-3">
-      {Array.from({ length: pages }, (_, i) => i + 1).map((n) => (
-        <ButtonLink
-          key={n}
-          href={hubHref(base, withPage(q, n))}
-          rel={relFor(hubHref(base, withPage(q, n)))}
-          aria-current={n === q.page ? 'page' : undefined}
-          variant={n === q.page ? 'accent' : 'chip'}
-          size="sm"
-          className="min-w-12 tabular-nums"
-        >
-          {n}
-        </ButtonLink>
-      ))}
-    </nav>
   );
 }
 

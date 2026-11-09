@@ -8,7 +8,12 @@ import { ButtonLink } from '@/components/button';
 import { breadcrumbList, collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
 import OvernightCoverage from '@/components/overnight-coverage';
-import { Block } from '@/components/layout';
+import { Block, PageShell } from '@/components/layout';
+import { LayeredBanner } from '@/components/layered-banner';
+import { RegionTicker } from '@/components/region-ticker';
+import { readRegionCard, readRegionCards, RegionTiles } from '@/components/region-tiles';
+import { GridBanner } from '@/components/grid-banner';
+import { BoxBanner } from '@/components/box-banner';
 
 // CAMP-71, level 1: the country hub.
 //
@@ -17,6 +22,23 @@ import { Block } from '@/components/layout';
 // linked: if the country page hid them, their campsites would be
 // reachable only from the sitemap, and the four-click path in the card
 // would be a claim about 80% of the data rather than all of it.
+//
+// CAMP-451. The page is composed from the section catalogue (CAMP-449/450)
+// in the owner's words (screens 441/42, 441/46, 441/52, 441/59): «банер
+// нагорі, картки регіонів із фото, … і внизу інформаційні секції».
+// Top to bottom: breadcrumb → layered banner with the h1 → ticker of the
+// largest regions → key figures on the theme's card → the two calls to
+// action, one loud and one quiet → overnight coverage → region cards →
+// two banners → the box banner about us.
+//
+// 🔴 THE REGION CARDS CARRY THE COUNTRY'S FLAG, NOT A PHOTO. There is no
+// region photography in this repository (zero images), and a placeholder
+// would be a promise of one. Same decision as the country tiles.
+//
+// 🔴 ONE BAD ROW COSTS ONE ROW. `readRegionCards` drops a row that cannot
+// become a card (no name, no slug) and keeps a row whose count did not
+// arrive, printing "Campsite count not recorded" in its place. The sums
+// below are taken over the counts that DID arrive.
 
 type Params = { country: string };
 
@@ -32,6 +54,12 @@ export async function generateStaticParams(): Promise<Params[]> {
   return (await getCountries()).map((c) => ({ country: c.country }));
 }
 
+const en = (n: number): string => n.toLocaleString('en-GB');
+
+/** The sum of the counts that arrived as counts. */
+const countedSpots = (cards: ReadonlyArray<{ spots: number | null }>): number =>
+  cards.reduce((n, r) => n + (r.spots ?? 0), 0);
+
 export async function generateMetadata(
   props: {
     params: Promise<Params>;
@@ -39,35 +67,50 @@ export async function generateMetadata(
 ): Promise<Metadata> {
   const params = await props.params;
   const name = countryName(params.country);
-  const regions = await getRegions(params.country);
-  const spots = regions.reduce((n, r) => n + r.spots, 0);
+  const regions = readRegionCards(await getRegions(params.country));
+  const spots = countedSpots(regions);
 
   return {
     title: `Campsites in ${name}`,
-    description: `${spots.toLocaleString('en-GB')} campsites and motorhome parks across ${regions.length} regions of ${name}. Facilities, locations and nearby sites.`,
+    description: `${en(spots)} campsites and motorhome parks across ${regions.length} regions of ${name}. Facilities, locations and nearby sites.`,
     alternates: alternatesFor(`/camping/${params.country}`),
   };
 }
 
 export default async function CountryHub(props: { params: Promise<Params> }) {
   const params = await props.params;
-  const [regions, stats] = await Promise.all([
+  const [rows, stats] = await Promise.all([
     getRegions(params.country),
     getHubStats(params.country),
   ]);
+  const regions = readRegionCards(rows);
   if (regions.length === 0) notFound();
+  // 🔴 Rows the overnight sentence may add up: those that became a card
+  // AND whose count arrived as a count. `overnightCoverage` does
+  // `spots += r.spots` — a `null` row would throw and a `spots: "many"`
+  // would concatenate, and either would take the whole page down for
+  // one bad record.
+  const countedRows = rows.filter((r) => {
+    const c = readRegionCard(r);
+    return c !== null && c.spots !== null;
+  });
 
   const name = countryName(params.country);
-  const spots = regions.reduce((n, r) => n + r.spots, 0);
+  const spots = countedSpots(regions);
   const tiles = countryTiles(stats);
+  const lead =
+    `${en(spots)} campsites, motorhome parks and camper stops across ` +
+    `${regions.length} ${regions.length === 1 ? 'region' : 'regions'}. ` +
+    'Facilities come from OpenStreetMap, and where nobody has recorded them ' +
+    'we say so rather than guessing.';
 
   return (
-    <main className="mx-auto max-w-wrap px-4 py-8 xl:px-6">
+    <PageShell rhythm="tight">
       <script
         {...jsonLdProps(
           collectionGraph({
             name: `Campsites in ${name}`,
-            description: `${spots.toLocaleString('en-GB')} campsites across ${regions.length} regions of ${name}.`,
+            description: `${en(spots)} campsites across ${regions.length} regions of ${name}.`,
             path: `/camping/${params.country}`,
             items: regions.map((r) => ({
               name: r.region,
@@ -96,45 +139,91 @@ export default async function CountryHub(props: { params: Promise<Params> }) {
         </ol>
       </nav>
 
-      <h1 className="mt-4 text-3xl md:text-[42px]">
-        Campsites in {name}
-      </h1>
-      <Block as="p" measure="read" className="mt-3 text-ink-2">
-        {spots.toLocaleString('en-GB')} campsites, motorhome parks and camper
-        stops across {regions.length} regions. Facilities come from
-        OpenStreetMap, and where nobody has recorded them we say so rather
-        than guessing.
-      </Block>
+      {/* 1. The layered banner carries the page's h1. Shorter than the
+          theme's 95vh: six sections follow it, and a full-screen banner
+          would hide every one of them below the fold. The background is
+          the same drawing /camping uses — we hold no country photography. */}
+      <LayeredBanner
+        className="mt-4"
+        headingLevel={1}
+        background={{ src: '/banners/eu-dawn.svg' }}
+        tickerText={name.toUpperCase()}
+        heading={`Campsites in ${name}`}
+        description={lead}
+        cta={{ href: '#regions', label: 'Browse regions' }}
+        minHeight="min(60svh, 480px)"
+        textSize={{ desktop: '120px', mobile: '48px' }}
+      />
 
-      {/* Design-audit §11, screen 1: the four figures and the two ways on.
+      {/* 2. Ticker of the largest regions. Renders nothing without a
+          region that has a count above zero. */}
+      <RegionTicker
+        country={params.country}
+        countryName={name}
+        regions={regions}
+        className="mt-8"
+      />
+
+      {/* 3. Design-audit §11, screen 1: the figures, on the theme's card.
           Which figures are printed is decided in lib/hub-stats.ts — a
           price appears only where enough sites carry one. */}
       <HubStatTiles tiles={tiles} asOf={countedAsOf(hubStatsReadAt(stats))} />
+
+      {/* 4. Two ways on, with a hierarchy: the map is the main action
+          (filled), planning a trip the quiet one (outlined). */}
       <div className="mt-5 flex flex-wrap gap-2">
-        <ButtonLink href="/map" variant="accent">
+        <ButtonLink href="/map" variant="primary">
           Open on map
         </ButtonLink>
-        <ButtonLink href="/plan">Plan a trip</ButtonLink>
+        <ButtonLink href="/plan" variant="secondary">
+          Plan a trip
+        </ButtonLink>
       </div>
 
       {/* 🔴 CAMP-255. Always rendered: a country where nothing is known
           says so in a sentence instead of saying nothing. */}
-      <OvernightCoverage countryName={name} regions={regions} />
+      <OvernightCoverage countryName={name} regions={countedRows} />
 
-      <h2 className="mt-8 text-xl md:text-[25px]">Regions</h2>
-      <ul className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-        {regions.map((r) => (
-          <li key={r.slug}>
-            <Link
-              href={`/camping/${params.country}/${r.slug}`}
-              className="flex items-baseline justify-between gap-3 rounded border border-line-2 bg-surface px-3 py-2 transition-colors hover:border-line-blue"
-            >
-              <span className="text-heading">{r.region}</span>
-              <span className="tabular-nums text-sm text-ink-2">{r.spots}</span>
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </main>
+      {/* 5. Region cards — every region, including the single-site ones. */}
+      <section aria-labelledby="regions" className="mt-10">
+        <h2 id="regions" className="scroll-mt-20 text-xl md:text-[25px]">
+          Regions
+        </h2>
+        <Block as="p" measure="read" className="mt-2 text-ink-2">
+          {regions.length} {regions.length === 1 ? 'region' : 'regions'} of {name},
+          each with its campsites, motorhome parks and camper stops.
+        </Block>
+        <RegionTiles country={params.country} regions={regions} className="mt-4" />
+      </section>
+
+      {/* 6. Two banners: the other things this site does for a trip here. */}
+      <GridBanner
+        className="mt-10"
+        items={[
+          {
+            image: { src: '/banners/camper.svg' },
+            heading: 'Rent a camper',
+            text: 'Licence classes, weights, tolls and insurance — what hiring a camper commits you to, country by country.',
+            cta: { href: '/camper-rental', label: 'Choose a country' },
+          },
+          {
+            image: { src: '/banners/tent.svg' },
+            heading: 'Guides',
+            text: 'Packing, driving, overnight rules and the small print of camping in Europe — written from our data, not from brochures.',
+            cta: { href: '/guides', label: 'Read the guides' },
+          },
+        ]}
+      />
+
+      {/* 7. The box banner about us. */}
+      <BoxBanner
+        className="mt-10"
+        image={{ src: '/banners/about.svg' }}
+        heading="About CampTribe"
+        text="What this site is, who makes it, and where every number on it comes from."
+        cta={{ href: '/about', label: 'Read about us' }}
+        align="start"
+      />
+    </PageShell>
   );
 }

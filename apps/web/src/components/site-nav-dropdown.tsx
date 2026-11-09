@@ -136,6 +136,27 @@ export function NavDropdown({ item }: { item: NavItem }) {
           aria-expanded={open}
           aria-controls={panelId}
           aria-label={`${item.label} submenu`}
+          // 🔴 ЧИТАЄ `open` ІЗ ЗАМИКАННЯ, А НЕ ФУНКЦІЄЮ ОНОВЛЕННЯ. Виглядає
+          // як місце, яке проситься на `setOpen((o) => !o)` — і саме така
+          // «спрощувальна» правка ламає дотик (CAMP-468).
+          //
+          // Заміряно 09.11.2026, Chromium і WebKit, ширина 1280, `hasTouch`.
+          // Один тап дає таку послідовність:
+          //
+          //   pointerover(touch) → pointerdown → pointerup → pointerleave
+          //   → mouseover → mouseenter → mousedown → mouseup → click
+          //
+          // Тобто сумісні мишачі події приходять ПІСЛЯ дотику, одним
+          // пакетом разом із кліком. `onMouseEnter` у цьому пакеті вже
+          // викликав `setOpen(true)`. Функція оновлення побачила б те
+          // значення й перевернула його назад у `false`: панель блимнула б
+          // і закрилась, а планшет не дістався б підпунктів. Замикання ж
+          // тримає `open === false` із попереднього малювання, тож обидва
+          // виклики кажуть «відкрити», і тап відкриває.
+          //
+          // Доведено мутацією: з `setOpen((o) => !o)` тест
+          // `tests/e2e/touch/header-dropdown-touch.spec.ts` червоніє
+          // («Received: "false"») в обох рушіях; без неї — зелений.
           onClick={() => (open ? close() : setOpen(true))}
           className="touch-target relative ms-1.5 grid h-6 w-6 shrink-0 place-items-center rounded-sm text-ink-2 ct-button-motion hover:text-heading focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-line-blue"
         >

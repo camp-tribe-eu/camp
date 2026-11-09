@@ -107,7 +107,26 @@ test.describe('hub crawl path', () => {
     // holds only for the big regions.
     const { thin } = await regions(request);
     await page.goto(`/camping/${thin.country}`);
-    await expect(page.locator(`a[href="${hub(thin)}"]`)).toBeVisible();
+
+    // 🔴 НЕ `toBeVisible()` НА ГОЛОМУ ЛОКАТОРІ. Після CAMP-451 сторінка
+    // країни веде на той самий регіон кількома шляхами — плиткою, тікером
+    // найбільших регіонів і лічильником — і строгий режим Playwright падав
+    // на «resolved to 3 elements». Це не дефект сторінки: три шляхи до
+    // регіону більш «linked», ніж один.
+    //
+    // Але `.first()` тут був би гіршим за падіння: якби видимим лишився
+    // лише третій, тест червонів би на першому й звинувачував сторінку в
+    // тому, чого немає. Тому твердження каже те, що справді потрібно —
+    // посилання існує, і принаймні одне з них читач бачить.
+    const links = page.locator(`a[href="${hub(thin)}"]`);
+    expect(
+      await links.count(),
+      'тонкий регіон зник із країни: жодного посилання',
+    ).toBeGreaterThan(0);
+    await expect(
+      links.filter({ visible: true }).first(),
+      'посилання на тонкий регіон є в розмітці, але жодне не видиме',
+    ).toBeVisible();
   });
 
   test('pagination works as plain links', async ({ page, request }) => {
