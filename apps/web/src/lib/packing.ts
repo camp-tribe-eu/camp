@@ -205,6 +205,62 @@ export const countItems = (groups: PackingGroup[]) =>
   groups.reduce((n, g) => n + g.items.length, 0);
 
 /** Plain text, for the copy button — a list is only useful if it travels. */
+/**
+ * CAMP-458 — пункти, які людина дописала сама.
+ *
+ * 🔴 ЦЕЙ ТЕКСТ НІКОЛИ НЕ ЇДЕ ДО НАС. Вимога власника дослівно: «люди
+ * понаписують гадості — тому їх не беремо собі нотатки». Тому він живе
+ * рівно у двох місцях: у стані сторінки й у посиланні, яким людина
+ * ділиться сама. Жодного запису в базу, жодного запиту.
+ *
+ * 🔴 `id` ІЗ ТЕКСТУ, А НЕ З НОМЕРА В ПЕРЕЛІКУ. `own-0`, `own-1`…
+ * здавались простішими, але галочки тримаються за `id`: видаливши
+ * перший пункт, решта зсунулась би, і позначеним став би інший рядок.
+ * Текст пункту — його власна адреса.
+ */
+export const OWN_GROUP_ID = 'own';
+
+/** Скільки своїх пунктів приймаємо, і чому саме стільки. */
+export const OWN_MAX_ITEMS = 25;
+/** І скільки символів у кожному. */
+export const OWN_MAX_LEN = 60;
+
+export function ownItemId(label: string): string {
+  return `${OWN_GROUP_ID}:${label.trim().toLowerCase().replace(/\s+/g, '-')}`;
+}
+
+/**
+ * Прибирає порожні, обрізає довгі, знімає дублікати й тримає межу.
+ *
+ * 🔴 Межі НЕ косметичні: цей перелік їде в АДРЕСНИЙ РЯДОК, а браузери
+ * мовчки відрізають довгі адреси. 25 × 60 символів ≈ 1.5 KB у запиті —
+ * з запасом нижче за будь-яку практичну межу, і людині вистачає.
+ */
+export function cleanOwnItems(raw: readonly string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const r of raw) {
+    const label = r.replace(/\s+/g, ' ').trim().slice(0, OWN_MAX_LEN);
+    if (!label) continue;
+    const id = ownItemId(label);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(label);
+    if (out.length >= OWN_MAX_ITEMS) break;
+  }
+  return out;
+}
+
+/** Групу своїх пунктів ставимо останньою — вона доповнює, а не заміщає. */
+export function withOwnItems(
+  groups: PackingGroup[],
+  own: readonly string[],
+): PackingGroup[] {
+  const items = cleanOwnItems(own).map((label) => ({ id: ownItemId(label), label }));
+  if (items.length === 0) return groups;
+  return [...groups, { id: OWN_GROUP_ID, title: 'Yours', items }];
+}
+
 export function asText(groups: PackingGroup[]): string {
   return groups
     .map(

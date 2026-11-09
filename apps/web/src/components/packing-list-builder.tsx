@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Checkbox from '@/components/checkbox';
+import { buttonClasses } from '@/components/button';
 import {
   asText,
   countItems,
@@ -11,6 +12,10 @@ import {
   type PackingInput,
   type Season,
   type VehicleKind,
+  OWN_MAX_ITEMS,
+  OWN_MAX_LEN,
+  cleanOwnItems,
+  withOwnItems,
 } from '@/lib/packing';
 
 // CAMP-55 — the packing list, built from a handful of answers.
@@ -30,6 +35,7 @@ const KEYS = {
   children: 'kids',
   dog: 'dog',
   done: 'done',
+  own: 'own',
 } as const;
 
 const DEFAULTS: PackingInput = {
@@ -43,7 +49,11 @@ const DEFAULTS: PackingInput = {
   dog: false,
 };
 
-function fromSearch(search: string): { input: PackingInput; done: Set<string> } {
+function fromSearch(search: string): {
+  input: PackingInput;
+  done: Set<string>;
+  own: string[];
+} {
   const q = new URLSearchParams(search);
   const input = { ...DEFAULTS };
   const v = q.get(KEYS.vehicle);
@@ -58,10 +68,22 @@ function fromSearch(search: string): { input: PackingInput; done: Set<string> } 
     const raw = q.get(KEYS[flag]);
     if (raw !== null) input[flag] = raw === '1';
   }
-  return { input, done: new Set((q.get(KEYS.done) ?? '').split(',').filter(Boolean)) };
+  // 🔴 Роздільник — переведення рядка, а не кома: кома в пункті
+  // («socks, thick») розрізала б його надвоє. `URLSearchParams` кодує
+  // перенос сам, тож адреса лишається коректною.
+  const own = cleanOwnItems((q.get(KEYS.own) ?? '').split('\n'));
+  return {
+    input,
+    done: new Set((q.get(KEYS.done) ?? '').split(',').filter(Boolean)),
+    own,
+  };
 }
 
-function toSearch(input: PackingInput, done: Set<string>): string {
+function toSearch(
+  input: PackingInput,
+  done: Set<string>,
+  own: readonly string[],
+): string {
   const q = new URLSearchParams();
   q.set(KEYS.vehicle, input.vehicle);
   q.set(KEYS.season, input.season);
@@ -71,6 +93,8 @@ function toSearch(input: PackingInput, done: Set<string>): string {
     q.set(KEYS[flag], input[flag] ? '1' : '0');
   }
   if (done.size > 0) q.set(KEYS.done, [...done].join(','));
+  const ownClean = cleanOwnItems(own);
+  if (ownClean.length > 0) q.set(KEYS.own, ownClean.join('\n'));
   return `?${q.toString()}`;
 }
 
@@ -104,6 +128,15 @@ export default function PackingListBuilder() {
     people: String(DEFAULTS.people),
   });
   const [done, setDone] = useState<Set<string>>(new Set());
+  /**
+   * 🔴 Пункти, які людина дописала сама. Живуть ТІЛЬКИ тут і в
+   * посиланні — у нашу базу не їдуть ніколи (вимога власника: «люди
+   * понаписують гадості — тому їх не беремо собі нотатки»). У цьому
+   * компоненті немає жодного `fetch`, і сторож
+   * `tests/unit/packing-own-items.spec.ts` це тримає.
+   */
+  const [own, setOwn] = useState<string[]>([]);
+  const [ownDraft, setOwnDraft] = useState('');
   const [copied, setCopied] = useState<'link' | 'text' | null>(null);
   // 🔴 The controls are inert until React has attached, so they say so.
   //
@@ -125,9 +158,10 @@ export default function PackingListBuilder() {
       people: String(parsed.input.people),
     });
     setDone(parsed.done);
+    setOwn(parsed.own);
   }, []);
 
-  const groups = packingList(input);
+  const groups = withOwnItems(packingList(input), own);
   const total = countItems(groups);
   const packed = groups
     .flatMap((g) => g.items)
@@ -151,17 +185,33 @@ export default function PackingListBuilder() {
   const copy = async (what: 'link' | 'text') => {
     const value =
       what === 'link'
-        ? `${window.location.origin}${window.location.pathname}${toSearch(input, done)}`
+        ? `${window.location.origin}${window.location.pathname}${toSearch(input, done, own)}`
         : asText(groups);
     try {
       await navigator.clipboard.writeText(value);
       setCopied(what);
     } catch {
       if (what === 'link') {
-        window.history.replaceState(null, '', toSearch(input, done));
+        window.history.replaceState(null, '', toSearch(input, done, own));
       }
       setCopied(null);
     }
+  };
+
+  const addOwn = () => {
+    const next = cleanOwnItems([...own, ownDraft]);
+    // 🔴 Нічого не змінилось — значить, пункт порожній, повторний або
+    // межу вже вибрано. Мовчки чистити поле в такому разі означало б
+    // «зникло, і незрозуміло чому», тож текст лишається на місці.
+    if (next.length === own.length) return;
+    setOwn(next);
+    setOwnDraft('');
+    setCopied(null);
+  };
+
+  const removeOwn = (label: string) => {
+    setOwn((prev) => prev.filter((l) => l !== label));
+    setCopied(null);
   };
 
   const field =
@@ -295,6 +345,74 @@ export default function PackingListBuilder() {
         >
           {copied === 'text' ? 'List copied' : 'Copy as text'}
         </button>
+      </div>
+
+      {/* 🔴 CAMP-458: свої пункти. Власник: «дати людині додавати СВОЇ
+          пункти, копіювати і ділитися списком», і одразу межа — «люди
+          понаписують гадості — тому їх не беремо собі нотатки».
+          Тому поле нижче не має ані форми, ані запиту: доданий текст
+          лишається в стані сторінки й у посиланні, яким ділиться сама
+          людина. */}
+      <div className="mt-6 rounded-card border border-line-2 bg-surface p-5">
+        <h2 className="text-lg text-heading">Add your own</h2>
+        <p className="mt-1 text-sm text-ink-2">
+          Yours stay in this page and in the link you copy. They are not sent
+          to us and we do not keep them.
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <input
+            id="pl-own"
+            type="text"
+            value={ownDraft}
+            maxLength={OWN_MAX_LEN}
+            disabled={!ready || own.length >= OWN_MAX_ITEMS}
+            placeholder="Head torch"
+            aria-label="Add your own item"
+            data-testid="own-input"
+            className={`${field} mt-0 max-w-xs flex-1`}
+            onChange={(e) => setOwnDraft(e.target.value)}
+            onKeyDown={(e) => {
+              // 🔴 Enter додає пункт, а НЕ надсилає форму: форми тут
+              // немає саме тому, що надсилати нема куди й нікому.
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                addOwn();
+              }
+            }}
+          />
+          <button
+            type="button"
+            data-testid="own-add"
+            disabled={!ready || own.length >= OWN_MAX_ITEMS}
+            className={buttonClasses('secondary', 'md')}
+            onClick={addOwn}
+          >
+            Add
+          </button>
+          <span className="text-sm text-ink-2" data-testid="own-count">
+            {own.length} of {OWN_MAX_ITEMS}
+          </span>
+        </div>
+        {own.length > 0 && (
+          <ul className="mt-3 flex flex-wrap gap-2" data-testid="own-list">
+            {own.map((label) => (
+              <li
+                key={label}
+                className="flex items-center gap-2 rounded-sm border border-line-2 px-2 py-1 text-sm"
+              >
+                <span>{label}</span>
+                <button
+                  type="button"
+                  aria-label={`Remove ${label}`}
+                  className="text-ink-2 underline"
+                  onClick={() => removeOwn(label)}
+                >
+                  remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <div className="mt-6 grid gap-6 md:grid-cols-2">
