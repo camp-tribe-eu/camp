@@ -18,6 +18,20 @@ const items = [
   { key: 'b', title: 'See the surroundings', text: 'Water, towns, terrain.' },
 ];
 
+const stepsHtml = () =>
+  renderComponent(PageSections, {
+    sections: [
+      {
+        type: 'steps',
+        heading: 'How this works',
+        items: [
+          { term: 'Find places', text: 'Pick a country.' },
+          { term: 'See the surroundings', text: 'Water and towns.' },
+        ],
+      } as SectionView,
+    ],
+  });
+
 test('🔴 порожній перелік не малює НІЧОГО', () => {
   expect(rendersNothing(FeatureRow, { items: [] })).toBe(true);
 });
@@ -64,6 +78,31 @@ test('у ряд стає рівно стільки карток, скільки 
  * якого ніхто не використовує, — це не секція каталогу, а мертвий код,
  * що проходить власні тести.
  */
+/**
+ * 🔴 ТРИ РЕГРЕСІЇ, ЯКІ Я ЗАВІЗ І ЯКІ ВПІЙМАВ НЕ Я, А `home.spec.ts`.
+ * Перша редакція секції зробила з кроків `<ul>` замість `<ol>`,
+ * замінила `<h3>` на `<span>` і сховала номер кроку під `aria-hidden`.
+ * Для ока виглядало краще; для читача екрана зникли і порядок, і обрис
+ * сторінки, і сам номер. Тепер це тримається тут, а не лише в e2e.
+ */
+test('🔴 кроки лишаються ВПОРЯДКОВАНИМ списком', () => {
+  const html = stepsHtml();
+  expect(html, 'кроки стали <ul> — порядок перестав бути змістом').toContain(
+    '<ol class="ct-feat"',
+  );
+});
+
+test('🔴 назва кроку лишається заголовком, а не span', () => {
+  expect(stepsHtml()).toContain('<h3 class="ct-feat__title"');
+});
+
+test('🔴 номер кроку чує й читач екрана, а не лише око', () => {
+  const html = stepsHtml();
+  // Кружечок із цифрою — картинка (`aria-hidden`), тож поруч мусить
+  // лежати текст, який вимовляється.
+  expect(html).toContain('<span class="sr-only">Step 1</span>');
+});
+
 test('🔴 кроки на головній намальовані цією секцією', () => {
   const html = renderComponent(PageSections, {
     sections: [

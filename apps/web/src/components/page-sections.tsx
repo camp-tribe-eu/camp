@@ -426,8 +426,13 @@ function Steps({ section, values }: RenderProps) {
       <div className="mt-5">
         <FeatureRow
           testId="steps"
+          ordered
+          titleAs="h3"
           items={items.map((s, i) => ({
             key: s.term,
+            // Номер чують і оком, і читачем екрана — див. 🔴 у
+            // `feature-row.tsx` про `srLabel`.
+            srLabel: `Step ${i + 1}`,
             // Номер кроку в кружечку — той самий прийом, що в теми, де
             // в заголовку картки стоїть велике число.
             icon: <span className="ct-feat__step">{i + 1}</span>,

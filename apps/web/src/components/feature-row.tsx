@@ -33,6 +33,17 @@ export interface FeatureItem {
   icon?: ReactNode;
   title: string;
   text: ReactNode;
+  /**
+   * 🔴 Те, що МУСИТЬ ПОЧУТИ читач екрана, якщо значок несе зміст.
+   *
+   * Значок стоїть під `aria-hidden`, бо зазвичай він лише картинка. Але
+   * номер кроку — це не картинка: до CAMP-449 у розмітці стояло «Step
+   * 1» звичайним текстом, і саме його вимовляв читач екрана. Перша
+   * редакція цієї секції замінила той текст кружечком із цифрою під
+   * `aria-hidden` — тобто номер кроку зник для нього зовсім. Упіймав
+   * `home.spec.ts`, не я.
+   */
+  srLabel?: string;
 }
 
 const FEATURE_CSS = `
@@ -52,29 +63,45 @@ const FEATURE_CSS = `
 export default function FeatureRow({
   items,
   testId,
+  ordered = false,
+  titleAs: TitleTag = 'span',
 }: {
   items: readonly FeatureItem[];
   testId?: string;
+  /**
+   * 🔴 `<ol>`, КОЛИ ПОРЯДОК Є ЗМІСТОМ. Кроки «How this works» були
+   * впорядкованим списком до цієї секції, і перша її редакція зробила
+   * їх `<ul>` — для читача екрана це вже не «крок 1 з 3», а просто
+   * перелік. Порядок там не оформлення, а сама суть.
+   */
+  ordered?: boolean;
+  /**
+   * 🔴 Заголовок картки буває ЗАГОЛОВКОМ. Кроки мали `<h3>` і стояли в
+   * обрисі сторінки; `span` викинув їх звідти мовчки.
+   */
+  titleAs?: 'span' | 'h3';
 }) {
   if (items.length === 0) return null;
+  const List = ordered ? 'ol' : 'ul';
   return (
     <>
       <style href="ct-feat" precedence="ct-components">
         {FEATURE_CSS}
       </style>
-      <ul className="ct-feat" data-testid={testId}>
+      <List className="ct-feat" data-testid={testId}>
         {items.map((f) => (
           <li key={f.key} className="ct-feat__item">
+            {f.srLabel && <span className="sr-only">{f.srLabel}</span>}
             {f.icon && (
               <span className="ct-feat__icon" aria-hidden="true">
                 {f.icon}
               </span>
             )}
-            <span className="ct-feat__title">{f.title}</span>
+            <TitleTag className="ct-feat__title">{f.title}</TitleTag>
             <span className="ct-feat__text">{f.text}</span>
           </li>
         ))}
-      </ul>
+      </List>
     </>
   );
 }
