@@ -187,7 +187,7 @@ export function WebcamPanel({
       <h2
         id="webcams-heading"
         data-boilerplate="webcam-heading"
-        className="text-xl font-bold md:text-[25px]"
+        className="text-xl md:text-[25px]"
       >
         Webcams nearby
       </h2>

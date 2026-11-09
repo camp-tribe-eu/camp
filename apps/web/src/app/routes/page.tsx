@@ -87,7 +87,7 @@ export default function RoutesIndex() {
 
       <Breadcrumbs crumbs={crumbs} />
 
-      <h1 className="mt-4 text-3xl font-bold leading-tight md:text-[42px]">
+      <h1 className="mt-4 text-3xl leading-tight md:text-[42px]">
         Camping routes
       </h1>
 
@@ -112,7 +112,7 @@ export default function RoutesIndex() {
           used to sit above the list moved down into it: a reader choosing
           a route wants the routes first. */}
       <section aria-labelledby="how-heading" className="mt-12">
-        <h2 id="how-heading" className="text-xl font-bold md:text-[25px]">
+        <h2 id="how-heading" className="text-xl md:text-[25px]">
           How these routes are put together
         </h2>
         <Block measure="read" className="mt-4 space-y-4 text-ink-2">

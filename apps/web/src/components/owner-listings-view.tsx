@@ -33,7 +33,7 @@ export type Note = { text: string; signIn?: string };
 export function EmptyView() {
   return (
     <section className={PANEL}>
-      <h1 className="text-2xl font-semibold text-ink">{LISTINGS_TITLE}</h1>
+      <h1 className="text-2xl text-ink">{LISTINGS_TITLE}</h1>
       <p className={HINT}>
         You have not confirmed a listing yet. Open the campsite you manage and
         use <strong>Claim the listing</strong> — we send a code to the email in
@@ -73,7 +73,7 @@ export function ListingForm({
 }) {
   return (
     <section className={PANEL} data-testid={`listing-${listing.slug}`}>
-      <h2 className="text-lg font-semibold text-ink">
+      <h2 className="text-lg text-ink">
         {listing.name ?? listing.slug}
       </h2>
       {/* 🔴 СКАЗАНО, ЩО ПРАВКА ПЕРЕКРИВАЄ OSM, А НЕ ЗМІНЮЄ ЙОГО.

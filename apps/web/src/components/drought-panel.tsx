@@ -58,7 +58,7 @@ export function DroughtPanel({
           CI got the chance. */}
       <h2
         id="drought-heading"
-        className="text-xl font-bold md:text-[25px]"
+        className="text-xl md:text-[25px]"
       >
         Drought
       </h2>

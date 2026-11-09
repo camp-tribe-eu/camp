@@ -107,7 +107,7 @@ export function DeleteFormView({
         noValidate
       >
         {/* макет: «Видалити акаунт Анни?» */}
-        <h2 className="break-all text-lg font-semibold text-warn">Delete the account {email}?</h2>
+        <h2 className="break-all text-lg text-warn">Delete the account {email}?</h2>
 
         {/* макет: «Зникне: профіль, 3 маршрути, 12 збережених кемпінгів, налаштування. Публічний
             лінк «Альпи за 6 днів» перестане відкриватись…» — без цифр і без публічного лінку:
@@ -168,7 +168,7 @@ export function DeleteFormView({
 
         {/* 🔴 РІШЕННЯ 1. макет: «Що лишиться в будь-якому разі — і чому». */}
         <div className="mt-4 rounded border border-warn/40 bg-warn/5 p-3.5">
-          <h3 className="text-sm font-semibold text-heading">What stays in any case — and why</h3>
+          <h3 className="text-sm text-heading">What stays in any case — and why</h3>
           <p className="mt-1.5 text-[13px] leading-[1.6] text-ink-2">
             <b className="font-semibold text-heading">Anonymised moderation records</b> — that a photo
             or a review was rejected, why, when, and for which place, with nothing that could point
@@ -249,7 +249,7 @@ export function DeleteFormView({
       {/* 🔴 РІШЕННЯ 2. макет: «30 днів — це не спосіб потягнути час». */}
       <div className="mt-4 grid max-w-2xl gap-3">
         <section aria-labelledby="note-window" className={`${CARD} px-4 py-3.5`}>
-          <h3 id="note-window" className="text-sm font-semibold text-heading">
+          <h3 id="note-window" className="text-sm text-heading">
             {DELETION_WINDOW_DAYS} days is not a way to stall
           </h3>
           <p className="mt-1 text-[13px] leading-[1.6] text-ink-2">
@@ -263,7 +263,7 @@ export function DeleteFormView({
 
         {/* 🔴 РІШЕННЯ 3. макет: «Жоден варіант не вибрано заздалегідь». */}
         <section aria-labelledby="note-preselect" className={`${CARD} px-4 py-3.5`}>
-          <h3 id="note-preselect" className="text-sm font-semibold text-heading">
+          <h3 id="note-preselect" className="text-sm text-heading">
             No option is chosen in advance
           </h3>
           <p className="mt-1 text-[13px] leading-[1.6] text-ink-2">

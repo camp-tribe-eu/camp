@@ -47,7 +47,7 @@ export default function Error({
       <p className="text-sm font-semibold uppercase tracking-[0.12em] text-ink-2">
         Something went wrong
       </p>
-      <h1 className="mt-2 text-3xl font-bold md:text-[42px]">
+      <h1 className="mt-2 text-3xl md:text-[42px]">
         This page did not load properly
       </h1>
       <Block as="p" measure="read" className="mt-3 text-ink-2">

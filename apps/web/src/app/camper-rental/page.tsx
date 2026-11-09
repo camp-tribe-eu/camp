@@ -144,7 +144,7 @@ export default function CamperRentalHub() {
         )}
       />
 
-      <h1 className="text-3xl font-bold leading-tight md:text-[42px]">
+      <h1 className="text-3xl leading-tight md:text-[42px]">
         Renting a camper in the EU
       </h1>
 
@@ -181,7 +181,7 @@ export default function CamperRentalHub() {
         aria-labelledby="mass-line-heading"
         className="mt-12 rounded-card border border-line-blue bg-accent-surface p-6"
       >
-        <h2 id="mass-line-heading" className="text-2xl font-bold text-heading">
+        <h2 id="mass-line-heading" className="text-2xl text-heading">
           Almost everything changes at 3 500 kg
         </h2>
         <Block as="p" measure="read" className="mt-3 text-ink-2">
@@ -258,7 +258,7 @@ export default function CamperRentalHub() {
         className="mt-12"
         data-testid="rental-country-index"
       >
-        <h2 id="countries-heading" className="text-2xl font-bold text-heading">
+        <h2 id="countries-heading" className="text-2xl text-heading">
           Twelve member states, in detail
         </h2>
         <Block as="p" measure="read" className="mt-3 text-ink-2">
@@ -280,7 +280,7 @@ export default function CamperRentalHub() {
               key={c.code}
               className="rounded-card border border-line-2 bg-surface p-5"
             >
-              <h3 className="text-lg font-semibold">
+              <h3 className="text-lg">
                 <Link
                   className="text-heading underline"
                   href={`/camper-rental/${c.code}`}
@@ -304,7 +304,7 @@ export default function CamperRentalHub() {
       >
         <h2
           id="providers-heading"
-          className="text-xl font-semibold text-heading"
+          className="text-xl text-heading"
         >
           Who to rent from
         </h2>
@@ -326,7 +326,7 @@ export default function CamperRentalHub() {
         aria-labelledby="missing-heading"
         className="mt-12 border-t border-line-2 pt-8"
       >
-        <h2 id="missing-heading" className="text-xl font-semibold text-heading">
+        <h2 id="missing-heading" className="text-xl text-heading">
           What this section does not have yet, and why
         </h2>
         <Block as="p" measure="read" className="mt-3 text-ink-2">
@@ -353,7 +353,7 @@ export default function CamperRentalHub() {
         aria-labelledby="faq-heading"
         className="mt-12 border-t border-line-2 pt-8"
       >
-        <h2 id="faq-heading" className="text-xl font-semibold text-heading">
+        <h2 id="faq-heading" className="text-xl text-heading">
           Questions people ask before they book
         </h2>
         {/* 🔴 <dl>, not a details/summary accordion. A closed <details> is

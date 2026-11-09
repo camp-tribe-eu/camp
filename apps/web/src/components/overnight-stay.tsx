@@ -46,7 +46,7 @@ export default function OvernightStay({ overnight }: { overnight: unknown }) {
       aria-labelledby="overnight-heading"
       className="mt-6 rounded-card border border-line-2 bg-surface p-5 shadow-card"
     >
-      <h2 id="overnight-heading" className="text-base font-semibold">
+      <h2 id="overnight-heading" className="text-base">
         Staying the night in a motorhome
       </h2>
 

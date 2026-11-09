@@ -244,7 +244,7 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
         className="rounded-card border border-line-2 bg-surface-2 p-5"
         onSubmit={(e) => e.preventDefault()}
       >
-        <h2 className="text-lg font-semibold text-heading">Your trip</h2>
+        <h2 className="text-lg text-heading">Your trip</h2>
         {/* 🔴 Same reason as the result panel: this form is in the served
             HTML and looks usable before React attaches, and anything
             typed in that window is silently overwritten when it does. */}
@@ -417,7 +417,7 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
       </form>
 
       <aside className="rounded-card border border-line-2 bg-surface p-5">
-        <h2 className="text-lg font-semibold text-heading">What that costs</h2>
+        <h2 className="text-lg text-heading">What that costs</h2>
 
         {!ready ? (
           // 🔴 What a reader sees with no JavaScript, and for the instant
@@ -437,7 +437,7 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
           data-testid="measured"
           className="mt-4 rounded border border-line-blue bg-accent-surface p-4"
         >
-          <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-2">
+          <h3 className="text-xs uppercase tracking-[0.08em] text-ink-2">
             Measured
           </h3>
           {price === null ? (
@@ -469,7 +469,7 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
           data-testid="assumed"
           className="mt-4 rounded border border-line-2 bg-surface-2 p-4"
         >
-          <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-2">
+          <h3 className="text-xs uppercase tracking-[0.08em] text-ink-2">
             Your numbers
           </h3>
           {pitchGiven ? (

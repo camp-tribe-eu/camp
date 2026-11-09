@@ -97,7 +97,7 @@ export default async function MapPage() {
           }),
         )}
       />
-      <h1 className="text-3xl font-bold md:text-[42px]">Campsite map</h1>
+      <h1 className="text-3xl md:text-[42px]">Campsite map</h1>
       <Block as="p" measure="read" className="mt-3 text-ink-2">
         {onTheMap.toLocaleString('en-GB')} campsites and motorhome parks
         are on this map. Each point is a real entry — nothing is placed
@@ -137,7 +137,7 @@ export default async function MapPage() {
       />
 
       <section className="mt-8">
-        <h2 className="text-xl font-bold md:text-[25px]">Browse instead</h2>
+        <h2 className="text-xl md:text-[25px]">Browse instead</h2>
         {/* 🔴 The one place the two numbers on this page are reconciled.
             The list counts campsites that HAVE a page; the map counts
             campsites that have a location. A reader who adds the country

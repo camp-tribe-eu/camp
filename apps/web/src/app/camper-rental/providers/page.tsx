@@ -38,7 +38,7 @@ export default async function ProvidersPage() {
           }),
         )}
       />
-      <h1 className="text-3xl font-bold">Camper rental companies</h1>
+      <h1 className="text-3xl">Camper rental companies</h1>
       <p className="mt-3 max-w-2xl">
         The depot and fleet figures are{" "}
         <strong>what each company states about itself</strong>; we did not

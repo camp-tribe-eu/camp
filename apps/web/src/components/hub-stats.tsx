@@ -66,7 +66,7 @@ export function HubFaq({
   if (items.length === 0) return null;
   return (
     <Block as="section" measure="read" aria-labelledby="hub-faq-heading" className="mt-10">
-      <h2 id="hub-faq-heading" className="text-xl font-bold md:text-[25px]">
+      <h2 id="hub-faq-heading" className="text-xl md:text-[25px]">
         Questions about camping in {region}
       </h2>
       <div className="mt-3 grid gap-2">

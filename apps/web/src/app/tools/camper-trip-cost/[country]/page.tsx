@@ -157,7 +157,7 @@ export default async function CountryTripCostPage({
         / {c.name}
       </nav>
 
-      <h1 className="mt-2 text-3xl font-bold leading-tight md:text-[42px]">
+      <h1 className="mt-2 text-3xl leading-tight md:text-[42px]">
         Camper trip costs in {c.name}
       </h1>
 
@@ -257,7 +257,7 @@ export default async function CountryTripCostPage({
           position to write for somebody actually driving. */}
       {borders.length > 0 ? (
         <section className="mt-10" aria-labelledby="borders-heading">
-          <h2 id="borders-heading" className="text-2xl font-bold text-heading">
+          <h2 id="borders-heading" className="text-2xl text-heading">
             Across the border from {c.name}
           </h2>
           <Block as="p" measure="read" className="mt-2 text-ink-2">
@@ -318,7 +318,7 @@ export default async function CountryTripCostPage({
         </section>
       ) : (
         <section className="mt-10" aria-labelledby="borders-heading">
-          <h2 id="borders-heading" className="text-2xl font-bold text-heading">
+          <h2 id="borders-heading" className="text-2xl text-heading">
             {c.name} against the rest of the Union
           </h2>
           <Block as="p" measure="read" className="mt-2 text-ink-2">

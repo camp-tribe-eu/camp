@@ -38,7 +38,7 @@ export default async function NotFound() {
       <p className="text-sm font-semibold uppercase tracking-[0.12em] text-ink-2">
         404
       </p>
-      <h1 className="mt-2 text-3xl font-bold md:text-[42px]">
+      <h1 className="mt-2 text-3xl md:text-[42px]">
         That page is not here
       </h1>
       <Block as="p" measure="read" className="mt-3 text-ink-2">
@@ -73,7 +73,7 @@ export default async function NotFound() {
       <PathRecovery />
 
       <section className="mt-8">
-        <h2 className="text-xl font-bold md:text-[25px]">Browse by country</h2>
+        <h2 className="text-xl md:text-[25px]">Browse by country</h2>
         <ul className="mt-3 flex flex-wrap gap-x-2 gap-y-3">
           {countries.map((c) => (
             <li key={c.country}>

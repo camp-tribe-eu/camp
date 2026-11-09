@@ -519,10 +519,49 @@
     font-family: var(--font-sans);
   }
 
+  /* 🔴 ВАГА ЗАГОЛОВКА — ОДНЕ ПРАВИЛО НА ВСІ ШІСТЬ РІВНІВ, ЯК У ТЕМІ.
+   *
+   * Читано з архіву `fuse 1.0.1.zip`, `assets/main.build.css` 09.11.2026:
+   *
+   *   h1,.h1,h2,.h2,h3,.h3,h4,.h4,h5,.h5,h6,.h6{
+   *     font-family: var(--heading-font-family);
+   *     font-weight: var(--heading-font-weight);
+   *     color: var(--color-heading);
+   *     text-transform: var(--heading-text-transform);
+   *     word-break: break-word}
+   *
+   * а саме число — з `config/settings_data.json` демо-пресету:
+   * `"heading_font": "archivo_n7"`, тобто Archivo 700. Кнопка там
+   * `"button_font_family": "archivo_n6"` — 600.
+   *
+   * 🔴 ЧОМУ ПРАВИЛО, А НЕ КЛАС НА КОЖНОМУ ЗАГОЛОВКУ. Замір 09.11.2026:
+   * вага стояла класом Tailwind на 151 заголовку в 67 файлах — 80 разів
+   * `font-bold` (700) і 71 раз `font-semibold` (600). Тобто заголовок
+   * того самого рівня в різних файлах важив по-різному, і рішення про
+   * це ухвалювалось 151 раз окремо. Тема ухвалює його один раз.
+   *
+   * Preflight Tailwind скидає заголовкам `font-weight: inherit`, тож без
+   * цього рядка «прибрати клас» означало б «успадкувати 400». Рядок і
+   * клас — не дві думки про одне, а причина й наслідок.
+   *
+   * Межа: правило бачить лише елементи `h1`…`h6`. Текст, який ВИГЛЯДАЄ
+   * заголовком, а розмічений як `div`/`p`, сюди не потрапляє — і це
+   * правильно: вага йде за семантикою, а не за виглядом.
+   */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-weight: 700;
+    color: var(--heading);
+    word-break: break-word;
+  }
+
   h1,
   h2,
   h3 {
-    color: var(--heading);
     text-wrap: balance;
     letter-spacing: -0.012em;
   }

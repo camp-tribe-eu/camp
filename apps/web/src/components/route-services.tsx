@@ -504,7 +504,7 @@ export function RouteFuelPrices({ prices }: { prices: RouteFuelPrice[] }) {
       className="mt-6 rounded-card border border-line-2 bg-surface-2 p-4"
       data-testid="route-fuel-prices"
     >
-      <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-2">
+      <h3 className="text-xs uppercase tracking-[0.08em] text-ink-2">
         What a litre costs on this route
         {/* 🔴 The badge, in the heading, before any number is read.
             Not a footnote under the list: a reader who takes the first
@@ -609,7 +609,7 @@ export default function RouteStageServices({
   if (!looked) {
     return (
       <div className="mt-4" data-testid="stage-services">
-        <h4 className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-2">
+        <h4 className="text-xs uppercase tracking-[0.08em] text-ink-2">
           Between here and the next stop
         </h4>
         {/* 🔴 "We could not look" — which is a fact about US, and is a
@@ -633,7 +633,7 @@ export default function RouteStageServices({
 
   return (
     <div className="mt-4" data-testid="stage-services">
-      <h4 className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-2">
+      <h4 className="text-xs uppercase tracking-[0.08em] text-ink-2">
         Between here and the next stop
       </h4>
       <dl className="mt-1">

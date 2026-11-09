@@ -69,7 +69,7 @@ export default async function ProviderPageView({
       <p className="text-sm">
         <Link href="/camper-rental/providers">← all companies</Link>
       </p>
-      <h1 className="mt-4 text-3xl font-bold leading-tight text-heading md:text-[42px]">
+      <h1 className="mt-4 text-3xl leading-tight text-heading md:text-[42px]">
         {p.name}
       </h1>
 
@@ -96,14 +96,14 @@ export default async function ProviderPageView({
 
           {p.whatToKnow && (
             <section className="mt-6">
-              <h2 className="text-2xl font-bold text-heading">What to know</h2>
+              <h2 className="text-2xl text-heading">What to know</h2>
               <Block as="p" measure="read" className="mt-3 text-ink-2">{p.whatToKnow}</Block>
             </section>
           )}
 
           {p.services.length > 0 && (
             <section className="mt-6">
-              <h2 className="text-2xl font-bold text-heading">Services</h2>
+              <h2 className="text-2xl text-heading">Services</h2>
               <ul className="mt-2 grid gap-1 text-sm" data-testid="services">
                 {p.services.map((s) => (
                   <li key={s.code}>
@@ -147,7 +147,7 @@ export default async function ProviderPageView({
 
           {p.vehicles.length > 0 && (
             <section className="mt-6">
-              <h2 className="text-2xl font-bold text-heading">Fleet</h2>
+              <h2 className="text-2xl text-heading">Fleet</h2>
               <ul className="mt-2 grid gap-1 text-sm" data-testid="vehicles">
                 {p.vehicles.map((v) => (
                   <li key={v.slug}>
@@ -228,7 +228,7 @@ export default async function ProviderPageView({
           className="shrink-0 self-start rounded-card border border-line bg-surface p-6 shadow-card xl:sticky xl:top-4 xl:w-[480px]"
         >
           <section>
-            <h2 className="text-2xl font-bold text-heading">Contacts</h2>
+            <h2 className="text-2xl text-heading">Contacts</h2>
             <dl className="mt-2 grid gap-1 text-sm">
               {p.legalName && (
                 <div>
@@ -278,7 +278,7 @@ export default async function ProviderPageView({
           {/* 🔴 «За даними компанії» — не ввічливість, а точність: ці числа
               заявлені, а не зміряні нами, і читач має знати різницю. */}
           <section className="mt-6">
-            <h2 className="text-2xl font-bold text-heading">
+            <h2 className="text-2xl text-heading">
               Scale, as the company states it
             </h2>
             <p className="mt-2 text-sm">
@@ -307,7 +307,7 @@ export default async function ProviderPageView({
 
           {p.reviewProfiles.length > 0 && (
             <section className="mt-6">
-              <h2 className="text-2xl font-bold text-heading">Reviews</h2>
+              <h2 className="text-2xl text-heading">Reviews</h2>
               <p className="mt-2 text-sm" data-testid="review-links">
                 {p.reviewProfiles.map((r, i) => (
                   <span key={r.source}>

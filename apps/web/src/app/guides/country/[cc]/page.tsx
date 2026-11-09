@@ -107,7 +107,7 @@ export default async function GuidesByCountry(props: {
         </ol>
       </nav>
 
-      <h1 className="mt-4 text-3xl font-bold leading-tight md:text-[42px]">
+      <h1 className="mt-4 text-3xl leading-tight md:text-[42px]">
         Guides for {name}
       </h1>
 
@@ -120,7 +120,7 @@ export default async function GuidesByCountry(props: {
 
       {groups.map((group) => (
         <section key={group.topic} className="mt-10">
-          <h2 className="text-xl font-bold md:text-[25px]">
+          <h2 className="text-xl md:text-[25px]">
             {TOPICS[group.topic]}
           </h2>
           <ul className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">

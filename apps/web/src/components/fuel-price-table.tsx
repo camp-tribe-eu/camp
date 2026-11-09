@@ -35,7 +35,7 @@ export default function FuelPriceTable({
 
   return (
     <section className="mt-12" aria-labelledby="prices-heading">
-      <h2 id="prices-heading" className="text-2xl font-bold text-heading">
+      <h2 id="prices-heading" className="text-2xl text-heading">
         What a litre costs across the EU
       </h2>
       <Block as="p" measure="read" className="mt-2 text-ink-2">

@@ -78,7 +78,7 @@ export default function RouteStageCampsites({
 
   return (
     <div className="mt-4" data-testid="stage-campsites">
-      <h4 className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-2">
+      <h4 className="text-xs uppercase tracking-[0.08em] text-ink-2">
         Campsites near this stop
       </h4>
       {!looked ? (

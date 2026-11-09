@@ -88,7 +88,7 @@ function ReadyNote({ ready }: { ready: boolean }) {
 export function Shell({ title, children }: { title: string; children: ReactNode }) {
   return (
     <main className="mx-auto max-w-wrap px-4 py-10 xl:px-6">
-      <h1 className="text-3xl font-bold leading-tight md:text-[42px]">{title}</h1>
+      <h1 className="text-3xl leading-tight md:text-[42px]">{title}</h1>
       {children}
     </main>
   );

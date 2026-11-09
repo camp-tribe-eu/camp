@@ -303,7 +303,7 @@ export default function PackingListBuilder() {
             data-group={group.id}
             className="rounded-card border border-line-2 bg-surface p-5"
           >
-            <h2 className="text-lg font-semibold text-heading">{group.title}</h2>
+            <h2 className="text-lg text-heading">{group.title}</h2>
             <ul className="mt-3 space-y-2">
               {group.items.map((item) => (
                 <li key={item.id}>

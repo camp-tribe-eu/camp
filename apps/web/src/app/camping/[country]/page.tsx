@@ -96,7 +96,7 @@ export default async function CountryHub(props: { params: Promise<Params> }) {
         </ol>
       </nav>
 
-      <h1 className="mt-4 text-3xl font-bold md:text-[42px]">
+      <h1 className="mt-4 text-3xl md:text-[42px]">
         Campsites in {name}
       </h1>
       <Block as="p" measure="read" className="mt-3 text-ink-2">
@@ -121,7 +121,7 @@ export default async function CountryHub(props: { params: Promise<Params> }) {
           says so in a sentence instead of saying nothing. */}
       <OvernightCoverage countryName={name} regions={regions} />
 
-      <h2 className="mt-8 text-xl font-bold md:text-[25px]">Regions</h2>
+      <h2 className="mt-8 text-xl md:text-[25px]">Regions</h2>
       <ul className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {regions.map((r) => (
           <li key={r.slug}>

@@ -75,7 +75,7 @@ export default function BathingWaterNote({
     >
       <h2
         id="bathing-water-heading"
-        className="text-xl font-bold md:text-[25px]"
+        className="text-xl md:text-[25px]"
       >
         {/* 🔴 The season is in the HEADING, not only in the body. A
             reader who reads one line of this section reads the year.

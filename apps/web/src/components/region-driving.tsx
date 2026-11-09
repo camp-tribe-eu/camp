@@ -43,7 +43,7 @@ export default async function RegionDriving({
     >
       <h2
         id="region-driving-heading"
-        className="text-xl font-bold md:text-[25px]"
+        className="text-xl md:text-[25px]"
       >
         Driving a camper here
       </h2>

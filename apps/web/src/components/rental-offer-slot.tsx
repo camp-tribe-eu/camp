@@ -45,7 +45,7 @@ export default function RentalOfferSlot({
       >
         <h2
           id="rental-offers-heading"
-          className="text-xl font-semibold text-heading"
+          className="text-xl text-heading"
         >
           Where to rent one in {where}
         </h2>
@@ -85,7 +85,7 @@ export default function RentalOfferSlot({
     >
       <h2
         id="rental-offers-heading"
-        className="text-xl font-semibold text-heading"
+        className="text-xl text-heading"
       >
         Where to rent one in {where}
       </h2>
@@ -99,7 +99,7 @@ export default function RentalOfferSlot({
               key={`${offer.network.id}-${offer.programme}`}
               className="border-t border-line-2 pt-4 first:border-0 first:pt-0"
             >
-              <h3 className="font-semibold text-heading">
+              <h3 className="text-heading">
                 <AffiliateLink href={offer.href}>{offer.programme}</AffiliateLink>
               </h3>
               {/* Our sentence about the partner, never theirs — see the

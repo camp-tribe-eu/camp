@@ -50,7 +50,7 @@ export default async function About() {
     <main className="mx-auto max-w-wrap px-4 py-10 xl:px-6">
       <script {...jsonLdProps(breadcrumbList(crumbs))} />
 
-      <h1 className="text-3xl font-bold leading-tight md:text-[42px]">
+      <h1 className="text-3xl leading-tight md:text-[42px]">
         {page.title}
       </h1>
 
