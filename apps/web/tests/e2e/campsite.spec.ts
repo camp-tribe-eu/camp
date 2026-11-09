@@ -532,8 +532,19 @@ test.describe('structured data (CAMP-37)', () => {
     //
     // Вимозі Google це відповідає: політика просить, щоб відповідь була
     // НА СТОРІНЦІ, і акордеон — канонічний для FAQ спосіб її подати.
+    // 🔴 ЯКОРІ, БО МИНУЛОГО РАЗУ Я РОБИВ ВИСНОВОК ІЗ ОБРІЗАНОГО ДАМПУ.
+    // Playwright ріже «Received string» на 4 000 символів, і відсутність
+    // слова в ньому НЕ означає відсутності на сторінці. Тож нехай тест
+    // каже сам: чи є секція й скільки пунктів він розкрив.
+    await expect(
+      page.getByTestId('spot-faq'),
+      'FAQPage у розмітці є, а секції на сторінці немає',
+    ).toHaveCount(1);
     const openAll = await page.locator('main details').all();
-    for (const d of openAll) await d.evaluate((el) => el.setAttribute('open', ''));
+    expect(openAll.length, 'жодного <details> у main — розкривати нічого').toBeGreaterThan(0);
+    for (const d of openAll) await d.evaluate((el: HTMLDetailsElement) => (el.open = true));
+    const stillClosed = await page.locator('main details:not([open])').count();
+    expect(stillClosed, 'частина пунктів лишилась закритою після розкриття').toBe(0);
     const shown = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
     for (const q of questions) {
       expect(shown, `question not on the page: ${q.name}`).toContain(
