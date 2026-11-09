@@ -353,10 +353,26 @@ export default async function RegionListing({
  * button is pinned to the bottom with `margin-top:auto` — the same
  * device as the region tiles (region-tiles.tsx). Photos are CAMP-469's.
  *
- * 🔴 ONE LINK PER CARD, the whole card, named by its title
- * (`aria-labelledby`): the crawl tests count `main ul.grid li a` as
- * cards, and a screen reader hears the campsite's name, not the button
- * text twice. The "View campsite" is a span drawn as the theme's button.
+ * 🔴 ONE LINK PER CARD, the whole card: the crawl tests count
+ * `main ul.grid li a` as cards, and the "View campsite" is a span drawn
+ * as the theme's button, not a second link.
+ *
+ * 🔴 AND ITS NAME COMES FROM ITS CONTENT, not from `aria-labelledby`.
+ * The first edition named the link by its title alone, so that a screen
+ * reader would hear the campsite's name and not the button text twice.
+ * That is a preference; WCAG 2.5.3 «Label in Name» is a criterion, and
+ * it was broken: a voice-control user saying "View campsite" matched
+ * nothing, because the accessible name did not contain the visible text.
+ *
+ * Measured on the deployed page (axe, 09.11.2026, `/camping/fr/vendee`),
+ * three namings, same markup:
+ *
+ *   title only                    24 `label-content-name-mismatch` nodes
+ *   title + "View campsite"       24  — a partial name does not satisfy it
+ *   no `aria-labelledby`           0
+ *
+ * So the attribute goes. The name still BEGINS with the campsite's name,
+ * because the title is the first thing in the card.
  */
 const REGION_CSS = `
 .ct-region{display:grid;gap:12px;margin-top:24px}
@@ -385,13 +401,13 @@ function SpotListCard({ spot, href }: { spot: SpotCard; href: string }) {
   const known = AMENITY_KEYS.map(
     (k) => [k, AMENITY_LABEL_SHORT[k]] as const,
   ).filter(([k]) => spot.amenities?.[k] === 'yes');
-  const titleId = `site-${spot.slug}`;
-
   return (
     <li className="ct-card">
-      <Link href={href} className="ct-card__link" aria-labelledby={titleId}>
+      {/* Без `aria-labelledby` — див. 🔴 у заголовку файла: часткове імʼя
+          ламає WCAG 2.5.3, і це заміряно, а не припущено. */}
+      <Link href={href} className="ct-card__link">
         <span className="ct-card__body">
-          <span id={titleId} className="ct-card__title">
+          <span className="ct-card__title">
             {spot.name ?? SPOT_TYPE_LABEL[spot.type]}
           </span>
           <span className="ct-card__type">{SPOT_TYPE_LABEL[spot.type]}</span>

@@ -56,7 +56,7 @@ export default async function RegionInsights({
         ))}
       </ul>
       {/* The day, once: every line above was read on one of these two. */}
-      <p className="mt-2 text-sm text-ink-3">{regionInsightDates(lines)}</p>
+      <p className="mt-2 text-sm text-ink-2">{regionInsightDates(lines)}</p>
     </Block>
   );
 }

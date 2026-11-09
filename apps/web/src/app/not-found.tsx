@@ -60,7 +60,7 @@ export default async function NotFound() {
           type="search"
           placeholder="A campsite, a region, or a place nearby"
           data-testid="notfound-search"
-          className="h-11 flex-1 rounded-sm border border-line-2 bg-surface px-3 text-base text-heading placeholder:text-ink-3"
+          className="h-11 flex-1 rounded-sm border border-line-2 bg-surface px-3 text-base text-heading placeholder:text-ink-2"
         />
         <button
           type="submit"

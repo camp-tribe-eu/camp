@@ -224,7 +224,7 @@ export default function SiteSearch({ initialQuery }: { initialQuery: string }) {
         placeholder="A campsite, a region, or a place nearby"
         autoComplete="off"
         data-testid="search-input"
-        className="h-11 w-full rounded-sm border border-line-2 bg-surface px-3 text-base text-heading placeholder:text-ink-3"
+        className="h-11 w-full rounded-sm border border-line-2 bg-surface px-3 text-base text-heading placeholder:text-ink-2"
       />
 
       {/* 🔴 Say that it is loading, because it now takes long enough to

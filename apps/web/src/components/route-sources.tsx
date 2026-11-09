@@ -141,7 +141,7 @@ export default function RouteSources({
                           const when = formatUpdated(e.updatedAt);
                           return (
                             <li key={`${e.ref}-${i}`}>
-                              <code className="text-ink-3">{e.ref}</code>
+                              <code className="text-ink-2">{e.ref}</code>
                               {when && (
                                 <>
                                   {' — '}

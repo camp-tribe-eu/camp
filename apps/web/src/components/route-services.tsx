@@ -81,7 +81,7 @@ import { Block } from '@/components/layout';
 function Hours({ value }: { value: string | null }) {
   if (!value) {
     return (
-      <span className="text-ink-3">
+      <span className="text-ink-2">
         Opening hours unknown
         <span className="sr-only"> — not recorded in OpenStreetMap</span>
       </span>
@@ -128,7 +128,7 @@ function Facilities({ raw }: { raw: unknown }) {
             key={key}
             data-facility={key}
             data-state={state}
-            className={state === 'unknown' ? 'text-ink-3' : 'text-ink-2'}
+            className={state === 'unknown' ? 'text-ink-2' : 'text-ink-2'}
           >
             {FACILITY_LABEL[key]}:{' '}
             <span
@@ -181,7 +181,7 @@ function Facilities({ raw }: { raw: unknown }) {
  */
 function DumpWater({ raw }: { raw: unknown }) {
   const water = readDumpWater(raw);
-  const grey = water.state === 'found' ? 'text-ink-2' : 'text-ink-3';
+  const grey = water.state === 'found' ? 'text-ink-2' : 'text-ink-2';
   return (
     <div
       className={`mt-0.5 text-xs ${grey}`}
@@ -209,7 +209,7 @@ function DumpWater({ raw }: { raw: unknown }) {
 }
 
 function Phone({ value }: { value: string | null }) {
-  if (!value) return <span className="text-ink-3">Phone unknown</span>;
+  if (!value) return <span className="text-ink-2">Phone unknown</span>;
   return (
     // 🔴 One number in the href whatever the tag holds. OSM separates
     // several with ';' and a `tel:` with two glued together dials
@@ -272,7 +272,7 @@ function StationPrices({ prices }: { prices: DisplayPrice[] }) {
   // pump on a page whose whole promise is the price beside the pump.
   if (prices.length === 0) {
     return (
-      <span className="text-ink-3" data-testid="station-price-absent">
+      <span className="text-ink-2" data-testid="station-price-absent">
         {NO_STATION_PRICE}
       </span>
     );
@@ -309,7 +309,7 @@ function StationPrices({ prices }: { prices: DisplayPrice[] }) {
           data-price-state={p.state}
           className={
             p.state === 'stale'
-              ? 'text-ink-3'
+              ? 'text-ink-2'
               : 'font-semibold text-heading'
           }
         >
@@ -317,7 +317,7 @@ function StationPrices({ prices }: { prices: DisplayPrice[] }) {
           {p.product}{' '}
           <span className="tabular-nums">€{p.price}</span>
           {'/l '}
-          <span className="font-normal text-ink-3">
+          <span className="font-normal text-ink-2">
             {/* 🔴 The date is inside the same element as the price, so
                 no layout change can separate a number from its stamp.
                 A stale one says so in words as well: "on 3 September"
@@ -339,7 +339,7 @@ function StationPrices({ prices }: { prices: DisplayPrice[] }) {
       {[...sources.values()].map((s) => (
         <span
           key={s.href}
-          className="text-ink-3"
+          className="text-ink-2"
           data-boilerplate="fuel-station-source"
         >
           Source:{' '}
@@ -376,7 +376,7 @@ function ServiceRow({
         data-testid={`service-${kind}-absent`}
       >
         <dt className="text-sm font-semibold text-heading">{label}</dt>
-        <dd className="text-sm leading-6 text-ink-3">
+        <dd className="text-sm leading-6 text-ink-2">
           {/* 🔴 "Our database holds none", never "there is none". We can
               make the first statement and not the second, and a driver
               deciding whether to detour deserves to know which one this
@@ -457,7 +457,7 @@ function ServiceRow({
               Website
             </a>
           ) : (
-            <span className="text-ink-3">Website unknown</span>
+            <span className="text-ink-2">Website unknown</span>
           )}
         </div>
       </dd>
@@ -538,7 +538,7 @@ export function RouteFuelPrices({ prices }: { prices: RouteFuelPrice[] }) {
       <Block
         as="p"
         measure="read"
-        className="mt-2 text-xs leading-5 text-ink-3"
+        className="mt-2 text-xs leading-5 text-ink-2"
         data-boilerplate="fuel-bulletin"
       >
         {/* 🔴 THIS SENTENCE WAS FALSE THE MOMENT CAMP-154 MERGED, and
@@ -620,7 +620,7 @@ export default function RouteStageServices({
         <Block
           as="p"
           measure="read"
-          className="mt-2 text-sm leading-6 text-ink-3"
+          className="mt-2 text-sm leading-6 text-ink-2"
           data-testid="stage-services-unavailable"
         >
           We could not reach our own database when this page was built, so
@@ -662,7 +662,7 @@ export default function RouteStageServices({
       <Block
         as="p"
         measure="read"
-        className="mt-2 text-xs leading-5 text-ink-3"
+        className="mt-2 text-xs leading-5 text-ink-2"
         data-boilerplate="route-services-selection"
       >
         The nearest one of each, from OpenStreetMap, within{' '}

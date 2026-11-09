@@ -102,7 +102,7 @@ export default function FuelPriceTable({
         </table>
       </div>
 
-      <p className="mt-4 text-sm text-ink-3">
+      <p className="mt-4 text-sm text-ink-2">
         Source: {FUEL.attribution}.{' '}
         <a className="underline" href={FUEL.source}>
           Weekly Oil Bulletin

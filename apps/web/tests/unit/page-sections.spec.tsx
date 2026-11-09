@@ -257,10 +257,18 @@ test("варіант aside зберігає відступ і приглушен
   // Рецензія #304: завершальний абзац /tools втратив `mt-10 text-ink-3` при
   // переїзді в CMS. Ширина тепер окремо від решти класів — вони не мають
   // загубитись удруге.
+  //
+  // 🔴 CAMP-471 замінив тут `text-ink-3` на `text-ink-2`, і твердження
+  // лишається тим самим: приглушений колір є. `ink-3` не проходив AA на
+  // жодному тлі теми (2.30–2.58 у світлій, 2.88–3.79 у темній), а
+  // значення, яке проходило б, у темній темі збігалося з `ink-2` —
+  // тобто третього рівня там не існує. Токена `text-ink-3` у проєкті
+  // більше немає, і рядок нижче це ще й доводить.
   const html = renderComponent(PageSections, {
     sections: [section({ variant: "aside", body: "Примітка." })],
   });
   expect(html).toContain("max-w-read");
   expect(html).toContain("mt-10");
-  expect(html).toContain("text-ink-3");
+  expect(html).toContain("text-ink-2");
+  expect(html, "ink-3 повернувся в текст").not.toContain("text-ink-3");
 });
