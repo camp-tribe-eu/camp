@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import Checkbox from '@/components/checkbox';
 import Link from 'next/link';
 import { TRAVELLER_LABEL, type TravellerTag } from '@/lib/route-types';
 import { Block } from '@/components/layout';
@@ -130,43 +131,58 @@ export default function RouteLibrary({ routes }: { routes: RouteCard[] }) {
         </h2>
 
         <div className="space-y-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-2">
+          {/* 🔴 CAMP-459: `<fieldset>` і `<legend>`, а не `<div>` із
+              `<p>`. Група чекбоксів МАЄ групу — інакше читач екрана
+              вимовляє «France, checkbox» без жодного натяку, що це
+              фільтр за країною. Вигляд легенди лишається тим самим
+              рядком, що й був. */}
+          <fieldset>
+            <legend className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-2">
               Country
-            </p>
-            <div className="mt-2 flex flex-wrap gap-2">
+            </legend>
+            <div className="mt-2 flex flex-wrap gap-x-5 gap-y-2">
               {countryOptions.map(([code, label]) => (
-                <Chip
+                <Checkbox
                   key={code}
-                  active={countries.includes(code)}
-                  onClick={() => setCountries((c) => toggle(c, code))}
+                  checked={countries.includes(code)}
+                  onChange={() => setCountries((c) => toggle(c, code))}
+                  testId={`route-filter-country-${code}`}
                 >
                   {label}
-                </Chip>
+                </Checkbox>
               ))}
             </div>
-          </div>
+          </fieldset>
 
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-2">
+          <fieldset>
+            <legend className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-2">
               Who it suits
-            </p>
-            <div className="mt-2 flex flex-wrap gap-2">
+            </legend>
+            <div className="mt-2 flex flex-wrap gap-x-5 gap-y-2">
               {tagOptions.map((t) => (
-                <Chip
+                <Checkbox
                   key={t}
-                  active={tags.includes(t)}
-                  onClick={() => setTags((v) => toggle(v, t))}
+                  checked={tags.includes(t)}
+                  onChange={() => setTags((v) => toggle(v, t))}
+                  testId={`route-filter-tag-${t}`}
                 >
                   {TRAVELLER_LABEL[t]}
-                </Chip>
+                </Checkbox>
               ))}
             </div>
-          </div>
+          </fieldset>
 
+          {/* 🔴 А ОСЬ СЕЗОН ЛИШАЄТЬСЯ ПІГУЛКАМИ, І ЦЕ НЕ НЕДОРОБКА.
+              Тут вибір ОДИН із чотирьох (другий клік знімає), а квадрат
+              із галочкою каже читачеві протилежне — що можна взяти
+              кілька. Правильний контрол для «одного з» — радіо, але в
+              темі його немає: `main.build.css` несе лише
+              `.radio-container{display:flex}` без жодного кружечка.
+              Вигадувати вигляд там, де джерело мовчить, — це смак, а не
+              робота; тож група називає себе словами. */}
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-2">
-              When
+              When <span className="normal-case tracking-normal">(choose one)</span>
             </p>
             <div className="mt-2 flex flex-wrap gap-2">
               {MONTH_GROUPS.map((g) => (

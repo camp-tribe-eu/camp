@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Checkbox from '@/components/checkbox';
 import {
   asText,
   countItems,
@@ -255,15 +256,15 @@ export default function PackingListBuilder() {
                 ['dog', 'Travelling with a dog'],
               ] as const
             ).map(([key, text]) => (
-              <label key={key} className="flex items-center gap-2 text-ink">
-                <input
-                  type="checkbox"
-                  disabled={!ready}
-                  checked={input[key]}
-                  onChange={(e) => set(key, e.target.checked)}
-                />
+              <Checkbox
+                key={key}
+                checked={input[key]}
+                disabled={!ready}
+                onChange={(next) => set(key, next)}
+                weight="plain"
+              >
                 {text}
-              </label>
+              </Checkbox>
             ))}
           </div>
         </fieldset>
