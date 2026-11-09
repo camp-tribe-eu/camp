@@ -199,20 +199,26 @@ test.describe('🔴 CAMP-452 — the map highlights what the list shows', () => 
       ).toBeGreaterThan(150);
     }
 
-    // The legend is the map's OWN count over the markers it drew.
-    // Підпис малюється й без WebGL: його числа рахує сервер, не мапа.
-    const legend = await page.getByTestId('region-map-legend').textContent();
-    const m = /^(\d+) of (\d+) sites in .+ match your filter and are highlighted on the map\.$/.exec(
-      legend?.trim() ?? '',
-    );
-    expect(m, `legend was: ${legend}`).not.toBeNull();
-    const highlighted = Number(m![1]);
-    const drawn = Number(m![2]);
-
-    // Three counts of the same set in one check: the map's, the API's
-    // (the toolbar prints it), and the cards on the page.
-    expect(highlighted).toBe(filtered.matched);
-    expect(drawn).toBe(all.total);
+    // 🔴 ПІДПИС — ЦЕ ВЛАСНИЙ ЛІЧИЛЬНИК МАПИ, А НЕ СЕРВЕРНЕ ЧИСЛО, і я
+    // мало не написав тут протилежне. Коли мапи немає, `region-map.tsx`
+    // друкує не «N of M», а чесне «The map needs WebGL…». Тобто без
+    // відеоконтексту звіряти числа підпису нема з чим — зате є що
+    // перевірити: що запасне речення справді про це й каже.
+    const legend = (await page.getByTestId('region-map-legend').textContent())?.trim() ?? '';
+    if (webgl) {
+      const m = /^(\d+) of (\d+) sites in .+ match your filter and are highlighted on the map\.$/.exec(
+        legend,
+      );
+      expect(m, `legend was: ${legend}`).not.toBeNull();
+      // Three counts of the same set in one check: the map's, the API's
+      // (the toolbar prints it), and the cards on the page.
+      expect(Number(m![1])).toBe(filtered.matched);
+      expect(Number(m![2])).toBe(all.total);
+    } else {
+      expect(legend, 'без WebGL підпис мусить пояснити читачеві, чому мапи немає')
+        .toContain('needs WebGL');
+      expect(legend, 'і сказати, що перелік нижче повний').toContain('list below is complete');
+    }
     await expect(page.locator('[data-hub-match]')).toHaveText(
       new RegExp(`^${filtered.matched} sites? match`),
     );
@@ -222,9 +228,12 @@ test.describe('🔴 CAMP-452 — the map highlights what the list shows', () => 
     for (const href of await cards.evaluateAll((as) => as.map((a) => a.getAttribute('href')))) {
       expect(listed.has(href ?? '')).toBe(true);
     }
-    // And the map says the same through its attributes, for the record.
-    await expect(map).toHaveAttribute('data-highlighted', String(filtered.matched));
-    await expect(map).toHaveAttribute('data-total', String(all.total));
+    // And the map says the same through its attributes, for the record —
+    // але ці атрибути ставить САМА мапа, тож без WebGL їх не буває.
+    if (webgl) {
+      await expect(map).toHaveAttribute('data-highlighted', String(filtered.matched));
+      await expect(map).toHaveAttribute('data-total', String(all.total));
+    }
   });
 
   test('on the plain hub, the map highlights every site — no filter, nothing dimmed', async ({
@@ -234,11 +243,24 @@ test.describe('🔴 CAMP-452 — the map highlights what the list shows', () => 
     const { hub, all } = await narrowable(request);
     await page.goto(hubPath(hub));
     const map = page.getByTestId('region-map');
-    await expect(map).toHaveAttribute('data-map-state', 'ready', { timeout: 20_000 });
-    await expect(page.getByTestId('region-map-legend')).toHaveText(
-      `${all.total} sites in ${await page.locator('h1').first().evaluate((h) => h.textContent?.replace(/^Campsites in /, ''))} on the map.`,
+
+    // Той самий зонд, що й у тесті вище: без WebGL мапи не буває, і це
+    // не дефект сторінки. Підпис рахує сервер, тож він перевіряється
+    // всюди; атрибути мапи ставить сама мапа, тож лише там, де вона є.
+    const webgl = await hasWebGl(page);
+    await expect(map).toHaveAttribute(
+      'data-map-state',
+      webgl ? 'ready' : 'failed',
+      { timeout: 20_000 },
     );
-    await expect(map).toHaveAttribute('data-highlighted', String(all.total));
+    if (webgl) {
+      await expect(page.getByTestId('region-map-legend')).toHaveText(
+        `${all.total} sites in ${await page.locator('h1').first().evaluate((h) => h.textContent?.replace(/^Campsites in /, ''))} on the map.`,
+      );
+      await expect(map).toHaveAttribute('data-highlighted', String(all.total));
+    } else {
+      await expect(page.getByTestId('region-map-legend')).toContainText('needs WebGL');
+    }
   });
 });
 
