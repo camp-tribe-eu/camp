@@ -74,6 +74,15 @@
     transparent
   );
   --color-line: color-mix(in srgb, var(--line) calc(1 * 100%), transparent);
+  /* 🔴 CAMP-459: рамка елемента КЕРУВАННЯ, не декоративна лінія.
+     WCAG 1.4.11 вимагає від неї 3:1, а `--line` дає 1.30–1.71 на тлах
+     обох тем — тобто квадрат чекбокса «видно завжди» лише на словах.
+     Числа й підбір — у `components/checkbox.tsx`. */
+  --color-control-line: color-mix(
+    in srgb,
+    var(--control-line) calc(1 * 100%),
+    transparent
+  );
   --color-line-2: color-mix(in srgb, var(--line-2) calc(1 * 100%), transparent);
   --color-line-blue: color-mix(
     in srgb,
@@ -358,6 +367,8 @@
     --ink-3: #a1a1a1;
     --heading: #343d50;
     --line: #cacaca;
+    /* CAMP-459: 3.84 / 3.42 / 3.62 проти --surface / --bg / --surface-2 */
+    --control-line: #828282;
     --line-2: #d4d4d4;
     --line-blue: #7c92b7;
     --ok: #4ba883;
@@ -482,6 +493,8 @@
       --ink-3: #6e7889;
       --heading: #c9d3e4;
       --line: #39435a;
+      /* CAMP-459: 4.07 / 4.66 / 3.54 */
+      --control-line: #7b879c;
       --line-2: #333c50;
       --line-blue: #5a6e92;
       --ok: #5fbf98;
@@ -513,6 +526,8 @@
     --ink-3: #6e7889;
     --heading: #c9d3e4;
     --line: #39435a;
+    /* CAMP-459: 4.07 / 4.66 / 3.54 */
+    --control-line: #7b879c;
     --line-2: #333c50;
     --line-blue: #5a6e92;
     --ok: #5fbf98;
