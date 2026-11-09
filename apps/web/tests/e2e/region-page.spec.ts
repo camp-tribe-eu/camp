@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from './api-request';
+import { hasWebGl } from '../map-ready';
 import { API_BASE } from '@/lib/api';
 
 // CAMP-452 — the region page: the controls sit above what they control,
@@ -152,9 +153,27 @@ test.describe('🔴 CAMP-452 — the map highlights what the list shows', () => 
 
     await page.goto(`${hubPath(hub)}/filter?types=${type}`);
     const map = page.getByTestId('region-map');
-    // 🔴 Positive wait (tests/map-ready.ts): a misspelt attribute would
-    // never equal 'ready', and the test would say so rather than pass.
-    await expect(map).toHaveAttribute('data-map-state', 'ready', { timeout: 20_000 });
+
+    // 🔴 БЕЗ WebGL МАПИ НЕ БУВАЄ, І ЦЕ НЕ ДЕФЕКТ СТОРІНКИ (CAMP-452).
+    //
+    // headless Firefox на раннері GitHub не має GPU, тож MapLibre кидає
+    // ще на конструкторі, компонент чесно стає `failed/webgl` і показує
+    // запасний вміст. Перша редакція цього тесту вимагала `ready`
+    // беззастережно й валила e2e рівно на firefox-desktop — тим самим
+    // чином, яким це вже ставалось у `campsite-media.spec.ts`. Зонд
+    // тепер спільний і живе в `tests/map-ready.ts`.
+    //
+    // Решта тверджень — числа переліку, чіпів і карток — від WebGL не
+    // залежать і перевіряються в КОЖНОМУ браузері, тож пропускається
+    // лише те, що без відеоконтексту неперевірне.
+    const webgl = await hasWebGl(page);
+    if (webgl) {
+      // 🔴 Positive wait (tests/map-ready.ts): a misspelt attribute would
+      // never equal 'ready', and the test would say so rather than pass.
+      await expect(map).toHaveAttribute('data-map-state', 'ready', { timeout: 20_000 });
+    } else {
+      await expect(map).toHaveAttribute('data-map-state', 'failed', { timeout: 20_000 });
+    }
 
     // 🔴 «READY» І ПРАВИЛЬНІ ЧИСЛА НЕ ОЗНАЧАЮТЬ, ЩО МАПУ ВИДНО.
     //
@@ -168,17 +187,20 @@ test.describe('🔴 CAMP-452 — the map highlights what the list shows', () => 
     // що мапа взагалі зайняла місце. Межі навмисно грубі: 200×150 — це
     // «щось намальоване», а не макет. Точні розміри міряти тут не можна,
     // вони залежать від ширини проєкту.
-    const canvas = await rect(page, '[data-testid="region-map"] canvas');
-    expect(
-      canvas.width,
-      `полотно мапи завширшки ${Math.round(canvas.width)} px — мапи не видно`,
-    ).toBeGreaterThan(200);
-    expect(
-      canvas.height,
-      `полотно мапи заввишки ${Math.round(canvas.height)} px — мапи не видно`,
-    ).toBeGreaterThan(150);
+    if (webgl) {
+      const canvas = await rect(page, '[data-testid="region-map"] canvas');
+      expect(
+        canvas.width,
+        `полотно мапи завширшки ${Math.round(canvas.width)} px — мапи не видно`,
+      ).toBeGreaterThan(200);
+      expect(
+        canvas.height,
+        `полотно мапи заввишки ${Math.round(canvas.height)} px — мапи не видно`,
+      ).toBeGreaterThan(150);
+    }
 
     // The legend is the map's OWN count over the markers it drew.
+    // Підпис малюється й без WebGL: його числа рахує сервер, не мапа.
     const legend = await page.getByTestId('region-map-legend').textContent();
     const m = /^(\d+) of (\d+) sites in .+ match your filter and are highlighted on the map\.$/.exec(
       legend?.trim() ?? '',

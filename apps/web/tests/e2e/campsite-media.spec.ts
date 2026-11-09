@@ -1,4 +1,5 @@
 import { test, expect, type Page } from './api-request';
+import { hasWebGl } from '../map-ready';
 
 /**
  * CAMP-344 — медіаслот сторінки кемпінгу.
@@ -38,29 +39,6 @@ async function anySpot(page: Page, request: Page['request']) {
   const s = spots[0];
   await page.goto(`/camping/${s.country}/${s.region}/${s.slug}`);
   return s;
-}
-
-/**
- * 🔴 ЧИ ВМІЄ ЦЕЙ БРАУЗЕР МАЛЮВАТИ МАПУ ВЗАГАЛІ.
- *
- * headless Firefox на раннері GitHub не має GPU, отже не має WebGL2, отже
- * MapLibre кидає ще на конструкторі й сторінка чесно показує запасний
- * текст із координатами. Це ПРАВИЛЬНА поведінка, а не дефект.
- *
- * Зонд був написаний один раз для тесту медіаслота, а мій тест обрису
- * його не покликав — і вимагав атрибутів мапи там, де мапи бути не може.
- * Наслідок: e2e падав рівно на firefox-desktop 26 хвилин поспіль, і
- * причина в повідомленні звучала як дефект обрису. Винесено сюди, щоб
- * означення було одне, а не два.
- */
-async function hasWebGl(page: Page): Promise<boolean> {
-  return page.evaluate(() => {
-    try {
-      return !!document.createElement('canvas').getContext('webgl2');
-    } catch {
-      return false;
-    }
-  });
 }
 
 test.describe('🔴 CAMP-344 — що стоїть у медіаслоті', () => {
