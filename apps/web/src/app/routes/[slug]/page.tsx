@@ -140,7 +140,12 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
         <span>{route.region}</span>
       </nav>
 
-      <header className="mt-4">
+      {/* 🔴 CAMP-459: шапка — читальна колонка. Заголовок на 42px,
+          розтягнутий на 1652, і підводка на 840 під ним починали рядок
+          у різних місцях; тепер обидва в одній колонці. Широкі блоки
+          нижче (цифри, мапа, етапи) лишаються на всю ширину — рішення
+          приймається ПО СЕКЦІЯХ, а не одним класом на сторінку. */}
+      <header className="mx-auto mt-4 max-w-read">
         <p className="text-xs font-semibold uppercase tracking-[0.1em] text-ink-2">
           {route.countries.map((c) => countryName(c)).join(' · ')}
         </p>
@@ -187,7 +192,12 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
         />
       </section>
 
-      <section aria-labelledby="about-heading" className="mt-10">
+      {/* 🔴 CAMP-459: уся секція — читальна колонка, бо весь її вміст
+          читальний: заголовок, два абзаци і словник «кому підходить».
+          Заміряно на проді (вікно 1700): `h2` займав 1652, а тіло й
+          `dl` — по 840 і притиснуті вліво. Тепер вони рухаються разом,
+          як `.shopify-policy__container` у темі. */}
+      <section aria-labelledby="about-heading" className="mx-auto mt-10 max-w-read">
         <h2 id="about-heading" className="text-xl md:text-[25px]">
           What this route is for
         </h2>
@@ -316,7 +326,9 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
         note={route.attribution}
       />
 
-      <p className="mt-6 text-xs text-ink-2">
+      {/* Під тією ж колонкою, що й секція джерел над ним: інакше
+          підпис зʼїжджає з-під рамки, до якої належить. */}
+      <p className="mx-auto mt-6 max-w-read text-xs text-ink-2">
         Route last reviewed by a person on{' '}
         <time dateTime={route.curatedAt}>
           {new Date(route.curatedAt).toLocaleDateString('en-GB', {

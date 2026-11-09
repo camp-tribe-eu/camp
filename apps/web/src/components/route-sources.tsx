@@ -69,7 +69,19 @@ export default function RouteSources({
     <section
       aria-labelledby="route-sources-heading"
       data-testid="route-sources"
-      className="mt-10 rounded-card border border-line-2 bg-surface-2 p-5"
+      /* 🔴 CAMP-459: СЕКЦІЯ ЦІЛКОМ — ЧИТАЛЬНА КОЛОНКА.
+         Заміряно на проді при вікні 1700 px: усередині цієї секції
+         ширини скакали 840 → 1610 → 840 (вузький абзац, широкий
+         перелік, знову вузький), і всі блоки притиснуті вліво, тож
+         праворуч лишалось 812 px порожнечі — те саме, що власник
+         обводив червоним.
+         Лікується НЕ `mx-auto` на абзаці: це вже пробувалось і дало
+         гірше (див. коментар біля `MEASURE.read` у layout.tsx) —
+         заголовок лишався ліворуч, а текст їхав у центр. Тема центрує
+         СЕКЦІЮ: `.shopify-policy__container{max-width:840px;margin:0
+         auto}`. Тут так само: рамка, заголовок, перелік і підпис
+         рухаються разом. */
+      className="mx-auto mt-10 max-w-read rounded-card border border-line-2 bg-surface-2 p-5"
     >
       <h2
         id="route-sources-heading"
