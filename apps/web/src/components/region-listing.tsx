@@ -9,8 +9,6 @@ import {
   getRegionSpots,
   REGION_PER_PAGE,
   SPOT_TYPE_LABEL,
-  SPOT_TYPE_LABEL_SHORT,
-  SPOT_TYPES,
   type RegionListingData,
   type SpotCard,
 } from '@/lib/api';
@@ -23,30 +21,52 @@ import {
   hubHref,
   isFiltering,
   parseHubQuery,
-  REGION_SORTS,
   relFor,
-  SORT_LABEL,
-  withAmenity,
   without,
   withPage,
-  withSort,
-  withType,
   withUnknown,
   type HubQuery,
   type SearchParams,
 } from '@/lib/hub-filters';
 import { breadcrumbList, collectionGraph, jsonLdProps } from '@/lib/jsonld';
-import { ButtonLink } from '@/components/button';
+import { ButtonLink, buttonClasses } from '@/components/button';
 import { Pagination } from '@/components/pagination';
 import RegionInsights from '@/components/region-insights';
 import RegionDriving from '@/components/region-driving';
+import RegionMap from '@/components/region-map';
+import { RegionFilterPanel, RegionToolbar } from '@/components/region-toolbar';
 import { countedAsOf, regionFaq, regionTiles } from '@/lib/hub-stats';
 import { HubFaq, HubStatTiles } from '@/components/hub-stats';
-import { Block } from '@/components/layout';
+import { LayeredBanner } from '@/components/layered-banner';
+import { Block, PageShell } from '@/components/layout';
 
 // CAMP-71, level 2: the region hub. Shared by /camping/{c}/{r},
 // /camping/{c}/{r}/page/{n} and /camping/{c}/{r}/filter?… so the first
 // page, the rest and the filtered view cannot drift.
+//
+// CAMP-452 — the layout the owner drew, top to bottom:
+//
+//   banner (the h1 and the lead, base page only)
+//   ─────────────────────────────────────────────
+//   left: the region's prose and figures │ right: the map, sticky
+//   ─────────────────────────────────────────────
+//   ▸ sticky toolbar: sort, active filters, "N sites match"
+//   ▸ every filter value as a checkbox chip with its count
+//   card  card  card  card
+//
+// 🔴 THE CONTROLS SIT DIRECTLY ABOVE WHAT THEY CONTROL. The owner named
+// the defect in his own proposal: «якщо ми зліва тут обираємо то не
+// бачимо що фільтується внизу». Nothing that filters or sorts lives in
+// the left column; the left column is text and figures. The map on the
+// right is a representation of the same set as the list — it receives
+// the SAME `q` the list was fetched with and highlights what passes it
+// (region-map.tsx) — not a picture beside it.
+//
+// 🔴 ONE QUERY, TWO CONSUMERS. `q` is parsed once and handed both to
+// `getRegionSpots` (the cards, the counts) and to `RegionMap` (the
+// highlight). A page that handed the map anything else would show one
+// set and highlight another; tests/unit/hub-filters.spec.tsx reads both
+// off one rendered page.
 
 export async function regionMeta(country: string, region: string) {
   const all = await getRegions(country);
@@ -114,14 +134,34 @@ export default async function RegionListing({
   const cName = countryName(country);
   const base = `/camping/${country}/${region}`;
   const here = hubHref(base, q);
+  const regionName = data.region as string;
+
+  const lead = (
+    <>
+      {data.total} {data.total === 1 ? 'site' : 'sites'} in {regionName}, {cName}
+      {/* The pages of the WHOLE region. A filtered set's pages are
+          counted from `matched` and said beside that number. */}
+      {!filtering && pages > 1 && ` — page ${page} of ${pages}`}.
+    </>
+  );
+
+  // The map's half of the one query: the filter, nothing about pages.
+  const mapFilter = {
+    types: q.types,
+    amenities: q.amenities,
+    includeUnknown: q.includeUnknown,
+  };
 
   return (
-    <main className="mx-auto max-w-wrap px-4 py-8 xl:px-6">
+    <PageShell rhythm="tight">
+      <style href="ct-region" precedence="ct-components">
+        {REGION_CSS}
+      </style>
       <script
         {...jsonLdProps(
           collectionGraph({
-            name: `Campsites in ${data.region}`,
-            description: `${data.total} campsites in ${data.region}, ${cName}.`,
+            name: `Campsites in ${regionName}`,
+            description: `${data.total} campsites in ${regionName}, ${cName}.`,
             path: here,
             items: data.items.map((s) => ({
               name: s.name ?? SPOT_TYPE_LABEL[s.type],
@@ -135,7 +175,7 @@ export default async function RegionListing({
           breadcrumbList([
             { name: 'Camping', path: '/camping' },
             { name: cName, path: `/camping/${country}` },
-            { name: data.region as string, path: base },
+            { name: regionName, path: base },
           ]),
         )}
       />
@@ -153,45 +193,83 @@ export default async function RegionListing({
             </Link>
           </li>
           <li aria-hidden="true">/</li>
-          <li aria-current="page">{data.region}</li>
+          <li aria-current="page">{regionName}</li>
         </ol>
       </nav>
 
-      <h1 className="mt-4 text-3xl md:text-[42px]">
-        Campsites in {data.region}
-      </h1>
-      <Block as="p" measure="read" className="mt-3 text-ink-2">
-        {data.total} {data.total === 1 ? 'site' : 'sites'} in {data.region},{' '}
-        {cName}
-        {/* The pages of the WHOLE region. A filtered set's pages are
-            counted from `matched` and said beside that number. */}
-        {!filtering && pages > 1 && ` — page ${page} of ${pages}`}.
-      </Block>
-
-      {baseFirstPage && (
-        <HubStatTiles tiles={tiles} asOf={countedAsOf(own?.readAt ?? null)} />
+      {baseFirstPage ? (
+        /* The banner carries the h1 and the lead — the same layered banner
+           and the same drawing the country hub uses (CAMP-451): we hold
+           no regional photography. Base page only: page 2 and every
+           /filter?… address are working views, and a 480px banner above
+           a filtered list would push the thing the reader just asked
+           for below the fold. */
+        <LayeredBanner
+          className="mt-4"
+          headingLevel={1}
+          background={{ src: '/banners/eu-dawn.svg' }}
+          tickerText={regionName.toUpperCase()}
+          heading={`Campsites in ${regionName}`}
+          description={lead}
+          cta={{ href: '#results', label: 'See the campsites' }}
+          minHeight="min(60svh, 480px)"
+          textSize={{ desktop: '120px', mobile: '48px' }}
+        />
+      ) : (
+        <>
+          <h1 className="mt-4 text-3xl md:text-[42px]">Campsites in {regionName}</h1>
+          <Block as="p" measure="read" className="mt-3 text-ink-2">
+            {lead}
+          </Block>
+        </>
       )}
 
-      <HubFilters base={base} q={q} data={data} pages={pages} />
+      {/* Prose and figures on the left, the map on the right. On pages
+          without prose — page 2, a filtered view — the map takes the
+          whole width at the theme's wide-map ratio (region-map.tsx). */}
+      {baseFirstPage ? (
+        <div className="ct-region">
+          <div className="ct-region__text">
+            <HubStatTiles tiles={tiles} asOf={countedAsOf(own?.readAt ?? null)} maxCols={2} />
+            <RegionInsights country={country} region={region} />
+            <RegionDriving country={country} region={region} />
+          </div>
+          <div className="ct-region__map">
+            <RegionMap country={country} slug={region} region={regionName} filter={mapFilter} />
+          </div>
+        </div>
+      ) : (
+        <div className="mt-6">
+          <RegionMap
+            country={country}
+            slug={region}
+            region={regionName}
+            filter={mapFilter}
+            wide
+          />
+        </div>
+      )}
 
-      {/* The base page of the region, page 1 only. A paragraph repeated
-          on every page — and on every /filter?… address, of which there
-          are hundreds of thousands — would be the same text under many
-          URLs. */}
-      {baseFirstPage && <RegionInsights country={country} region={region} />}
-      {baseFirstPage && <RegionDriving country={country} region={region} />}
+      {/* The banner's "See the campsites" lands here, under the sticky
+          header and the toolbar's own offset (region-toolbar.tsx). */}
+      <div id="results" className="ct-region__results" />
+
+      <RegionToolbar base={base} q={q} data={data} pages={pages} />
+      <RegionFilterPanel base={base} q={q} data={data} />
 
       {empty ? (
         <EmptyResult
           base={base}
           q={q}
           data={data}
-          region={data.region as string}
+          region={regionName}
           country={country}
           cName={cName}
         />
       ) : (
-        <ul className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        /* 🔴 `grid` stays in the class list: tests/e2e/hub-filters.spec.ts
+           counts the cards as `main ul.grid li a`. */
+        <ul className="ct-cards mt-6 grid">
           {data.items.map((s) => (
             <SpotListCard
               key={s.slug}
@@ -226,7 +304,7 @@ export default async function RegionListing({
           />
         ))}
 
-      {baseFirstPage && <HubFaq items={faq} region={data.region} />}
+      {baseFirstPage && <HubFaq items={faq} region={regionName} />}
 
       <RegionNeighbours
         country={country}
@@ -234,184 +312,108 @@ export default async function RegionListing({
         cName={cName}
       />
 
-    </main>
+    </PageShell>
   );
 }
 
 /**
- * Screen 2 of the hubs mock-up: Type, Facilities, "N sites match · clear
- * filters", sort. Every control is a link (see hub-filters.ts).
+ * The two-column block and the card grid — CAMP-452.
  *
- * 🔴 NOT a `<ul>`. The crawl test walks `main ul li a` to the first
- * campsite; a list of filter links above the cards would be the first
- * thing it clicked. The pills sit in a `<nav>` of plain anchors.
+ * 🔴 NUMBERS FROM THE THEME (`fuse 1.0.1.zip`, read 09.11.2026):
  *
- * Counts are the API's facets — how many a reader would see after
- * choosing that chip — and are drawn only when the API sent them.
+ *   assets/collection.build.css
+ *   .collection__grid-wrapper{display:flex;flex-wrap:wrap;gap:4px}   ≥768: gap:12px
+ *   .collection__item{width:calc(50% - 2px)}                        ≥768: calc(25% - 9px)
+ *   .collection__grid-wrapper--custom{grid-template-columns:repeat(16,minmax(0,1fr))}
+ *   .collection__item--big-card-*{grid-column:span 8}              (half the row)
+ *   .collection__item--big-card-* .product-card{position:sticky;
+ *       top:calc(var(--header-height-sticky) + 24px)}
  *
- * 🔴 Every link INTO `/filter?…` carries `rel="nofollow"` — see `relFor`
- * in hub-filters.ts for why that, and not robots.txt. Links back to the
- * static region stay plain.
+ *   assets/collection-card.build.css (frame) and product-card.build.css (body)
+ *   .collection-card{padding:4px;border-radius:var(--global-border-radius);
+ *       background-color:var(--color-background-secondary)}         ≥992: padding:8px
+ *   .product-card{display:flex;min-height:100%;flex-direction:column;
+ *       border-radius:calc(var(--global-border-radius)*.75)}
+ *   .product-card__footer{display:flex;flex-direction:column;align-items:flex-start;
+ *       flex-grow:1;height:100%;padding:16px 20px 20px 20px}
+ *   .product-card__title{font-size:var(--body-font-size);line-height:1.5;font-weight:600}
+ *   .product-card__vendor{margin-top:8px;line-height:1.5;font-weight:400}
+ *   .product-card__price{padding-top:16px}
+ *   .product-card__label{padding:2px 8px;border-radius:calc(var(--global-border-radius)/2);
+ *       font-size:calc(var(--body-font-size)*.75);font-weight:600;line-height:1.33}
+ *
+ * Two columns on a phone and four from 768px, as the theme's collection
+ * grid; the two-column text|map block from 992px, the theme's threshold
+ * for a big card beside the grid. The header's height is the variable
+ * the header writes (`--ct-header-h`, site-header-frame.tsx; 63px without
+ * JavaScript), the theme's `+ 24px` below it.
+ *
+ * 🔴 EQUAL HEIGHT WITHOUT A PHOTO. Rows do not float: a grid stretches
+ * its cells, the card is a column flex box at 100% height, and the
+ * button is pinned to the bottom with `margin-top:auto` — the same
+ * device as the region tiles (region-tiles.tsx). Photos are CAMP-469's.
+ *
+ * 🔴 ONE LINK PER CARD, the whole card, named by its title
+ * (`aria-labelledby`): the crawl tests count `main ul.grid li a` as
+ * cards, and a screen reader hears the campsite's name, not the button
+ * text twice. The "View campsite" is a span drawn as the theme's button.
  */
-function HubFilters({
-  base,
-  q,
-  data,
-  pages,
-}: {
-  base: string;
-  q: HubQuery;
-  data: RegionListingData;
-  pages: number;
-}) {
-  const matched = data.matched;
-  const unknown = data.unknownExcluded ?? 0;
-  const facets = data.facets;
+const REGION_CSS = `
+.ct-region{display:grid;gap:12px;margin-top:24px}
+.ct-region__text > * + *{margin-top:24px}
+.ct-region__results{scroll-margin-top:calc(var(--ct-header-h,63px) + 24px)}
+.ct-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;list-style:none;margin:24px 0 0;padding:0}
+.ct-card{display:flex}
+.ct-card__link{display:flex;flex-direction:column;width:100%;height:100%;padding:4px;border-radius:var(--r,16px);background-color:var(--color-surface-2);color:inherit;text-decoration:none}
+.ct-card__body{display:flex;flex:1 1 auto;flex-direction:column;align-items:flex-start;height:100%;padding:16px 20px 20px;border-radius:calc(var(--r,16px) * .75);background-color:var(--color-surface)}
+.ct-card__title{font-weight:600;line-height:1.5;color:var(--color-heading);word-break:break-word}
+.ct-card__type{margin-top:8px;font-size:.875rem;line-height:1.5;color:var(--color-ink-2)}
+.ct-card__tags{display:flex;flex-wrap:wrap;gap:4px;padding-top:16px}
+.ct-card__tag{padding:2px 8px;border-radius:calc(var(--r,16px) / 2);border:1px solid color-mix(in srgb,var(--color-ok) 50%,transparent);background-color:color-mix(in srgb,var(--color-ok) 10%,transparent);font-size:.75rem;font-weight:600;line-height:1.33;color:var(--color-heading)}
+.ct-card__button{margin-top:auto;padding-top:16px;align-self:stretch}
+.ct-card__button > span{width:100%}
+a.ct-card__link:focus-visible{outline:2px solid var(--color-heading);outline-offset:2px}
+@media(hover:hover),(pointer:fine){a.ct-card__link:hover .ct-card__title{text-decoration:underline}a.ct-card__link:hover .ct-card__button > span{border-color:var(--color-line-blue)}}
+@media(min-width:768px){.ct-cards{grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}}
+@media(min-width:992px){.ct-region{grid-template-columns:repeat(2,minmax(0,1fr))}.ct-region__map{position:sticky;top:calc(var(--ct-header-h,63px) + 24px);align-self:start}.ct-card__link{padding:8px}}
+`;
+
+function SpotListCard({ spot, href }: { spot: SpotCard; href: string }) {
+  // Only what is actually recorded. A card that prints five grey icons for
+  // five unknown amenities says "we know nothing" five times; one honest
+  // line says it once and leaves room for what we do know.
+  const known = AMENITY_KEYS.map(
+    (k) => [k, AMENITY_LABEL_SHORT[k]] as const,
+  ).filter(([k]) => spot.amenities?.[k] === 'yes');
+  const titleId = `site-${spot.slug}`;
 
   return (
-    <nav
-      aria-label="Filter campsites"
-      className="mt-6 grid gap-3.5 rounded-card border border-line-2 bg-surface p-4"
-    >
-      <div>
-        <p className="text-[11px] font-semibold uppercase tracking-[.1em] text-ink-3">
-          Type
-        </p>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          {SPOT_TYPES.map((t) => {
-            const on = q.types.includes(t);
-            return (
-              <Chip
-                key={t}
-                href={hubHref(base, withType(q, t))}
-                on={on}
-                count={facets?.types[t]}
-              >
-                {SPOT_TYPE_LABEL_SHORT[t]}
-              </Chip>
-            );
-          })}
-        </div>
-      </div>
-      <hr className="border-line-2" />
-      <div>
-        <p className="text-[11px] font-semibold uppercase tracking-[.1em] text-ink-3">
-          Facilities
-        </p>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          {AMENITY_KEYS.map((k) => {
-            const on = q.amenities.includes(k);
-            return (
-              <Chip
-                key={k}
-                href={hubHref(base, withAmenity(q, k))}
-                on={on}
-                count={facets?.amenities[k]}
-              >
-                {AMENITY_LABEL_SHORT[k]}
-              </Chip>
-            );
-          })}
-        </div>
-      </div>
-      <hr className="border-line-2" />
-      <div className="flex flex-wrap items-center justify-between gap-2.5 text-sm text-ink-2">
-        {isFiltering(q) && matched !== undefined ? (
-          <p data-hub-match>
-            <b className="text-heading tabular-nums">{matched}</b>{' '}
-            {matched === 1 ? 'site matches' : 'sites match'}
-            {pages > 1 && ` · page ${q.page} of ${pages}`}
-            {unknown > 0 && !q.includeUnknown && (
-              <>
-                {' · '}
-                {unknown} more where nobody recorded {amenityList(q)} —{' '}
-                <Link
-                  href={hubHref(base, withUnknown(q, true))}
-                  rel={relFor(hubHref(base, withUnknown(q, true)))}
-                  className="text-line-blue underline"
-                >
-                  include them
-                </Link>
-              </>
-            )}
-            {q.includeUnknown && (
-              <>
-                {' · '}
-                <Link
-                  href={hubHref(base, withUnknown(q, false))}
-                  rel={relFor(hubHref(base, withUnknown(q, false)))}
-                  className="text-line-blue underline"
-                >
-                  only recorded
-                </Link>
-              </>
-            )}
-            {' · '}
-            <Link href={base} className="text-line-blue underline">
-              clear filters
-            </Link>
-          </p>
-        ) : (
-          <p>Every site in the region</p>
-        )}
-        <p>
-          Sort:{' '}
-          {REGION_SORTS.map((s, i) => (
-            <span key={s}>
-              {i > 0 && ' · '}
-              {s === q.sort ? (
-                <b aria-current="true" className="text-heading">
-                  {SORT_LABEL[s]}
-                </b>
-              ) : (
-                <Link
-                  href={hubHref(base, withSort(q, s))}
-                  // relFor, not a bare "nofollow": with only a sort set,
-                  // "Name" IS the static region page — and the one link
-                  // back to it from here that a crawler may follow.
-                  rel={relFor(hubHref(base, withSort(q, s)))}
-                  className="underline hover:text-heading"
-                >
-                  {SORT_LABEL[s]}
-                </Link>
-              )}
-            </span>
-          ))}
-        </p>
-      </div>
-    </nav>
-  );
-}
-
-function Chip({
-  href,
-  on,
-  count,
-  children,
-}: {
-  href: string;
-  on: boolean;
-  count: number | undefined;
-  children: React.ReactNode;
-}) {
-  return (
-    <ButtonLink
-      href={href}
-      rel={relFor(href)}
-      variant={on ? 'accent' : 'chip'}
-      size="sm"
-      aria-current={on ? 'true' : undefined}
-    >
-      {children}
-      {count !== undefined && (
-        <>
-          {' '}
-          <span className="font-mono text-xs text-ink-2 tabular-nums">
-            {count}
+    <li className="ct-card">
+      <Link href={href} className="ct-card__link" aria-labelledby={titleId}>
+        <span className="ct-card__body">
+          <span id={titleId} className="ct-card__title">
+            {spot.name ?? SPOT_TYPE_LABEL[spot.type]}
           </span>
-        </>
-      )}
-    </ButtonLink>
+          <span className="ct-card__type">{SPOT_TYPE_LABEL[spot.type]}</span>
+          {known.length > 0 ? (
+            <span className="ct-card__tags">
+              {known.map(([k, label]) => (
+                <span key={k} className="ct-card__tag">
+                  {label}
+                </span>
+              ))}
+            </span>
+          ) : (
+            <span className="ct-card__type">Facilities not recorded</span>
+          )}
+          <span className="ct-card__button">
+            {/* The theme's secondary button (button.tsx), drawn on a span:
+                the card is already the link. */}
+            <span className={buttonClasses('secondary', 'md')}>View campsite</span>
+          </span>
+        </span>
+      </Link>
+    </li>
   );
 }
 
@@ -499,38 +501,6 @@ function EmptyResult({
         </ButtonLink>
       </div>
     </section>
-  );
-}
-
-function SpotListCard({ spot, href }: { spot: SpotCard; href: string }) {
-  // Only what is actually recorded. A card that prints five grey icons for
-  // five unknown amenities says "we know nothing" five times; one honest
-  // line says it once and leaves room for what we do know.
-  const known = AMENITY_KEYS.map(
-    (k) => [k, AMENITY_LABEL_SHORT[k]] as const,
-  ).filter(([k]) => spot.amenities?.[k] === 'yes');
-
-  return (
-    <li className="rounded-card border border-line-2 bg-surface p-4 shadow-card">
-      <Link href={href} className="font-semibold text-heading hover:underline">
-        {spot.name ?? SPOT_TYPE_LABEL[spot.type]}
-      </Link>
-      <p className="mt-1 text-sm text-ink-2">{SPOT_TYPE_LABEL[spot.type]}</p>
-      {known.length > 0 ? (
-        <ul className="mt-2 flex flex-wrap gap-1.5">
-          {known.map(([k, label]) => (
-            <li
-              key={k}
-              className="rounded-xs border border-ok/50 bg-ok/10 px-2 py-0.5 text-xs text-heading"
-            >
-              {label}
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="mt-2 text-xs text-ink-2">Facilities not recorded</p>
-      )}
-    </li>
   );
 }
 

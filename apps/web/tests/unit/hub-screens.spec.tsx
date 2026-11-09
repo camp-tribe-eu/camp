@@ -440,7 +440,7 @@ test.describe('the region page', () => {
     expect(text).toContain('Campsites in Bovec');
     expect(text).toContain('Camp 24');
     expect(text).toContain('Questions about camping in Bovec');
-    expect(html).toContain('<details');
+    expect(html).toContain('<details class="ct-faq__item"');
   });
 
   test('🔴 Bovec prints 100, 7 and "16 of 25" with 75 unrecorded — never "16 of 100", never a price', async () => {
@@ -455,8 +455,10 @@ test.describe('the region page', () => {
 
   test('🔴 Bovec asks two questions, in the words of the data, and not the third', async () => {
     const html = await regionHtml('bovec');
-    expect(html.match(/<details/g)?.length).toBe(2);
-    expect(html).toContain('<summary');
+    // CAMP-452: counted by the FAQ's own class — the sort dropdown in the
+    // toolbar is a `<details>` too.
+    expect(html.match(/<details class="ct-faq__item"/g)?.length).toBe(2);
+    expect(html).toContain('<summary class="ct-faq__control"');
     expect(html).toContain('Are there free places to camp in Bovec?');
     expect(html).toContain(
       '7 of the 100 sites we list in Bovec are free campsites or wild camping spots by their OpenStreetMap tag; the other 93 are campsites, motorhome parks or camper stops. ' +
@@ -476,7 +478,7 @@ test.describe('the region page', () => {
     expect(tiles).toMatch(/Campsites\s+40\b/);
     expect(tiles).toMatch(/Free & wild spots\s+0\b/);
     expect(tiles).not.toContain('Electricity');
-    expect(html.match(/<details/g)?.length).toBe(2);
+    expect(html.match(/<details class="ct-faq__item"/g)?.length).toBe(2);
     expect(html).toContain('Can a motorhome stay overnight at campsites in Kranj?');
     expect(html).toContain(
       'For 8 of the 40 sites we list in Kranj, OpenStreetMap says an overnight stay in a motorhome is allowed, and for 1 that it is not. For the other 31 we do not know, which is not the same as not allowed. ' +
@@ -496,7 +498,7 @@ test.describe('the region page', () => {
     expect(tiles).toMatch(/Campsites\s+4\b/);
     expect(tiles).not.toContain('Electricity');
     expect(text).not.toContain('Counted from our listings');
-    expect(html.match(/<details/g)?.length).toBe(1);
+    expect(html.match(/<details class="ct-faq__item"/g)?.length).toBe(1);
     expect(html).toContain('Are there free places to camp in Ptuj?');
   });
 
@@ -505,8 +507,10 @@ test.describe('the region page', () => {
     const text = visibleText(html);
     expect(text).toContain('Campsites in Bovec');
     expect(text).toContain('Camp 24');
-    expect(html).not.toContain('<details');
-    expect(html).not.toContain('<summary');
+    // CAMP-452: the sort dropdown is a `<details>` as well, so "no FAQ" is
+    // asked of the FAQ's own markup, not of the tag.
+    expect(html).not.toContain('ct-faq__item');
+    expect(html).not.toContain('ct-faq__control');
     expect(html).not.toContain('<dl');
     expect(text).not.toContain('Questions about camping');
     expect(text).not.toContain('Counted from our listings');
@@ -527,7 +531,7 @@ test.describe('the figures live on the base page only', () => {
   test('anchor: page 1 of the base page has tiles, questions and the listing', async () => {
     const html = await render({ country: 'si', region: 'bovec', page: 1 });
     expect(html).toContain('<dl');
-    expect(html).toContain('<details');
+    expect(html).toContain('<details class="ct-faq__item"');
     expect(visibleText(html)).toContain('Camp 24');
   });
 
@@ -535,7 +539,7 @@ test.describe('the figures live on the base page only', () => {
     const html = await render({ country: 'si', region: 'bovec', page: 2 });
     expect(visibleText(html)).toContain('Camp 24');
     expect(html).not.toContain('<dl');
-    expect(html).not.toContain('<details');
+    expect(html).not.toContain('ct-faq__item');
     expect(visibleText(html)).not.toContain('Questions about camping');
   });
 
@@ -550,7 +554,7 @@ test.describe('the figures live on the base page only', () => {
     );
     expect(visibleText(html)).toContain('Camp 24');
     expect(html).not.toContain('<dl');
-    expect(html).not.toContain('<details');
+    expect(html).not.toContain('ct-faq__item');
     expect(asked.some((u) => u.includes('/spots/hub-stats/'))).toBe(false);
   });
 
@@ -567,7 +571,7 @@ test.describe('the figures live on the base page only', () => {
     expect(text).toContain('Clear all filters');
     expect(text).toContain('Other regions in Slovenia');
     expect(html).not.toContain('<dl');
-    expect(html).not.toContain('<details');
+    expect(html).not.toContain('ct-faq__item');
   });
 });
 

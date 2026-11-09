@@ -31,6 +31,33 @@ export const MAP = '[data-testid="map"]';
  * модульним тестом: новий стан не має права зʼявитись у коді й не
  * зʼявитись тут, бо тоді чекання мовчки розійдеться з дійсністю.
  */
+/**
+ * 🔴 ЧИ ВМІЄ ЦЕЙ БРАУЗЕР МАЛЮВАТИ МАПУ ВЗАГАЛІ (CAMP-452).
+ *
+ * headless Firefox на раннері GitHub не має GPU, отже не має WebGL2, отже
+ * MapLibre кидає ще на конструкторі, і сторінка чесно показує запасний
+ * вміст. Це ПРАВИЛЬНА поведінка, а не дефект.
+ *
+ * 🔴 ЧОМУ ЗОНД ЖИВЕ САМЕ ТУТ. Він уже був написаний один раз — у
+ * `campsite-media.spec.ts`, із коментарем «винесено сюди, щоб означення
+ * було одне, а не два». Але «сюди» означало «в той самий спек», тож
+ * спільним воно не стало: наступний тест мапи (`region-page.spec.ts`)
+ * зонда не покликав і зажадав `data-map-state="ready"` там, де мапи бути
+ * не може. e2e упав рівно на firefox-desktop — удруге, тим самим чином.
+ *
+ * Тепер означення справді одне, і лежить воно поруч із рештою знань про
+ * стан мапи.
+ */
+export async function hasWebGl(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    try {
+      return !!document.createElement('canvas').getContext('webgl2');
+    } catch {
+      return false;
+    }
+  });
+}
+
 export const MAP_STATES = ['loading', 'ready', 'wide', 'failed'] as const;
 export type MapState = (typeof MAP_STATES)[number];
 

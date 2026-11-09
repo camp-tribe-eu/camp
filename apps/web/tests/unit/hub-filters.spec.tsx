@@ -214,12 +214,24 @@ const render = (searchParams: Record<string, string>) =>
 const hrefsIn = (html: string) =>
   [...html.matchAll(/<a\b[^>]*\bhref="([^"]+)"/g)].map((m) => decodeEntities(m[1]));
 
-/** The campsite links in the card list — the `<ul>` after the filters. */
+/**
+ * The campsite links in the card list — the `<ul class="ct-cards …">`
+ * after the toolbar and the filter panel (CAMP-452). One link per card,
+ * so these are the cards.
+ */
 function cardLinks(html: string): string[] {
   const main = html.slice(html.indexOf('<main'));
-  const list = /<ul class="mt-6 grid[^"]*">([\s\S]*?)<\/ul>\s*(?:<nav|<section)/.exec(main);
+  const list = /<ul class="ct-cards[^"]*">([\s\S]*?)<\/ul>\s*(?:<nav|<section)/.exec(main);
   return list ? hrefsIn(list[1]) : [];
 }
+
+/** The `<style>` blocks React hoisted into the served markup, as one string. */
+const servedCss = (html: string) =>
+  [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map((m) => m[1]).join('\n');
+
+/** The sort dropdown's option list (region-toolbar.tsx), as rendered. */
+const sortOptions = (html: string) =>
+  /<div class="ct-sort__options"[^>]*>([\s\S]*?)<\/div>/.exec(html)?.[1] ?? '';
 
 // ── the filter narrows the same region ────────────────────────────────────
 
@@ -279,15 +291,21 @@ test('chips carry the API\'s counts and link to the toggled state', async () => 
   expect(hrefs).toContain(BASE);
 });
 
-test('sort is three plain links, the current one not a link', async () => {
+test('sort is a dropdown of plain links in the toolbar, the current one not a link', async () => {
   const html = await render({ types: 'free', sort: 'facilities' });
   const hrefs = hrefsIn(html);
-  const sortRow = /<p>Sort:[\s\S]*?<\/p>/.exec(html)?.[0] ?? '';
-  expect(hrefsIn(sortRow)).toEqual([
+  // CAMP-452: the options live in a `<details>` in the sticky toolbar —
+  // opened without a script, like the FAQ — and the trigger names the
+  // current order.
+  const trigger = /<summary class="ct-sort__trigger"[^>]*>([\s\S]*?)<\/summary>/.exec(html)?.[1] ?? '';
+  expect(visibleText(trigger)).toBe('Sort by Most recorded facilities');
+  const options = sortOptions(html);
+  expect(hrefsIn(options)).toEqual([
     `${BASE}/filter?types=free`,
     `${BASE}/filter?types=free&sort=type`,
   ]);
-  expect(visibleText(sortRow)).toBe('Sort: Name · Most recorded facilities · Type');
+  expect(visibleText(options)).toBe('Name Most recorded facilities Type');
+  expect(options).toContain('aria-current="true" class="ct-sort__option">Most recorded facilities<');
   expect(asked).toContain(`/spots/${COUNTRY}/${REGION}?page=1&types=free&sort=facilities`);
   // Page 2 of a filtered set stays in the query string, never /page/2.
   expect(hrefs).toContain(`${BASE}/filter?types=free&sort=facilities&page=2`);
@@ -391,7 +409,7 @@ test('🔴 every link into /filter?… is rel="nofollow"; every other link is no
   }
   // Sort-only: the "Name" sort link is the plain region, and followable.
   const sortOnly = await render({ sort: 'facilities' });
-  const sortRow = /<p>Sort:[\s\S]*?<\/p>/.exec(sortOnly)?.[0] ?? '';
+  const sortRow = sortOptions(sortOnly);
   expect(hrefsIn(sortRow)).toContain(BASE);
   expect(/<a\b[^>]*\bhref="[^"]*testland"[^>]*rel="nofollow"/.test(sortRow)).toBe(false);
 });
@@ -403,6 +421,126 @@ test('the first `main ul li a` is still a campsite, not a filter chip', async ()
   const main = html.slice(html.indexOf('<main'));
   const firstList = /<ul[\s\S]*?<li[\s\S]*?<a\b[^>]*\bhref="([^"]+)"/.exec(main);
   expect(firstList?.[1]).toMatch(new RegExp(`^${BASE}/[a-z0-9-]+$`));
+});
+
+// ── CAMP-452: the controls sit above what they control, and the map shows the same set ──
+//
+// 🔴 Every assertion below reads the served HTML: the `<style>` React
+// hoisted, the order of the elements, the text of the map's legend —
+// never a constant of the component.
+
+test('🔴 one query, two consumers: the cards AND the map legend follow the same filter', async () => {
+  // Nothing filtered: 24 cards of 30, and the map promises no highlight.
+  const plain = await render({});
+  expect(cardLinks(plain)).toHaveLength(24);
+  expect(visibleText(plain)).toContain('Loading the map of Testland.');
+  expect(visibleText(plain)).not.toContain('Highlighted when it arrives');
+
+  // Paid: the three paid cards, and the map says it highlights paid campsites.
+  const paid = await render({ types: 'paid' });
+  expect(cardLinks(paid).sort()).toEqual([`${BASE}/paid-1`, `${BASE}/paid-2`, `${BASE}/paid-3`]);
+  expect(visibleText(paid)).toContain(
+    'Loading the map of Testland. Highlighted when it arrives: Paid.',
+  );
+
+  // Free with showers: ten free cards with a shower, and the legend names both.
+  const both = await render({ types: 'free', amenities: 'shower' });
+  const links = cardLinks(both);
+  expect(links).toHaveLength(10);
+  for (const href of links) expect(href).toMatch(new RegExp(`^${BASE}/free-shower-`));
+  expect(visibleText(both)).toContain(
+    'Loading the map of Testland. Highlighted when it arrives: Free, Showers.',
+  );
+  // 🔴 The legend is the island's own reading of its `filter` prop. A page
+  // that handed the map a different query than the list — mutation:
+  // `filter={mapFilter}` → the empty query in region-listing.tsx — prints
+  // "Loading the map of Testland." here while the cards stay filtered.
+});
+
+test('🔴 the toolbar is sticky, in the served CSS, and stands between the map and the cards', async () => {
+  const html = await render({ types: 'paid' });
+  const css = servedCss(html);
+  expect(css, 'the toolbar stylesheet is not in the served HTML').toContain('.ct-toolbar{');
+  const rule = /\.ct-toolbar\{([^}]*)\}/.exec(css)?.[1] ?? '';
+  expect(rule).toContain('position:sticky');
+  // The theme's offset for a sticky block under the sticky header:
+  // `top:calc(var(--header-height-sticky) + 24px)`; our header writes its
+  // own height into `--ct-header-h` (site-header-frame.tsx), 63px without JS.
+  expect(rule).toContain('top:calc(var(--ct-header-h,63px) + 24px)');
+
+  // Order in the document: map legend → toolbar → filter panel → cards.
+  const main = html.slice(html.indexOf('<main'));
+  const at = (needle: string) => {
+    const i = main.indexOf(needle);
+    expect(i, `${needle} is not on the page`).toBeGreaterThan(-1);
+    return i;
+  };
+  const legend = at('data-testid="region-map-legend"');
+  const toolbar = at('data-testid="region-toolbar"');
+  const panel = at('aria-label="Filter campsites"');
+  const cards = at('<ul class="ct-cards');
+  expect(legend).toBeLessThan(toolbar);
+  expect(toolbar).toBeLessThan(panel);
+  expect(panel).toBeLessThan(cards);
+});
+
+test('the text column holds prose and figures only — nothing that filters or sorts', async () => {
+  const html = await render({});
+  const main = html.slice(html.indexOf('<main'));
+  const column = /<div class="ct-region__text">([\s\S]*?)<div class="ct-region__map">/.exec(main)?.[1];
+  expect(column, 'the two-column block is missing on the base page').toBeDefined();
+  expect(column).not.toContain('ct-check');
+  expect(column).not.toContain('ct-sort');
+  expect(column).not.toContain('<select');
+  expect(column).not.toContain('type="checkbox"');
+});
+
+test('🔴 every chip is drawn as a checkbox BEFORE the click: a 24px box, and the tick hidden until chosen', async () => {
+  const html = await render({ types: 'paid' });
+  const nav = /<nav aria-label="Filter campsites"[\s\S]*?<\/nav>/.exec(html)?.[0] ?? '';
+  const anchors = [...nav.matchAll(/<a\b[^>]*class="ct-check"[^>]*>([\s\S]*?)<\/a>/g)];
+  expect(anchors).toHaveLength(SPOT_TYPES.length + AMENITY_KEYS.length);
+  for (const [, inner] of anchors) {
+    // The box is the first thing in the chip, before the label.
+    expect(inner.trimStart().startsWith('<span class="ct-check__box" aria-hidden="true"><svg')).toBe(true);
+  }
+  // Exactly one chip is on, and it is the paid one.
+  const on = anchors.filter(([a]) => /aria-current="true"/.test(a));
+  expect(on).toHaveLength(1);
+  expect(visibleText(on[0][1])).toMatch(/^Paid \d+$/);
+
+  // The served rules: the box has a size and a border in the OFF state,
+  // and the tick's opacity goes 0 → 1 only with `aria-current="true"`.
+  const css = servedCss(html);
+  const box = /\.ct-check__box\{([^}]*)\}/.exec(css)?.[1] ?? '';
+  expect(box).toContain('width:24px');
+  expect(box).toContain('height:24px');
+  expect(box).toContain('border:1px solid');
+  expect(box).not.toMatch(/display:none|opacity:0|visibility:hidden/);
+  expect(/\.ct-check__box svg\{[^}]*opacity:0[;}]/.test(css)).toBe(true);
+  expect(/\.ct-check\[aria-current="true"\] \.ct-check__box svg\{[^}]*opacity:1[;}]/.test(css)).toBe(true);
+  expect(
+    /\.ct-check\[aria-current="true"\] \.ct-check__box\{[^}]*background-color:var\(--color-line-blue\)/.test(css),
+  ).toBe(true);
+});
+
+test('active filters are pills in the toolbar, each a link to the state without it', async () => {
+  const html = await render({ types: 'paid', amenities: 'shower' });
+  const bar = /<nav aria-label="Sort and current filters"[\s\S]*?<\/nav>/.exec(html)?.[0] ?? '';
+  const pills = [...bar.matchAll(/<a\b[^>]*class="ct-pill[^"]*"[^>]*>([\s\S]*?)<\/a>/g)].map((m) => ({
+    href: decodeEntities(/\bhref="([^"]+)"/.exec(m[0])?.[1] ?? ''),
+    rel: /\brel="([^"]+)"/.exec(m[0])?.[1],
+    text: visibleText(m[1]),
+  }));
+  expect(pills).toEqual([
+    { href: `${BASE}/filter?amenities=shower`, rel: 'nofollow', text: 'Paid' },
+    { href: `${BASE}/filter?types=paid`, rel: 'nofollow', text: 'Showers' },
+  ]);
+  expect(visibleText(bar)).toContain('Filters (2)');
+  // And the plain hub has no pills and no count.
+  const plain = /<nav aria-label="Sort and current filters"[\s\S]*?<\/nav>/.exec(await render({}))?.[0] ?? '';
+  expect(plain).not.toContain('ct-pill');
+  expect(visibleText(plain)).toContain('Every site in the region');
 });
 
 // ── screen 3: the empty state ─────────────────────────────────────────────

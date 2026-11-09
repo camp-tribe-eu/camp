@@ -66,16 +66,27 @@ const STATS_CSS = `
 export function HubStatTiles({
   tiles,
   asOf,
+  maxCols = 4,
 }: {
   tiles: readonly HubTile[];
   /** The "Counted from our listings as of …" line, or null without a day. */
   asOf: string | null;
+  /**
+   * CAMP-452: the ceiling on columns from 768px up. The country hub keeps
+   * the default four across the whole page; the region page puts the
+   * tiles in the left half of a two-column block (text | map), where
+   * three tiles across half a page are ~180px each and the note under
+   * "Electricity" wraps into four lines — the "card split in half" of
+   * screen 441/54. Two columns there, and an odd last tile takes the row
+   * (the existing `:last-child:nth-child(odd)` rule, now at every width).
+   */
+  maxCols?: 2 | 3 | 4;
 }) {
   if (tiles.length === 0) return null;
   // As many columns as tiles, never an empty cell: the mock-up's four
   // are three on most pages today (lib/hub-stats.ts), and a fourth cell
   // with nothing in it reads as a figure that failed to load.
-  const cols = Math.min(4, tiles.length);
+  const cols = Math.min(maxCols, tiles.length);
   return (
     <section
       aria-label="Key figures"
