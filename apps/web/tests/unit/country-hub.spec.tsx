@@ -18,6 +18,7 @@ import CountryHub from '@/app/camping/[country]/page';
 import RegionPageN from '@/app/camping/[country]/[region]/page/[n]/page';
 import { Pagination, paginationParts } from '@/components/pagination';
 import { readRegionCards, regionCountLabel, RegionTiles } from '@/components/region-tiles';
+import { HubStatTiles } from '@/components/hub-stats';
 import { pickTickerRegions } from '@/components/region-ticker';
 import { renderAsyncComponent, renderComponent, renderNestedAsync, rendersNothing } from './render-component';
 import { visibleText } from './rendered-text';
@@ -330,4 +331,35 @@ test('перша сторінка пагінатора: «2» — посилан
   expect(html).not.toContain('aria-label="Page 2"');
   expect(html).toContain('aria-label="Next page"');
   expect(html).not.toContain('aria-label="Previous page"');
+});
+
+
+test('🔴 лічильники: між `dl` і `dt`/`dd` рівно ОДИН `div` — два роблять список не списком', () => {
+  // Перша редакція CAMP-451 мала два (`div.ct-stat > div.ct-stat__panel`),
+  // щоб повторити дві коробки теми. Lighthouse на /camping/hr/zadarska
+  // почервонів: accessibility 0.89 при стелі 0.9 — `definition-list`
+  // («direct children that are not allowed: div > div») і `dlitem`
+  // («does not have a <dl> parent element»), по 7 ваги кожен. Для читача
+  // екрана підписи й значення переставали належати списку означень.
+  //
+  // Міряно, а не припущено: `npx lighthouse … --only-categories=accessibility`
+  // на тій самій сторінці дав ті самі 0.89 і ті самі два аудити.
+  const html = renderComponent(HubStatTiles, {
+    tiles: [
+      { key: 'campsites', label: 'Campsites', value: '7', note: 'of 7 listed' },
+      { key: 'price', label: 'From', value: '€12' },
+    ],
+    asOf: null,
+  });
+  const dl = html.slice(html.indexOf('<dl'), html.indexOf('</dl>'));
+  const aboveFirstTerm = dl.slice(0, dl.indexOf('<dt'));
+  const levels = (aboveFirstTerm.match(/<div\b/g) ?? []).length;
+  expect(levels, `між <dl> і <dt> рівнів <div>: ${levels}`).toBe(1);
+  // І значення лежить у тому самому рівні, що й підпис, а не глибше.
+  expect(dl, 'dd має йти одразу за dt').toContain('</dt><dd');
+
+  // Дві коробки теми лишились — тепер однією рамкою: смуга 4px
+  // `--color-surface-2` поверх панелі `--color-surface`. Внутрішній радіус
+  // CSS рахує сам: 16−4 = 12 = calc(r * .75), рівно число теми.
+  expect(html).toContain('border:4px solid var(--color-surface-2)');
 });

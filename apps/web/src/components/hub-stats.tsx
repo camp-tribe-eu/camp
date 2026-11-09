@@ -53,15 +53,14 @@ import { Block } from '@/components/layout';
 // Not exported on purpose: a test must read the served HTML, not this.
 const STATS_CSS = `
 .ct-stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:0}
-.ct-stat{display:flex;flex-direction:column;padding:4px;border-radius:var(--r,16px);background-color:var(--color-surface-2)}
+.ct-stat{display:grid;gap:2px;align-content:start;padding:12px 16px;border:4px solid var(--color-surface-2);border-radius:var(--r,16px);background-color:var(--color-surface);background-clip:padding-box}
 .ct-stat:last-child:nth-child(odd){grid-column:span 2}
-.ct-stat__panel{display:grid;gap:2px;flex:1 1 auto;padding:12px 16px;border-radius:calc(var(--r,16px) * .75);background-color:var(--color-surface)}
 .ct-stat__label{font-size:.75rem;color:var(--color-ink-2)}
 .ct-stat__value{font-size:1.25rem;font-weight:700;font-variant-numeric:tabular-nums;color:var(--color-heading)}
 .ct-stat__note{margin-top:2px;font-size:.75rem;color:var(--color-ink-2)}
 .ct-stats__as-of{margin-top:8px;font-size:.75rem;color:var(--color-ink-2)}
 @media(min-width:768px){.ct-stats{grid-template-columns:repeat(var(--ct-stats-cols,3),1fr);gap:12px}.ct-stat:last-child:nth-child(odd){grid-column:auto}}
-@media(min-width:992px){.ct-stat{padding:8px}}
+@media(min-width:992px){.ct-stat{border-width:8px}}
 `;
 
 export function HubStatTiles({
@@ -86,20 +85,35 @@ export function HubStatTiles({
       <style href="ct-stats" precedence="ct-components">
         {STATS_CSS}
       </style>
+      {/* 🔴 РІВНО ОДИН `div` МІЖ `dl` І `dt`/`dd` — більше не можна.
+          Перша редакція мала два (`div.ct-stat > div.ct-stat__panel`), щоб
+          повторити дві коробки теми: зовнішню рамку й внутрішню панель.
+          Lighthouse на `/camping/hr/zadarska` впав на цьому: accessibility
+          0.89 при стелі 0.9, аудити `definition-list` («dl element has
+          direct children that are not allowed: div > div») і `dlitem`
+          («does not have a <dl> parent element») — по 7 ваги кожен.
+          Тобто для читача екрана підписи й значення переставали бути
+          списком означень узагалі.
+
+          Дві коробки лишились, але однією рамкою: смуга 4px кольору
+          `--color-surface-2` як border, панель `--color-surface` під ним.
+          Внутрішній радіус CSS рахує сам — 16−4 = 12 = `calc(r * .75)`,
+          рівно число теми. Від 992px смуга 8px, і внутрішній радіус стає
+          8 замість 12 теми: тема в цьому місці сама не концентрична
+          (рамка 8, радіус 12 при зовнішніх 16), і я копіюю її числа, а не
+          виправляю її геометрію. */}
       <dl className="ct-stats">
         {tiles.map((t) => (
           // On two columns an odd last tile takes the whole row, for
           // the same reason: no empty cell (`.ct-stat:last-child:nth-child(odd)`).
           <div key={t.key} className="ct-stat">
-            <div className="ct-stat__panel">
-              <dt className="ct-stat__label">{t.label}</dt>
-              <dd>
-                <strong className="ct-stat__value">{t.value}</strong>
-                {/* A block, not a span: the note is its own line for a reader
-                    and its own token for a test that reads the HTML. */}
-                {t.note && <p className="ct-stat__note">{t.note}</p>}
-              </dd>
-            </div>
+            <dt className="ct-stat__label">{t.label}</dt>
+            <dd>
+              <strong className="ct-stat__value">{t.value}</strong>
+              {/* A block, not a span: the note is its own line for a reader
+                  and its own token for a test that reads the HTML. */}
+              {t.note && <p className="ct-stat__note">{t.note}</p>}
+            </dd>
           </div>
         ))}
       </dl>
