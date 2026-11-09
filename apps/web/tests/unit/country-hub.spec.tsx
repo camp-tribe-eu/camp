@@ -19,6 +19,7 @@ import RegionPageN from '@/app/camping/[country]/[region]/page/[n]/page';
 import { Pagination, paginationParts } from '@/components/pagination';
 import { readRegionCards, regionCountLabel, RegionTiles } from '@/components/region-tiles';
 import { HubStatTiles } from '@/components/hub-stats';
+import CountryMap, { circleRadius } from '@/components/country-map';
 import { pickTickerRegions } from '@/components/region-ticker';
 import { renderAsyncComponent, renderComponent, renderNestedAsync, rendersNothing } from './render-component';
 import { visibleText } from './rendered-text';
@@ -90,9 +91,46 @@ function bledPage(page: number) {
   };
 }
 
+/**
+ * Індекс мапи так, як його віддає `/spots/map/regions`: ті самі сім
+ * регіонів Словенії — і ОДИН ЧУЖИЙ рядок, Австрія. Він тут не для краси:
+ * сторінка, яка забуде звузити індекс до своєї країни, інакше виглядала
+ * б у HTML так само, як правильна.
+ */
+const MAP_INDEX = [
+  ...REGIONS.map((r, i) => ({
+    country: 'SI',
+    region: r.region,
+    slug: r.slug,
+    count: r.spots,
+    minLon: 13.5 + i * 0.1,
+    minLat: 45.5 + i * 0.1,
+    maxLon: 13.9 + i * 0.1,
+    maxLat: 45.9 + i * 0.1,
+    lon: 13.7 + i * 0.1,
+    lat: 45.7 + i * 0.1,
+  })),
+  {
+    country: 'AT',
+    region: 'Burgenland',
+    slug: 'burgenland',
+    count: 9_999,
+    minLon: 16.2,
+    minLat: 47.1,
+    maxLon: 17.1,
+    maxLat: 48.1,
+    lon: 16.6,
+    lat: 47.6,
+  },
+];
+
+/** Скільки кемпінгів мапа має назвати: сума ЛИШЕ словенських рядків. */
+const MAP_SPOTS = REGIONS.reduce((n, r) => n + r.spots, 0);
+
 function api(regions: unknown = REGIONS): Fetcher {
   return (url) => {
     if (url.endsWith('/spots/si/regions')) return json(regions);
+    if (url.endsWith('/spots/map/regions')) return json(MAP_INDEX);
     if (url.endsWith('/spots/hub-stats/si')) return json(STATS);
     const m = /\/spots\/si\/bled\?page=(\d+)/.exec(url);
     if (m) return json(bledPage(Number(m[1])));
@@ -362,4 +400,100 @@ test('🔴 лічильники: між `dl` і `dt`/`dd` рівно ОДИН `d
   // `--color-surface-2` поверх панелі `--color-surface`. Внутрішній радіус
   // CSS рахує сам: 16−4 = 12 = calc(r * .75), рівно число теми.
   expect(html).toContain('border:4px solid var(--color-surface-2)');
+});
+
+/**
+ * CAMP-474 — мапа країни. Рішення власника 09.11.2026: «нам точно треба
+ * мати і мапу і банер … банер може бути на горі а мапа трохи нижче».
+ *
+ * 🔴 ЧОМУ ЦЕ ЧИТАЄ HTML, А НЕ КОМПОНЕНТ. Мапу малює MapLibre, якого в
+ * юніті немає й не буде. Те, що тут МОЖНА довести без браузера, —
+ * найдорожче: чи дала сторінка мапі ТІ САМІ рядки, що й переліку. Решту
+ * (чи зʼявились кружечки) міряє e2e на справжній збірці.
+ *
+ * 🔴 МУТАЦІЇ, ЯКІ ЦЕЙ РОЗДІЛ МУСИТЬ ЧЕРВОНИТИ (прогнано 09.11.2026):
+ *  · у `page.tsx` прибрати звуження `r.country === params.country` →
+ *    падає «мапа рахує лише свою країну» (австрійський рядок пролазить);
+ *  · у `country-map.tsx` рахувати `spots` з `regions.length` замість
+ *    суми `count` → падає те саме твердження;
+ *  · у `country-map.tsx` зробити радіус лінійним → падає «площа, а не
+ *    радіус, пропорційна кількості».
+ */
+test.describe('CAMP-474: мапа країни', () => {
+  test('🔴 мапа дістає рядки СВОЄЇ країни, і підпис рахує їх, а не весь індекс', async () => {
+    const html = await countryHtml();
+    const at = html.indexOf('data-testid="country-map"');
+    expect(at, 'мапи країни немає в розмітці').toBeGreaterThan(-1);
+
+    const tag = html.slice(html.lastIndexOf('<div', at), html.indexOf('>', at) + 1);
+    // Сім словенських рядків, і жодного австрійського.
+    expect(tag, `атрибути мапи: ${tag}`).toContain(`data-regions="${REGIONS.length}"`);
+    expect(tag, 'мапа взяла суму всього індексу, а не своєї країни').toContain(
+      `data-spots="${MAP_SPOTS}"`,
+    );
+
+    const text = visibleText(html);
+    expect(text).toContain(`${REGIONS.length} regions of Slovenia on the map`);
+    expect(text).toContain(`${MAP_SPOTS} campsites between them`);
+    // Якір: 9 999 — це австрійський рядок. Якщо він опинився в сумі,
+    // число в підписі змінилось би, і верхнє твердження вже впало б;
+    // цей рядок доводить, що фікстура справді несе чужу країну.
+    expect(MAP_INDEX.some((r) => r.country === 'AT' && r.count === 9_999)).toBe(true);
+  });
+
+  test('мапа стоїть НИЖЧЕ банера і ВИЩЕ плиток регіонів', async () => {
+    const html = await countryHtml();
+    const banner = html.indexOf('data-testid="layered-banner"');
+    const map = html.indexOf('data-testid="country-map"');
+    const tiles = cardLinkAt(html, 'bled');
+    expect(map, 'мапи немає').toBeGreaterThan(-1);
+    expect(tiles, 'плиток регіонів немає').toBeGreaterThan(-1);
+    if (banner > -1) expect(map, 'мапа опинилась вище банера').toBeGreaterThan(banner);
+    expect(map, 'мапа опинилась нижче плиток').toBeLessThan(tiles);
+  });
+
+  test('кредит OpenFreeMap стоїть під мапою — умова ліцензії, не прикраса', async () => {
+    const text = visibleText(await countryHtml());
+    expect(text).toContain('OpenFreeMap © OpenMapTiles');
+  });
+
+  test('🔴 площа кружечка пропорційна кількості, а не його радіус', () => {
+    // Регіон учетверо більший має бути вдвічі ширшим, а не вчетверо.
+    // Інакше 1 250 кемпінгів Бледа закривають усю Словенію.
+    const max = 1_000;
+    const big = circleRadius(max, max);
+    const quarter = circleRadius(max / 4, max);
+    const zero = circleRadius(0, max);
+    // Радіус лінійно росте з коренем: (r − r₀) має подвоїтись від ¼ до 1.
+    const span = big - zero;
+    const quarterSpan = quarter - zero;
+    expect(
+      Math.abs(span / quarterSpan - 2),
+      `від ¼ до повного розміру приріст радіуса виріс у ${(span / quarterSpan).toFixed(2)} раза, ` +
+        'очікувалось рівно вдвічі — тобто радіус рахують лінійно',
+    ).toBeLessThan(0.05);
+  });
+
+  test('без рядків мапа не малює нічого — і не порожню рамку', async () => {
+    // 🔴 ЧОМУ ЦЕ НЕ ТЕСТ СТОРІНКИ, А ТЕСТ КОМПОНЕНТА. Перша редакція
+    // перевіряла саме сторінку: індекс віддає 500, сторінка ловить,
+    // мапи немає. Вона ВПАЛА, і через справжню властивість коду:
+    // `mapRegions()` тримає вдалу обіцянку в змінній модуля на весь
+    // процес (CAMP-127, щоб чанки не летіли в мережу десятками), тож
+    // після першого вдалого рендера в цьому ж файлі збій індексу вже
+    // недосяжний. Писати тест, який залежить від порядку файлів, — це
+    // сторож, що одного дня позеленіє сам.
+    //
+    // Тому: сторінка віддає мапі порожній перелік (саме це робить її
+    // `catch`), а компонент на порожньому переліку не малює НІЧОГО —
+    // ні рамки, ні підпису, бо порожня мапа гірша за її відсутність.
+    const html = renderComponent(CountryMap, {
+      country: 'si',
+      countryName: 'Slovenia',
+      regions: [],
+    });
+    expect(visibleText(html).trim()).toBe('');
+    expect(html).not.toContain('data-testid="country-map"');
+  });
+
 });

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { countryName, getCountries, getHubStats, getRegions } from '@/lib/api';
+import { countryName, getCountries, getHubStats, getRegions, mapRegions } from '@/lib/api';
 import { countedAsOf, countryTiles, hubStatsReadAt } from '@/lib/hub-stats';
 import { HubStatTiles } from '@/components/hub-stats';
 import { ButtonLink } from '@/components/button';
@@ -14,6 +14,7 @@ import { RegionTicker } from '@/components/region-ticker';
 import { readRegionCard, readRegionCards, RegionTiles } from '@/components/region-tiles';
 import { GridBanner } from '@/components/grid-banner';
 import { BoxBanner } from '@/components/box-banner';
+import CountryMap from '@/components/country-map';
 
 // CAMP-71, level 1: the country hub.
 //
@@ -79,9 +80,16 @@ export async function generateMetadata(
 
 export default async function CountryHub(props: { params: Promise<Params> }) {
   const params = await props.params;
-  const [rows, stats] = await Promise.all([
+  const [rows, stats, allMapRegions] = await Promise.all([
     getRegions(params.country),
     getHubStats(params.country),
+    // 🔴 CAMP-474. Той самий індекс, що й у великої мапи, прочитаний на
+    // СЕРВЕРІ й звужений до цієї країни: мапа не робить жодного запиту з
+    // браузера, а число в її підписі видно у відданому HTML.
+    //
+    // Збій індексу не має класти сторінку країни: без рядків мапа себе
+    // не малює, а решта сторінки лишається цілою.
+    mapRegions().catch(() => []),
   ]);
   const regions = readRegionCards(rows);
   if (regions.length === 0) notFound();
@@ -98,6 +106,11 @@ export default async function CountryHub(props: { params: Promise<Params> }) {
   const name = countryName(params.country);
   const spots = countedSpots(regions);
   const tiles = countryTiles(stats);
+  // Рядки індексу цієї країни. Код у індексі — ISO у верхньому регістрі,
+  // у шляху сторінки — у нижньому; порівнюємо зведеними.
+  const mapRows = allMapRegions.filter(
+    (r) => r.country.toLowerCase() === params.country.toLowerCase() && r.region !== null,
+  );
   const lead =
     `${en(spots)} campsites, motorhome parks and camper stops across ` +
     `${regions.length} ${regions.length === 1 ? 'region' : 'regions'}. ` +
@@ -184,7 +197,8 @@ export default async function CountryHub(props: { params: Promise<Params> }) {
           says so in a sentence instead of saying nothing. */}
       <OvernightCoverage countryName={name} regions={countedRows} />
 
-      {/* 5. Region cards — every region, including the single-site ones. */}
+      {/* 5. Region cards — every region, including the single-site ones,
+          introduced by the map of where they are. */}
       <section aria-labelledby="regions" className="mt-10">
         <h2 id="regions" className="scroll-mt-20 text-xl md:text-[25px]">
           Regions
@@ -193,6 +207,9 @@ export default async function CountryHub(props: { params: Promise<Params> }) {
           {regions.length} {regions.length === 1 ? 'region' : 'regions'} of {name},
           each with its campsites, motorhome parks and camper stops.
         </Block>
+        <div className="mt-4">
+          <CountryMap country={params.country} countryName={name} regions={mapRows} />
+        </div>
         <RegionTiles country={params.country} regions={regions} className="mt-4" />
       </section>
 
