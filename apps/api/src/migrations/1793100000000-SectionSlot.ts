@@ -26,7 +26,11 @@ export class SectionSlot1793100000000 implements MigrationInterface {
   name = 'SectionSlot1793100000000';
 
   // Три пари, узяті з `app/page.tsx` дослівно.
-  private static readonly BLOCKS: ReadonlyArray<
+  // 🔴 `static`, не `private`: CAMP-463 оновлює підводку слота `drive`, і
+  // його `down()` повертає САМЕ цей рядок, читаючи його звідси, а не
+  // передруковуючи з памʼяті. Дві копії тексту розходяться першою ж
+  // правкою, і тоді відкат кладе в базу не те, що було.
+  static readonly BLOCKS: ReadonlyArray<
     readonly [slot: string, sort: number, heading: string, body: string]
   > = [
     [

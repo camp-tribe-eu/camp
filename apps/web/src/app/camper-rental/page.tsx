@@ -168,8 +168,13 @@ export default function CamperRentalHub() {
         <strong className="text-ink">
           There are no prices and no vehicles here.
         </strong>{" "}
-        We hold no rental inventory, we have no partner, and we are not going to
-        invent a fleet to look busier than we are. Every number on these pages
+        {/* 🔴 CAMP-463: тут стояло «we hold no rental inventory, we have
+            no partner, and we are not going to invent a fleet to look
+            busier than we are». Перша половина речення корисна читачеві —
+            вона каже, чого тут НЕ шукати; друга розповідала про стан
+            наших справ і про те, якими ми НЕ хочемо здаватись. Лишилось
+            те, що про сторінку, а не про нас. */}
+        We hold no rental inventory and do not invent one. Every number on these pages
         is either a count of our own {count(MEASURED.total.spots)} campsite
         records — measured on{" "}
         <time dateTime={MEASURED.measuredAt}>

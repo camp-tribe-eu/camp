@@ -65,7 +65,14 @@ export const FORBIDDEN = [
     why: 'Скільки сторінка нам приносить — не справа читача.',
   },
   {
-    re: /\bno partners? yet\b|\bthere are no partner links\b/i,
+    // 🔴 ТРЕТЯ СПОЛУКА ДОДАНА ПІСЛЯ ПРОМАХУ, І ЦЕ ВАРТО ЗНАТИ. Перші дві
+    // ловили «no partners yet» і «there are no partner links», а на
+    // `/camper-rental` стояло «we have no partner» — те саме твердження
+    // іншими словами, і сторож його пропустив. Звідси правило для
+    // наступного, хто сюди зазирне: перелік вузький НАВМИСНО, тож
+    // кожен промах лікується ще однією ТОЧНОЮ сполукою, а не
+    // послабленням наявних до слова «partner».
+    re: /\bno partners? yet\b|\bthere are no partner links\b|\bwe have no partners?\b/i,
     why: 'Право ЄС вимагає розкривати звʼязок ТАМ, ДЕ ВІН Є; оголошувати відсутність не зобовʼязує ніщо.',
   },
   {
@@ -78,7 +85,7 @@ export const FORBIDDEN = [
   },
   {
     re: /\bnot implemented\b|\bnot built yet\b|\bwork in progress\b/i,
-    why: 'Стан робіт.',
+    why: 'Стан наших робіт — це не те, по що читач прийшов на сторінку.',
   },
   {
     re: /\blorem ipsum\b/i,
@@ -139,7 +146,7 @@ async function main() {
   return 1;
 }
 
-const EXPECTED_CASES = 8;
+const EXPECTED_CASES = 10;
 
 function selfTest() {
   const cases = [
@@ -155,6 +162,11 @@ function selfTest() {
     { name: 'заявки', text: 'The affiliate applications are open and unanswered.', hits: 1 },
     { name: 'заробіток', text: 'so this page earns nothing today', hits: 1 },
     { name: 'заглушка', text: 'Lorem ipsum dolor sit amet', hits: 1 },
+    // 🔴 Промах, знайдений ПРОГОНОМ, а не оглядом: формулювання, якого
+    // перші дві сполуки не бачили.
+    { name: 'партнер іншими словами', text: 'We hold no inventory, we have no partner, and', hits: 1 },
+    // 🔴 І засіяне в БАЗУ, тобто невидиме грепу по `src/`.
+    { name: 'секція з бази', text: 'Camper rental comparison is not built yet.', hits: 1 },
   ];
   let bad = 0;
   for (const c of cases) {
