@@ -214,6 +214,27 @@ export function without(q: HubQuery, kind: FilterKind, key: string): HubQuery {
     : withAmenity(q, key as AmenityKey);
 }
 
+export interface ActiveFilter {
+  kind: FilterKind;
+  key: SpotType | AmenityKey;
+  /** The chip's wording — what the pill in the toolbar prints. */
+  label: string;
+}
+
+/**
+ * The filters that are ON, types first, in the order the chips list them
+ * (CAMP-452). One entry per pill in the sticky toolbar; the pill's link
+ * is `without(q, kind, key)`, the theme's `url_to_remove`.
+ */
+export function activeFilters(q: Pick<HubQuery, 'types' | 'amenities'>): ActiveFilter[] {
+  return [
+    ...q.types.map((t): ActiveFilter => ({ kind: 'type', key: t, label: filterLabel('type', t) })),
+    ...q.amenities.map(
+      (k): ActiveFilter => ({ kind: 'amenity', key: k, label: filterLabel('amenity', k) }),
+    ),
+  ];
+}
+
 // ── sentences ────────────────────────────────────────────────────────────
 
 const lower = (s: string) => (s === 'Wi-Fi' ? s : s[0].toLowerCase() + s.slice(1));

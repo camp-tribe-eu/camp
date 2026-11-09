@@ -1,6 +1,13 @@
 "use client";
 
-import { useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useSyncExternalStore,
+  type CSSProperties,
+  type ReactNode,
+  type Ref,
+} from "react";
 
 /**
  * Каркас шапки: смуга на всю ширину вгорі сторінки, острів-пігулка по
@@ -132,12 +139,16 @@ const ROW_STACKED = " px-2";
 export function HeaderFrame({
   stacked,
   children,
+  ref,
 }: {
   stacked: boolean;
   children: ReactNode;
+  /** The `<header>` itself, for whoever has to measure it (SiteHeaderFrame). */
+  ref?: Ref<HTMLElement>;
 }) {
   return (
     <header
+      ref={ref}
       data-testid="site-header"
       data-stacked={stacked ? "true" : "false"}
       className="group/header sticky top-0"
@@ -182,5 +193,36 @@ function getServerSnapshot(): boolean {
  */
 export function SiteHeaderFrame({ children }: { children: ReactNode }) {
   const stacked = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
-  return <HeaderFrame stacked={stacked}>{children}</HeaderFrame>;
+  const header = useRef<HTMLElement>(null);
+
+  // 🔴 CAMP-452: ВИСОТА ШАПКИ — ЗМІННА, ЯКУ ПИШЕ САМА ШАПКА, а не число,
+  // переписане в інший файл. Усе липке під нею (смуга фільтрів і мапа
+  // регіону) стоїть на `top: calc(var(--ct-header-h, 63px) + 24px)` —
+  // «+ 24px» теми під її ж липкою шапкою. Заміряно 09.11.2026 у Chromium:
+  // від `sm` ряд рівно 62px + 1px лінії = 63; нижче `sm` ряд має `py-2`
+  // навколо бургера 56px — 72 + 1 = 73. Перша редакція тримала 63 у CSS
+  // смуги, і e2e на 375px упав: смуга стояла на 87 замість 97 — під
+  // шапкою не сховалась, але проміжок теми був 14, а не 24. Константа,
+  // що копіює чужу висоту, розходиться з нею мовчки; ResizeObserver читає
+  // її з коробки. Без JavaScript лишається запасне 63px.
+  useEffect(() => {
+    const el = header.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const root = document.documentElement;
+    const write = () =>
+      root.style.setProperty("--ct-header-h", `${Math.round(el.getBoundingClientRect().height)}px`);
+    write();
+    const ro = new ResizeObserver(write);
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      root.style.removeProperty("--ct-header-h");
+    };
+  }, []);
+
+  return (
+    <HeaderFrame ref={header} stacked={stacked}>
+      {children}
+    </HeaderFrame>
+  );
 }
