@@ -72,6 +72,9 @@ const out = path.join(here, '..', 'src', 'generated');
  */
 const MAX_BYTES = 1024 * 1024;
 
+/** Файл, у якому лежить тимчасове мовчання про зниклі (CAMP-475). */
+const HOLD_FILE = path.join(here, '..', 'gone-hold.txt');
+
 /**
  * Чи можна записувати цей список — і що сказати про нього в лог.
  *
@@ -209,7 +212,72 @@ const apiGet = async (route) => {
  * Між вироком і збіркою стоїть цей код, і мутація «порахувати вирок і
  * піти далі» виживала б: жоден випадок сюди не доходив.
  */
-export async function main({ get = apiGet, outDir = out } = {}) {
+/**
+ * 🔴 CAMP-475. ТИМЧАСОВЕ МОВЧАННЯ ПРО ЗНИКЛІ — РІШЕННЯ ВЛАСНИКА 09.11.2026.
+ *
+ * Чому воно знадобилось. 5 948 рядків позначені зниклими одним зламаним
+ * імпортом 24.09: 94% без назви, а їхні `osm_ref` вказують на ворота й
+ * водорозбірні колонки, які ніколи не були кемпінгами. Дозрівши через 28
+ * діб, вони просяться в список «410 Gone» — тобто сайт скаже пошуковим
+ * системам, що 5 940 адрес зникли НАЗАВЖДИ. Для привидів це правильно,
+ * але перевірено з них було десять, і серед решти є 384 рядки З НАЗВАМИ,
+ * які можуть виявитись справжніми кемпінгами.
+ *
+ * Власник, дослівно: «виливаємо, але мовчимо про зниклі». Тобто
+ * сьогоднішня робота доходить до читача, а необоротного не робимо.
+ *
+ * 🔴 ЦЕ НЕ ОБХІД СТОРОЖА, А НАЗВАНИЙ ВИНЯТОК ІЗ ТЕРМІНОМ. Вимикач
+ * мусить назвати картку І дату, після якої він перестає діяти:
+ *
+ *     GONE_HOLD=CAMP-475:2026-11-16
+ *
+ * Після тієї дати збірка ПАДАЄ, а не продовжує мовчати. Запобіжник, який
+ * можна забути ввімкненим, гірший за відсутній: він перетворює рішення
+ * на звичку.
+ *
+ * Поки вимикач стоїть, список порожній, а в лог іде гучний рядок — щоб
+ * «нуль зниклих» не прочитали як «усе гаразд».
+ */
+export function readHold(env = process.env, today = new Date(), holdFile = HOLD_FILE) {
+  // 🔴 ФАЙЛ У РЕПОЗИТОРІЇ, А НЕ ЗМІННА НА ОДНІЙ МАШИНІ. Змінну, передану
+  // в ручний викат, нічний деплой не побачить — і вночі 410 повернулись
+  // би самі. Файл бачать обидва, його видно в рецензії та в історії git,
+  // і прибирається він одним комітом.
+  let fromFile = '';
+  try {
+    fromFile = readFileSync(holdFile, 'utf8');
+  } catch {
+    fromFile = '';
+  }
+  const raw = (env.GONE_HOLD ?? fromFile).trim();
+  if (!raw) return null;
+  const m = /^(CAMP-\d+):(\d{4}-\d{2}-\d{2})$/.exec(raw);
+  if (!m) {
+    throw new Error(
+      `GONE_HOLD має вигляд CAMP-123:YYYY-MM-DD, а не «${raw}». ` +
+        'Вимикач без картки й дати — це забуте рішення, а не рішення.',
+    );
+  }
+  const [, card, until] = m;
+  const day = today.toISOString().slice(0, 10);
+  if (day > until) {
+    throw new Error(
+      `GONE_HOLD (${card}) діяв до ${until}, а сьогодні ${day}. ` +
+        'Мовчання про зниклі скінчилось: або закрийте картку, або ' +
+        'продовжіть термін свідомо.',
+    );
+  }
+  return { card, until };
+}
+
+export async function main({
+  get = apiGet,
+  outDir = out,
+  env = process.env,
+  today = new Date(),
+  holdFile = HOLD_FILE,
+} = {}) {
+  const hold = readHold(env, today, holdFile);
   // 🔴 ПОРЯДОК НЕ ВІЛЬНИЙ. Список питається першим, причина другою, бо
   // `now()` другого запиту пізніший: множина дозрілих може лише
   // зрости, тож `paths.length > mature` не може спрацювати хибно через
@@ -219,11 +287,13 @@ export async function main({ get = apiGet, outDir = out } = {}) {
   const paths = gone.map((g) => g.path);
 
   const say = verdict({ paths, pending });
-  if (!say.ok) {
+  if (!say.ok && !hold) {
     throw new Error(`${say.line}\n\n  🔴 ${say.reason}`);
   }
 
-  const body = JSON.stringify(paths, null, 2) + '\n';
+  // Під вимикачем список порожній НАВМИСНО, і це сказано вголос.
+  const published = hold ? [] : paths;
+  const body = JSON.stringify(published, null, 2) + '\n';
 
   // 🔴 Two files, one fetch, so they cannot disagree.
   //
@@ -239,8 +309,18 @@ export async function main({ get = apiGet, outDir = out } = {}) {
   // Only the paths for the middleware: it is bundled for the edge and has
   // no use for names or distances.
   writeFileSync(path.join(outDir, 'gone-paths.json'), body);
-  writeFileSync(path.join(outDir, 'gone.json'), JSON.stringify(gone, null, 2) + '\n');
-  console.log(say.line);
+  writeFileSync(
+    path.join(outDir, 'gone.json'),
+    JSON.stringify(hold ? [] : gone, null, 2) + '\n',
+  );
+  if (hold) {
+    console.log(
+      `gone list: МОВЧИМО за ${hold.card} до ${hold.until} — ` +
+        `${paths.length} адрес НЕ отримають 410, ${pending.mature} дозрілих у базі`,
+    );
+  } else {
+    console.log(say.line);
+  }
 }
 
 function pureCases() {
@@ -345,7 +425,14 @@ async function selfTestBuild(check) {
     { path: '/it/lazio/il-campeggio' },
     { path: '/es/galicia/o-camping' },
   ];
-  const run = async (gone, pending) => {
+  // 🔴 РЕПЕТИЦІЯ НЕ СМІЄ ЧИТАТИ СПРАВЖНІЙ ВИМИКАЧ. Щойно `gone-hold.txt`
+  // зʼявився в репозиторії, усі випадки нижче почали мовчати разом із
+  // ним і тричі почервоніли — бо перевіряли вже не себе, а стан диска.
+  // Тому за замовчуванням репетиція дивиться в неіснуючий файл і в
+  // порожнє оточення; справжній вимикач підсовується лише там, де його
+  // й перевіряють.
+  const NO_HOLD = { env: {}, holdFile: path.join(tmpdir(), 'gen-gone-no-such-hold') };
+  const run = async (gone, pending, extra = {}) => {
     const dir = mkdtempSync(path.join(tmpdir(), 'gen-gone-rehearsal-'));
     const asked = [];
     // 🔴 ПОРЯДОК ВИКОНАННЯ, А НЕ ВИКЛИКІВ. Попередня редакція лише
@@ -368,7 +455,7 @@ async function selfTestBuild(check) {
     };
     let blew = false;
     try {
-      await main({ get, outDir: dir });
+      await main({ get, outDir: dir, ...NO_HOLD, ...extra });
     } catch {
       blew = true;
     }
@@ -499,6 +586,60 @@ async function selfTestBuild(check) {
     over.written.length === 0,
     '🔴 і НЕ лишає файлу, який деплой потім не подужає',
   );
+
+  // ── CAMP-475: тимчасове мовчання про зниклі ─────────────────────────
+  //
+  // 🔴 Вимикач без репетиції — це декорація. Нижче перевіряється, що він
+  // справді мовчить, справді каже про це вголос і справді перестає діяти.
+  const DAY = { today: new Date('2026-11-10T00:00:00Z') };
+  const held = await run(rows, at(3, 0, 40), {
+    env: { GONE_HOLD: 'CAMP-475:2026-11-16' },
+    ...DAY,
+  });
+  check(held.blew === false, 'під вимикачем збірка не падає');
+  check(
+    Array.isArray(held.paths) && held.paths.length === 0,
+    '🔴 під вимикачем список 410 ПОРОЖНІЙ — жодна адреса не оголошена зниклою',
+  );
+  check(
+    Array.isArray(held.full) && held.full.length === 0,
+    'і сторінка /gone теж порожня, щоб два файли не розійшлись',
+  );
+
+  // Вимикач мусить рятувати й там, де вердикт сам по собі відмовляє.
+  const heldOverBudget = await run(huge, at(enough, 0, 90), {
+    env: { GONE_HOLD: 'CAMP-475:2026-11-16' },
+    ...DAY,
+  });
+  check(
+    heldOverBudget.blew === false && heldOverBudget.paths.length === 0,
+    '🔴 вимикач рятує й від стелі: порожній список її не переважує',
+  );
+
+  let badShape = false;
+  try {
+    readHold({ GONE_HOLD: 'просто так' }, DAY.today, NO_HOLD.holdFile);
+  } catch {
+    badShape = true;
+  }
+  check(badShape, '🔴 вимикач без картки й дати — помилка, а не мовчазна згода');
+
+  let expired = false;
+  try {
+    readHold(
+      { GONE_HOLD: 'CAMP-475:2026-11-09' },
+      new Date('2026-11-10T00:00:00Z'),
+      NO_HOLD.holdFile,
+    );
+  } catch {
+    expired = true;
+  }
+  check(expired, '🔴 прострочений вимикач ВАЛИТЬ збірку, а не продовжує мовчати');
+
+  check(
+    readHold({}, DAY.today, NO_HOLD.holdFile) === null,
+    'без змінної і без файлу вимикача немає',
+  );
 }
 
 async function selfTest() {
@@ -515,7 +656,7 @@ async function selfTest() {
 
   // 🔴 CAMP-286: лічені, бо випадок, який перестав виконуватись, друкує
   // рівно те саме, що й той, який пройшов — нічого.
-  const EXPECTED_CASES = 42;
+  const EXPECTED_CASES = 49;
   if (cases.length !== EXPECTED_CASES) {
     console.error(`✗ ${cases.length} cases ran, expected ${EXPECTED_CASES}`);
     rc = 1;
