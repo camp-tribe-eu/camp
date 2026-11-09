@@ -79,7 +79,7 @@ function MissingFigure({
         {label}
       </dt>
       <dd
-        className="mt-1 text-xl font-bold leading-tight text-ink-3"
+        className="mt-1 text-xl font-bold leading-tight text-ink-2"
         aria-label="Not available"
       >
         <span aria-hidden="true">—</span>

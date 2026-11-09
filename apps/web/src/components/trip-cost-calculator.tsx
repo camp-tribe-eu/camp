@@ -249,7 +249,7 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
             HTML and looks usable before React attaches, and anything
             typed in that window is silently overwritten when it does. */}
         {!ready && (
-          <p data-testid="calculator-loading" className="mt-2 text-sm text-ink-3">
+          <p data-testid="calculator-loading" className="mt-2 text-sm text-ink-2">
             The form comes alive when the page finishes loading. The fuel
             prices below need nothing.
           </p>
@@ -316,7 +316,7 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
                 </option>
               ))}
             </select>
-            <p className="mt-1 text-sm text-ink-3">{shape.note}</p>
+            <p className="mt-1 text-sm text-ink-2">{shape.note}</p>
           </div>
 
           <div>
@@ -331,7 +331,7 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
               value={s.litresPer100}
               onChange={(e) => set('litresPer100', e.target.value)}
             />
-            <p className="mt-1 text-sm text-ink-3">
+            <p className="mt-1 text-sm text-ink-2">
               Typically {shape.min}–{shape.max}. This is your number, not ours —
               change it to what your vehicle actually does.
             </p>
@@ -393,7 +393,7 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
               onChange={(e) => set('pitch', e.target.value)}
             />
             {/* 🔴 The most important sentence in this form. */}
-            <p className="mt-1 text-sm text-ink-3">
+            <p className="mt-1 text-sm text-ink-2">
               We hold no campsite prices, so we cannot fill this in. Leave it
               empty and the total is fuel only.
             </p>
@@ -460,7 +460,7 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
               </p>
             </>
           )}
-          <p className="mt-3 text-xs text-ink-3">
+          <p className="mt-3 text-xs text-ink-2">
             Prices for the week of {longDate(FUEL.bulletinDate)}.
           </p>
         </section>

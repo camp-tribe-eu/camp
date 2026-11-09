@@ -297,9 +297,9 @@ export default async function CountryTripCostPage({
                       Croatia and Slovenia rendered, being identical this
                       week. A signed zero is not a comparison. */}
                   {b.difference === 0 ? (
-                    <span className="text-ink-3">(the same)</span>
+                    <span className="text-ink-2">(the same)</span>
                   ) : (
-                    <span className={b.difference < 0 ? 'text-ok' : 'text-ink-3'}>
+                    <span className={b.difference < 0 ? 'text-ok' : 'text-ink-2'}>
                       ({b.difference < 0 ? '−' : '+'}
                       {euros(Math.abs(b.difference), 3)} a litre,{' '}
                       {b.difference < 0 ? '−' : '+'}
@@ -310,7 +310,7 @@ export default async function CountryTripCostPage({
               </li>
             ))}
           </Block>
-          <Block as="p" measure="read" className="mt-3 text-sm text-ink-3">
+          <Block as="p" measure="read" className="mt-3 text-sm text-ink-2">
             A tank is taken as {TANK_LITRES} litres to keep the arithmetic
             plain — scale it to your own. Border prices move every week, and
             these are from {week}.
@@ -337,9 +337,9 @@ export default async function CountryTripCostPage({
                 <span className="text-ink-2 tabular-nums">
                   {euros(u.price, 3)}{' '}
                   {u.difference === 0 ? (
-                    <span className="text-ink-3">(the same)</span>
+                    <span className="text-ink-2">(the same)</span>
                   ) : (
-                    <span className={u.difference < 0 ? 'text-ok' : 'text-ink-3'}>
+                    <span className={u.difference < 0 ? 'text-ok' : 'text-ink-2'}>
                       ({u.difference < 0 ? '−' : '+'}
                       {euros(Math.abs(u.difference), 3)} a litre,{' '}
                       {u.difference < 0 ? '−' : '+'}
@@ -350,7 +350,7 @@ export default async function CountryTripCostPage({
               </li>
             ))}
           </Block>
-          <Block as="p" measure="read" className="mt-3 text-sm text-ink-3">
+          <Block as="p" measure="read" className="mt-3 text-sm text-ink-2">
             A tank is taken as {TANK_LITRES} litres to keep the arithmetic
             plain. Figures from {week}, and they move every week.
           </Block>

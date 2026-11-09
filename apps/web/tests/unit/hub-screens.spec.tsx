@@ -535,6 +535,35 @@ test.describe('the figures live on the base page only', () => {
     expect(visibleText(html)).toContain('Camp 24');
   });
 
+  test('🔴 CAMP-471: імʼя картки-посилання містить її видимий текст', async () => {
+    // WCAG 2.5.3 «Label in Name». CAMP-452 дав посиланню
+    // `aria-labelledby` на саму лише назву — щоб читач екрана чув назву
+    // кемпінгу, а не «View campsite» двічі. Це перевага, а критерій —
+    // інше: той, хто керує голосом і каже «View campsite», не влучав
+    // нікуди, бо доступне імʼя видимого тексту не містило.
+    //
+    // Заміряно axe на викоченій сторінці `/camping/fr/vendee`
+    // 09.11.2026: сама назва — 24 порушення; назва плюс текст кнопки —
+    // ті самі 24 (часткове імʼя не рятує); без `aria-labelledby` — 0.
+    //
+    // 🔴 Тест не про атрибут, а про ВЛАСТИВІСТЬ: видимий текст
+    // посилання мусить бути всередині його доступного імені. Поки імʼя
+    // рахується зі вмісту, це тотожність — і саме тому перевіряється
+    // відсутність звуження, а не присутність конкретної розмітки.
+    const html = await render({ country: 'si', region: 'bovec', page: 1 });
+    const links = [...html.matchAll(/<a\b[^>]*class="ct-card__link"[^>]*>/g)].map((m) => m[0]);
+    expect(links.length, 'жодної картки-посилання — розбір сліпий').toBeGreaterThan(0);
+    for (const tag of links) {
+      expect(tag, `імʼя картки звужене: ${tag}`).not.toContain('aria-labelledby');
+      expect(tag, `імʼя картки підмінене: ${tag}`).not.toContain('aria-label=');
+    }
+    // І видимий текст, заради якого все це: назва й напис на кнопці
+    // стоять усередині того самого посилання.
+    const text = visibleText(html);
+    expect(text).toContain('Camp 24');
+    expect(text).toContain('View campsite');
+  });
+
   test('🔴 page 2 has neither tiles nor questions', async () => {
     const html = await render({ country: 'si', region: 'bovec', page: 2 });
     expect(visibleText(html)).toContain('Camp 24');

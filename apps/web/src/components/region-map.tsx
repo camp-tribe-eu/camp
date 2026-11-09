@@ -111,7 +111,7 @@ const REGION_MAP_CSS = `
 .ct-rmap--wide .ct-rmap__frame{padding-top:41.06%}
 .ct-rmap__frame .ct-rmap__canvas{position:absolute;top:0;left:0;width:100%;height:100%}
 .ct-rmap__legend{margin-top:8px;font-size:.875rem;line-height:1.5;color:var(--color-ink-2)}
-.ct-rmap__credit{margin-top:4px;font-size:.75rem;color:var(--color-ink-3)}
+.ct-rmap__credit{margin-top:4px;font-size:.75rem;color:var(--color-ink-2)}
 `;
 
 export default function RegionMap({

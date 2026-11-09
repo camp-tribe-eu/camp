@@ -269,7 +269,7 @@ export default function PackingListBuilder() {
         </fieldset>
 
         {!ready && (
-          <p data-testid="packing-loading" className="mt-4 text-sm text-ink-3">
+          <p data-testid="packing-loading" className="mt-4 text-sm text-ink-2">
             The list below is the usual one for a week in a motorhome. The
             controls come alive as soon as the page finishes loading.
           </p>
@@ -317,7 +317,7 @@ export default function PackingListBuilder() {
                     />
                     <span>
                       <span
-                        className={done.has(item.id) ? 'text-ink-3 line-through' : 'text-ink'}
+                        className={done.has(item.id) ? 'text-ink-2 line-through' : 'text-ink'}
                       >
                         {item.label}
                       </span>
@@ -325,7 +325,7 @@ export default function PackingListBuilder() {
                         <span className="text-ink-2"> — {item.qty}</span>
                       )}
                       {item.note && (
-                        <span className="block text-sm text-ink-3">{item.note}</span>
+                        <span className="block text-sm text-ink-2">{item.note}</span>
                       )}
                     </span>
                   </label>

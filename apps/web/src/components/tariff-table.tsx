@@ -102,7 +102,7 @@ function Rows({
             <th scope="row" className="py-2 pr-3 text-left font-normal text-ink-2">
               {describeTariff(t)}
               {policy && policy !== 'Base rate' && (
-                <span className="block text-ink-3">{policy}</span>
+                <span className="block text-ink-2">{policy}</span>
               )}
               {t.label && (
                 // 🔴 The operator's own words, verbatim, with their
@@ -111,7 +111,7 @@ function Rows({
                 // that are not the price in the cell beside them.
                 <span
                   lang={t.labelLang ?? undefined}
-                  className="mt-1 block whitespace-pre-line text-ink-3"
+                  className="mt-1 block whitespace-pre-line text-ink-2"
                 >
                   {t.label}
                 </span>
@@ -244,7 +244,7 @@ export default function TariffTable({
             Prices published for this campsite, with the season each applies to
           </caption>
           <thead>
-            <tr className="text-left text-ink-3">
+            <tr className="text-left text-ink-2">
               <th scope="col" className="pb-1 pr-3 font-normal">What</th>
               <th scope="col" className="pb-1 pr-3 font-normal">Price</th>
               <th scope="col" className="pb-1 font-normal">Season</th>
@@ -277,7 +277,7 @@ export default function TariffTable({
               Prices for a season that has not begun
             </caption>
             <thead>
-              <tr className="text-left text-ink-3">
+              <tr className="text-left text-ink-2">
                 <th scope="col" className="pb-1 pr-3 font-normal">What</th>
                 <th scope="col" className="pb-1 pr-3 font-normal">Price</th>
                 <th scope="col" className="pb-1 font-normal">Season</th>
@@ -326,7 +326,7 @@ export default function TariffTable({
               Prices whose season has already ended
             </caption>
             <thead>
-              <tr className="text-left text-ink-3">
+              <tr className="text-left text-ink-2">
                 <th scope="col" className="pb-1 pr-3 font-normal">What</th>
                 <th scope="col" className="pb-1 pr-3 font-normal">Price</th>
                 <th scope="col" className="pb-1 font-normal">Season</th>

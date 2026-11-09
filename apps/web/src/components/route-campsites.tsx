@@ -90,7 +90,7 @@ export default function RouteStageCampsites({
         <Block
           as="p"
           measure="read"
-          className="mt-2 text-sm leading-6 text-ink-3"
+          className="mt-2 text-sm leading-6 text-ink-2"
           data-testid="stage-campsites-unavailable"
         >
           We could not reach our own database when this page was built, so the

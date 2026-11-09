@@ -84,7 +84,7 @@ export default function RentalChecklist() {
             className="rounded-card border border-line-2 bg-surface p-5"
           >
             <h3 className="text-heading">
-              <span className="text-ink-3">{i + 1}.</span> {item.q}
+              <span className="text-ink-2">{i + 1}.</span> {item.q}
             </h3>
             <Block as="p" measure="read" className="mt-2 text-ink-2">{item.why}</Block>
             {item.source && (

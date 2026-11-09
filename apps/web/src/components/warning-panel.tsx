@@ -150,7 +150,7 @@ export function WarningPanel({
         {OURS}
       </p>
 
-      <p className="mt-2 text-xs text-ink-3">
+      <p className="mt-2 text-xs text-ink-2">
         Warnings are redistributed within {FRESH_FOR_MINUTES} minutes of
         publication or not at all.
       </p>

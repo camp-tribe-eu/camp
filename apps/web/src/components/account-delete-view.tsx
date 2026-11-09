@@ -239,7 +239,7 @@ export function DeleteFormView({
             variant="danger"
             type="submit"
             disabled={!ready || busy || !canDelete(draft)}
-            className="disabled:cursor-not-allowed disabled:border-line-2 disabled:bg-surface-2 disabled:text-ink-3"
+            className="disabled:cursor-not-allowed disabled:border-line-2 disabled:bg-surface-2 disabled:text-ink-2"
           >
             Delete account
           </Button>

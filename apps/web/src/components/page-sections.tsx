@@ -28,7 +28,7 @@ import { Block, type Measure } from "@/components/layout";
 
 /**
  * 🔴 `variant` — НЕ ПРИКРАСА. Заміряно рецензією #304: завершальний
- * абзац /tools мав `mt-10 text-ink-3` на читальній колонці, а після
+ * абзац /tools мав `mt-10 text-ink-2` на читальній колонці, а після
  * переїзду дістав типові `space-y-4 text-ink-2` — тобто втратив
  * верхній відступ і приглушений колір, опинившись упритул до переліку
  * 27 країн.
@@ -68,7 +68,7 @@ type ProseStyle = { measure: Measure; className: string };
 
 const PROSE_VARIANTS: Record<string, ProseStyle> = {
   // Як було на /tools: відбитий донизу, приглушений.
-  aside: { measure: "read", className: "mt-10 text-ink-3" },
+  aside: { measure: "read", className: "mt-10 text-ink-2" },
 };
 /** Звичайний абзацний текст секції — читальна колонка, бо це суцільний текст. */
 const PROSE_PLAIN: ProseStyle = {

@@ -62,7 +62,7 @@ export default async function RegionDriving({
           </li>
         ))}
       </ul>
-      <p className="mt-2 text-sm text-ink-3">{regionInsightDates(lines)}</p>
+      <p className="mt-2 text-sm text-ink-2">{regionInsightDates(lines)}</p>
     </Block>
   );
 }
