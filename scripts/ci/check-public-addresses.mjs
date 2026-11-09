@@ -100,6 +100,31 @@ export function listBodyWithoutDeclarations(text) {
   return body;
 }
 
+/**
+ * 🔴 ГЕОМЕТРІЯ — НЕ ПРОЗА. Вміст `d="…"` і `points="…"` гаситься ПЕРЕД
+ * пошуком адрес.
+ *
+ * 08.11.2026 ми поклали в дерево 28 SVG прапорів (MIT, vendored), і
+ * сторож дав **88 неназваних адрес** — усі з координат шляхів — там трапляються
+ * чотири числа через крапку. Внести 88 записів означало б зробити з переліку шум, від
+ * чого застерігає його власна шапка.
+ *
+ * 🔴 ЧОМУ НЕ ВИНЯТОК ЗА ІМЕНЕМ ФАЙЛА. Шапка цього файла прямо каже:
+ * «Винятків за іменем файла НЕМАЄ: перша редакція виводила з-під правила
+ * три файли «про адреси», і саме в одному з них опинився префікс нашої
+ * мережі». Вивести теку прапорів означало б повторити вже виправлену
+ * помилку. Тому пропускається не ФАЙЛ, а рівно два атрибути: решта
+ * SVG — коментарі, метадані, посилання, `<title>` — лишається під
+ * наглядом, і адреса, схована там, буде знайдена.
+ *
+ * ЦІНА ХИБНОГО ПРОПУСКУ: адресу, записану всередині `d="…"`, сторож не
+ * побачить. Це не шлях, яким адреса потрапляє в репозиторій: координати
+ * пише експортер, а не людина.
+ */
+export function withoutPathGeometry(text) {
+  return text.replace(/\s(?:d|points)\s*=\s*(["'])[\s\S]*?\1/g, ' $1$1');
+}
+
 export function scan(files, read) {
   const out = [];
   for (const f of files) {
@@ -111,7 +136,7 @@ export function scan(files, read) {
       continue;
     }
     if (f === LIST) text = listBodyWithoutDeclarations(text);
-    for (const address of realAddressesIn(text)) out.push({ file: f, address });
+    for (const address of realAddressesIn(withoutPathGeometry(text))) out.push({ file: f, address });
   }
   return out;
 }

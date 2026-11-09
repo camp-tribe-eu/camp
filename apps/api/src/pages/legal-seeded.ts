@@ -9,6 +9,7 @@ import { DatabaseHonestClaims1793802000000 } from '../migrations/1793802000000-D
 import { NoticeAllPages1793803000000 } from '../migrations/1793803000000-NoticeAllPages';
 import { PrivacyBrowserStorage1793900000000 } from '../migrations/1793900000000-PrivacyBrowserStorage';
 import { PrivacySpotClaims1794400000000 } from '../migrations/1794400000000-PrivacySpotClaims';
+import { AttributionFlags1794800000000 } from '../migrations/1794800000000-AttributionFlags';
 
 /**
  * Правові документи такими, якими їх лишають у базі ВСІ міграції разом.
@@ -50,6 +51,8 @@ const UPDATES: ReadonlyArray<SeededLegalPage> = [
   new PrivacyBrowserStorage1793900000000().page,
   // CAMP-436: заявка на володіння кемпінгом.
   new PrivacySpotClaims1794400000000().page,
+  // CAMP-450: прапори країн на /camping (flag-icons, MIT).
+  new AttributionFlags1794800000000().page,
 ];
 
 export function seededLegalPages(): SeededLegalPage[] {

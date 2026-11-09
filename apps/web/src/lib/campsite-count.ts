@@ -131,6 +131,19 @@ export const memberStateCount = (codes: readonly string[]): number =>
   new Set(codes.map(memberState)).size;
 
 /**
+ * /camping, under the banner heading (CAMP-450). `total` is the sum of
+ * `/spots/countries` through `printable`, so an API that answered nothing
+ * leaves the number out instead of printing `0` as a fact; `countries` is
+ * the number of member states (see `memberStateCount`).
+ */
+export const campingLead = (total: number | null, countries: number): string => {
+  const where = `across ${en(countries)} countries, from OpenStreetMap. Pick a country to see its regions.`;
+  return total === null
+    ? `Campsites, motorhome parks and camper stops ${where}`
+    : `${en(total)} campsites, motorhome parks and camper stops ${where}`;
+};
+
+/**
  * /search, above the box. `countries` is the number of member states the
  * list of country codes we already hold names (see `memberStateCount`),
  * not a figure from the summary, so it is never in doubt.

@@ -47,7 +47,22 @@ test.use({ viewport: { width: 375, height: 812 } });
  */
 async function openForLayout(page: import('@playwright/test').Page, path: string) {
   await page.goto(path, { waitUntil: 'domcontentloaded' });
-  await page.waitForFunction(() => [...document.images].every((i) => i.complete));
+  // 🔴 Чекаємо лише на НЕліниві картинки.
+  //
+  // Перша редакція чекала на `document.images.every(i => i.complete)`, і на
+  // `/camping` це висіло 20 с до таймауту: там 27 прапорів із
+  // `loading="lazy"`, а лінива картинка нижче екрана не стає `complete`
+  // НІКОЛИ — не через помилку, а за визначенням. Тест падав із назвою про
+  // зони натискання, хоч зони натискання були ні до чого.
+  //
+  // Намір лишився той самий: не міряти геометрію, доки картинки не осіли.
+  // Ліниві, що потрапили у вікно, браузер вантажить одразу, тож вони й так
+  // встигають; ті, що нижче, на геометрію видимої частини не впливають.
+  await page.waitForFunction(() =>
+    [...document.images]
+      .filter((i) => i.loading !== 'lazy')
+      .every((i) => i.complete),
+  );
   await page.evaluate(() => document.fonts.ready.then(() => undefined));
 }
 

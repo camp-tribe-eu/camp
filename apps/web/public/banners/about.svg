@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 700" preserveAspectRatio="xMidYMid slice" role="img" aria-label="">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2b3550"/>
+      <stop offset="1" stop-color="#1a2234"/>
+    </linearGradient>
+  </defs>
+  <rect width="1600" height="700" fill="url(#bg)"/>
+  <g fill="none" stroke="#8fa3c7" stroke-opacity="0.35" stroke-width="2">
+    <path d="M100 620 C260 540 300 420 460 400 C640 380 700 480 860 460 C1020 440 1060 300 1240 300 C1400 300 1480 380 1600 360"/>
+    <path d="M60 560 C220 480 280 360 440 340 C620 320 700 420 860 400 C1020 380 1080 240 1260 240 C1420 240 1500 320 1600 300"/>
+    <path d="M20 500 C180 420 260 300 420 280 C600 260 700 360 860 340 C1020 320 1100 180 1280 180 C1440 180 1520 260 1600 240"/>
+    <path d="M0 440 C140 360 240 240 400 220 C580 200 700 300 860 280 C1020 260 1120 120 1300 120 C1460 120 1540 200 1600 180"/>
+    <path d="M0 380 C120 300 220 180 380 160 C560 140 700 240 860 220 C1020 200 1140 60 1320 60 C1480 60 1560 140 1600 120"/>
+    <path d="M140 680 C300 600 340 480 500 460 C680 440 740 540 900 520 C1060 500 1100 360 1280 360 C1440 360 1500 440 1600 420"/>
+    <path d="M200 700 C360 640 380 540 540 520 C720 500 780 600 940 580 C1100 560 1140 420 1320 420 C1480 420 1540 500 1600 480"/>
+  </g>
+  <g fill="#e2b44f">
+    <circle cx="470" cy="392" r="9"/><circle cx="880" cy="452" r="9"/><circle cx="1240" cy="292" r="9"/>
+    <circle cx="300" cy="300" r="6" opacity="0.7"/><circle cx="1100" cy="180" r="6" opacity="0.7"/><circle cx="660" cy="560" r="6" opacity="0.7"/>
+  </g>
+  <g stroke="#e2b44f" stroke-opacity="0.5" stroke-width="2" stroke-dasharray="6 10" fill="none">
+    <path d="M470 392 C600 420 740 470 880 452 C1020 430 1120 330 1240 292"/>
+  </g>
+</svg>

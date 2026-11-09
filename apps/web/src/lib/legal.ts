@@ -205,8 +205,11 @@ export const LEGAL_PAGES: LegalPage[] = [
     // publisher. Bound to the code by `tests/unit/attribution-sources.spec.ts`:
     // every source host in code has a line on the page, and nothing else
     // does. Migration 1793700000000-AttributionSources.
-    version: '1.1',
-    effectiveFrom: '2026-11-02',
+    // 1.2 (08.11.2026, CAMP-450): the country flags on /camping — the SVG
+    // files of flag-icons (MIT), hosted by us, named with their copyright
+    // holder. Migration 1794800000000-AttributionFlags.
+    version: '1.2',
+    effectiveFrom: '2026-11-08',
   },
   {
     // CAMP-186. ODbL §4.6 lets us answer with the DESCRIPTION of our
