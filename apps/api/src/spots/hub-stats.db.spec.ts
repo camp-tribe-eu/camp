@@ -78,7 +78,12 @@ beforeAll(async () => {
       spot_id uuid NOT NULL,
       mode text, currency text NOT NULL,
       min_price numeric(10,2),
-      valid_from date, valid_until date);`);
+      valid_from date, valid_until date,
+      -- CAMP-446: читальний шлях тепер ховає тарифи, яких фід більше не
+      -- декларує, тож колонка потрібна й тут. Значення за замовчуванням
+      -- now() робить усі рядки цього набору свіжими: поріг рахується
+      -- від max(fetched_at), і при однаковому часі він не відсікає нічого.
+      fetched_at timestamptz NOT NULL DEFAULT now());`);
   await new SpotOvernight1791500000000().up(runner());
 
   const spot = async (

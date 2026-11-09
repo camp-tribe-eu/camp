@@ -27,8 +27,67 @@
  * Either end of the period is enough: "from 1 April, no stated end" and
  * "until 30 October" both date the price. Neither end is not a period.
  */
-export const DISPLAYABLE_TARIFF_SQL =
+export const DATED_TARIFF_SQL =
   '(t.valid_from IS NOT NULL OR t.valid_until IS NOT NULL)';
+
+/**
+ * 🔴 CAMP-446. A PRICE THE FEED HAS STOPPED PUBLISHING IS NOT A PRICE.
+ *
+ * The import is `INSERT … ON CONFLICT DO UPDATE`: it refreshes every row
+ * the feed names and never touches a row the feed stopped naming. So a
+ * tariff survives the campsite removing it, changing its offer URI, or
+ * disappearing from DATAtourisme altogether — and the reader sees it
+ * beside the live ones, told apart only by a `sourceUpdatedAt` they have
+ * no reason to read.
+ *
+ * Measured on production 09.11.2026, after the weekly timer had run:
+ *
+ *     fetched_at   rows
+ *     2026-11-09   10 499   ← the feed still declares these
+ *     2026-09-28    3 045
+ *     2026-10-26       16
+ *     ────────────────────
+ *     total        13 560   of which 3 061 (22.6%) are orphans
+ *
+ * (The card estimated ~1 934 before a full timer run. `fetched_at` now
+ * answers exactly, so the estimate is superseded rather than repeated.)
+ *
+ * 🔴 WHY THE THRESHOLD IS MEASURED FROM `max(fetched_at)` AND NOT FROM
+ * `now()`. The import runs weekly. Between runs every row ages, and a
+ * threshold anchored to `now()` would hide the whole table on the eighth
+ * day after the last successful run — a missed timer would silently
+ * delete every price from every page, which is far worse than showing
+ * a stale one. Anchored to the newest row we hold, "stale" means "the
+ * feed named other rows and not this one", which is the actual claim.
+ *
+ * 21 days = three weekly runs. Two missed runs change nothing; the third
+ * starts dropping rows the feed has not confirmed in three weeks.
+ *
+ * 🔴 MEMORY: the subquery is uncorrelated, so PostgreSQL evaluates it
+ * once as an InitPlan, not per row. Writing it as a correlated lookup
+ * would turn a page render into one scan per tariff.
+ */
+export const TARIFF_STALE_AFTER_DAYS = 21;
+
+const FRESH_TARIFF_SQL =
+  `t.fetched_at >= (SELECT max(fetched_at) FROM spot_tariffs)` +
+  ` - interval '${TARIFF_STALE_AFTER_DAYS} days'`;
+
+export const DISPLAYABLE_TARIFF_SQL = `(${DATED_TARIFF_SQL} AND ${FRESH_TARIFF_SQL})`;
+
+/**
+ * 🔴 WITHHELD IS **NOT** `NOT DISPLAYABLE`, AND THE DIFFERENCE IS A LIE
+ * AVOIDED. The sentence on the page reads: "The source publishes N
+ * further prices for this campsite with no validity period." Of a row
+ * the feed has stopped publishing, that sentence is false twice over —
+ * the source publishes it no longer, and it may well have had a period.
+ *
+ * So withheld counts the undated rows that are still FRESH. A stale row
+ * is not shown and is not counted anywhere on the page: it is gone from
+ * the source, and the page says nothing about it rather than something
+ * untrue.
+ */
+export const WITHHELD_TARIFF_SQL = `(NOT ${DATED_TARIFF_SQL} AND ${FRESH_TARIFF_SQL})`;
 
 /** One line of a price list, as the API sends it. */
 export interface TariffView {
@@ -127,6 +186,6 @@ export function withheldTariffCountSql(spotIdExpr: string): string {
   return `(
     SELECT count(*)::int FROM spot_tariffs t
      WHERE t.spot_id = ${spotIdExpr}
-       AND NOT ${DISPLAYABLE_TARIFF_SQL}
+       AND ${WITHHELD_TARIFF_SQL}
   )`;
 }

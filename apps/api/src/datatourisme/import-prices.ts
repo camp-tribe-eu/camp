@@ -396,6 +396,46 @@ async function main() {
       `  tariff lines ${apply ? 'written' : 'that would be written'}   ${queued}`,
     );
 
+    // 🔴 CAMP-446. СКІЛЬКИ РЯДКІВ ФІД БІЛЬШЕ НЕ НАЗИВАЄ — ДРУКУЄТЬСЯ,
+    // А НЕ ВИДАЛЯЄТЬСЯ.
+    //
+    // `INSERT … ON CONFLICT DO UPDATE` оновлює те, що фід назвав, і
+    // ніколи не торкається решти. Тому після кожного прогону частина
+    // таблиці має `fetched_at` від попередніх прогонів: кемпінг зняв
+    // ціну, змінив URI пропозиції або зник. Читальний шлях таких уже не
+    // показує (`spots/tariffs.ts`), але вони лежать у базі, і скільки
+    // їх — має бути видно щотижня, а не з'ясовуватись раз на квартал.
+    //
+    // 🔴 ЧОМУ НЕ `DELETE`. Тариф може зникнути з фіду на один тиждень
+    // через збій на боці DATAtourisme або неповний JSON-LD усередині
+    // цілого архіву. Видалення необоротне: наступного тижня тариф
+    // повернеться вже як «новий» із чужою `created_at`, а `created_at` —
+    // єдина наша історія того, відколи кемпінг декларує ціну. Рішення
+    // прибирати фізично — власника, і воно потребує числа перед очима.
+    // Нуль теж друкується: мовчання не відрізнити від «не рахували».
+    const stale = await db.query<{
+      orphaned: string;
+      over_90d: string;
+    }>(`
+      SELECT
+        count(*) FILTER (
+          WHERE fetched_at < (SELECT max(fetched_at) FROM spot_tariffs)
+                              - interval '21 days') AS orphaned,
+        count(*) FILTER (
+          WHERE fetched_at < (SELECT max(fetched_at) FROM spot_tariffs)
+                              - interval '90 days') AS over_90d
+      FROM spot_tariffs`);
+    const orphaned = Number(stale.rows[0]?.orphaned ?? 0);
+    const over90 = Number(stale.rows[0]?.over_90d ?? 0);
+    console.log(
+      `  rows the feed no longer declares   ${orphaned}` +
+        '  <- hidden from pages, kept in the table',
+    );
+    console.log(
+      `  of those, unconfirmed for 90 days  ${over90}` +
+        (over90 ? '  <- candidates for removal, CAMP-446' : ''),
+    );
+
     if (apply) {
       await db.query('COMMIT');
       console.log('\n✓ committed');
