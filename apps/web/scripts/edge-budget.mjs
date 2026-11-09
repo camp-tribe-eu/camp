@@ -19,37 +19,63 @@
 // wall, and both boundaries are rehearsed by `--self-test` rather than
 // discovered.
 
-// 🔴 WHOSE LIMIT IS THE CAP, ACTUALLY.
+// 🔴 WHOSE LIMIT IS THE CAP — ЗАМІРЯНО 09.11.2026, CAMP-472.
 //
-// Each caller passes its own number: 512 KB for the redirect map, 256 KB
-// for the gone list. Both descend from one sentence in gen-gone.mjs —
-// "1 MB on Cloudflare Workers" — and that is the whole provenance.
+// Попередня редакція цього абзацу казала: 512 KB для мапи редиректів,
+// 256 KB для переліку зниклих, і «вся провенієнція» — одне речення з
+// gen-gone.mjs про «1 MB on Cloudflare Workers». Далі вона припускала,
+// що хост — Cloudflare Pages, і що без адаптера міддлвар у проді може
+// взагалі не виконуватись, тобто бюджет стеріг би те, чого не існує.
 //
-// 🔴 The host is Cloudflare PAGES, not Workers. `public/_headers` is a
-// Pages file, written by gen-headers.mjs in prebuild and checked in CI
-// by scripts/seo/check-indexing.mjs; security-headers.mjs says plainly
-// that "Cloudflare Pages serves the built files and never runs Next's
-// headers()". An earlier version of this comment claimed no host was
-// configured at all, which was simply wrong — a review found the file.
+// Обидва припущення хибні, і це перевірено, а не переглянуто:
 //
-// So the cap is a Workers number applied to a Pages deployment, and the
-// two are not the same product. Nobody has measured what Pages allows a
-// middleware bundle to weigh, or indeed whether it runs the middleware:
-// without an adapter this build's middleware may never execute in
-// production, which would make this budget a guard on something that is
-// not deployed. That question is too big for a size check and has its
-// own card.
+//   · ЯК ВОНО ПРАЦЮЄ. `camptribe-web.service` на нашій машині Hetzner:
+//     `ExecStart=/usr/bin/npx next start -p 3000 -H 127.0.0.1`, за ним
+//     Caddy. Cloudflare — лише CDN перед ним. Жодного Pages і жодного
+//     Workers, тож і їхніх лімітів на бандл немає.
 //
-// Which is why the message at 100% refuses to pick between raising the
-// cap and moving the file out of the bundle: that choice needs a
-// measured limit for the platform actually in use, and it is somebody's
-// decision about money, not this script's.
+//   · ЧИ ВИКОНУЄТЬСЯ МІДДЛВАР. Так. Заміряно на проді: дві адреси з
+//     мапи редиректів віддають 301 на нову адресу
+//     (`/camping/at/burgenland/spot-w1514014669` →
+//     `…/spot-a3028029338`). Редирект робить саме міддлвар.
+//
+//   · ЩО НАСПРАВДІ КОШТУЄ РОЗМІР. Заміряно на тій самій машині:
+//     зібраний `.next/server/src/middleware.js` важить 557.1 KB і
+//     розбирається як код за 6.7 мс; той самий текст, повторений
+//     десятикратно (5.4 MB), — за 52.6 мс, RSS 68 MB. Це РАЗ на старт
+//     процесу, усередині викату, який і так триває чверть години.
+//
+// 🔴 ОТЖЕ СТЕЛІ ПЛАТФОРМИ НЕМАЄ, А БЮДЖЕТ ПОТРІБЕН. Не проти ліміту,
+// якого не існує, а проти РОЗБІГУ: перелік, що раптом став у сто разів
+// більшим, — це дефект імпорту, і дізнатись про нього краще зі збірки,
+// ніж із памʼяті машини. Тому стеля ставиться туди, де ціна вже
+// відчутна за заміром вище, із запасом на зростання:
+//
+//   4 MB на файл ≈ 40 мс розбору — приблизно вшестеро більше за
+//   сьогоднішній бандл і вп’ятнадцятеро за найбільший із двох файлів.
+//
+// 🔴 І ПОПЕРЕДЖЕННЯ ТЕПЕР ПРО ЗРОСТАННЯ, А НЕ ПРО БЛИЗЬКУ СТЕЛЮ. Поріг
+// 50%: при 4 MB це 2 MB, тобто попередження спрацює задовго до того, як
+// хоч щось почне коштувати. Стара межа 75% від вигаданої стелі давала
+// «81.1% — вирішуй зараз» на мапі, якій до будь-якої реальної межі ще
+// порядок величини.
+
+/**
+ * Скільки може важити ОДИН згенерований файл, що їде в бандл міддлвару.
+ *
+ * 🔴 ОДНЕ ЧИСЛО НА ОБИДВА ГЕНЕРАТОРИ, і це не прибирання. Заголовок
+ * цього файла сам скаржиться: «TWO GENERATORS HAD THIS RULE,
+ * SEPARATELY, AND IT SHOWED». Дві копії числа розходяться, і саме так
+ * мапа редиректів опинилась під удвічі меншою стелею, ніж перелік
+ * зниклих, без жодної причини, крім порядку, в якому їх писали.
+ */
+export const MIDDLEWARE_FILE_BUDGET_BYTES = 4 * 1024 * 1024;
 
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 /** Warn from here on, as a fraction of the cap. */
-export const WARN_AT = 0.75;
+export const WARN_AT = 0.5;
 
 /**
  * Report the size of a generated edge file and refuse the oversized one.
@@ -72,17 +98,18 @@ export function enforceEdgeBudget(
   if (bytes > maxBytes) {
     throw new Error(
       `${name} is ${kb(bytes)}, over its ${kb(maxBytes)} edge budget. ` +
-        'It is bundled into the middleware, so this is a deploy-stopping ' +
-        'size. Two ways out, and the choice is not this script’s: raise ' +
-        'the cap once somebody has measured what the edge bundle actually ' +
-        'allows, or move the file to a lookup outside the bundle.',
+        'Це не ліміт платформи — ми на `next start`, і стелі бандла там ' +
+        'немає (див. 🔴 угорі). Це межа проти РОЗБІГУ: такий розмір ' +
+        'означає, що перелік виріс на порядок, а це дефект джерела, не ' +
+        'привід піднімати число. Спершу знайди, звідки стільки рядків.',
     );
   }
   if (share >= WARN_AT) {
     warn(
       `⚠ ${name} is at ${(share * 100).toFixed(1)}% of its edge budget ` +
-        `(${kb(maxBytes - bytes)} left). Decide what happens at 100% now, ` +
-        'not in the build that fails.',
+        `(${kb(maxBytes - bytes)} left). Це попередження про ЗРОСТАННЯ, ` +
+        'не про близьку стелю: подивись, чи перелік росте від даних, а ' +
+        'не від дефекту.',
     );
   }
   return bytes;
@@ -105,18 +132,52 @@ export function enforceEdgeBudget(
  */
 function selfTest() {
   const cap = 1000;
+  // 🔴 ПРЕМІСА ПОРОГА — ПЕРШИМ РЯДКОМ, бо решта набору від неї похідна.
+  // Коли межі перестали бути вписаними числами й почали рахуватись від
+  // `WARN_AT`, зʼявився новий спосіб зламатись тихо: `WARN_AT = 0` дає
+  // `repeat(-1)`, і набір ПАДАЄ з RangeError замість того, щоб сказати,
+  // що не так. Червоне воно й так, але червоне без імені коштує годину
+  // діагностики.
+  if (!(WARN_AT > 0 && WARN_AT < 1)) {
+    console.error(
+      `  \u2717 WARN_AT = ${WARN_AT}: поріг попередження мусить бути ` +
+        'між 0 і 1. Нуль означає «попереджати завжди», одиниця — ' +
+        '«ніколи»; ані те, ані те не є бюджетом.',
+    );
+    // 🔴 `process.exit(1)`, а НЕ `return`. `selfTest()` нічого не
+    // повертає — результат він повідомляє саме виходом, і `return 1`
+    // звідси дав би код 0, тобто зелену збірку на зламаній премісі.
+    // Рівно та форма сліпоти, проти якої цей файл і написаний.
+    process.exit(1);
+  }
   const kb = (n) => `${(n / 1024).toFixed(1)} KB`;
   const pct = (n) => `${((n / cap) * 100).toFixed(1)}%`;
   const cases = [
     { name: 'well under', body: 'x'.repeat(100), warns: false, throws: false },
+    // 🔴 МЕЖА ПОХІДНА ВІД `WARN_AT`, А НЕ ВПИСАНА ЧИСЛОМ. Доки тут
+    // стояли 749 і 750, цей набір перевіряв не поведінку, а те, що
+    // хтось не чіпав константи: CAMP-472 опустив поріг з 0.75 до 0.5 —
+    // правка законна — і тест почервонів на правильному коді. Гірше
+    // інше: вписані числа однаково пройшли б, якби `enforceEdgeBudget`
+    // порівнював із власною копією порога замість `WARN_AT`.
     {
       name: 'just under the warning',
-      body: 'x'.repeat(749),
+      body: 'x'.repeat(Math.round(cap * WARN_AT) - 1),
       warns: false,
       throws: false,
     },
-    { name: 'at the warning', body: 'x'.repeat(750), warns: true, throws: false },
-    { name: '76 per cent', body: 'x'.repeat(760), warns: true, throws: false },
+    {
+      name: 'at the warning',
+      body: 'x'.repeat(Math.round(cap * WARN_AT)),
+      warns: true,
+      throws: false,
+    },
+    {
+      name: 'one per cent past the warning',
+      body: 'x'.repeat(Math.round(cap * (WARN_AT + 0.01))),
+      warns: true,
+      throws: false,
+    },
     {
       name: 'exactly at the cap',
       body: 'x'.repeat(1000),

@@ -44,14 +44,22 @@
 // comment was born too.)
 
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { enforceEdgeBudget } from './edge-budget.mjs';
+import {
+  MIDDLEWARE_FILE_BUDGET_BYTES,
+  enforceEdgeBudget,
+} from './edge-budget.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const API = process.env.API_BASE_URL ?? 'http://localhost:3001';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const out = path.join(here, '..', 'src', 'generated');
-const MAX_BYTES = 512 * 1024;
+// 🔴 CAMP-472: число більше не своє. Воно приїжджає з `edge-budget.mjs`,
+// де записано, ЯК його заміряно — на бойовій машині, а не взято з
+// документації платформи, якою ми не користуємось. Дві копії стелі вже
+// розійшлися одного разу: мапа жила під 512 KB, перелік зниклих під
+// 1 MB, і різниця не мала жодної причини.
+const MAX_BYTES = MIDDLEWARE_FILE_BUDGET_BYTES;
 
 const res = await fetch(`${API}/spots/links`).catch((e) => {
   throw new Error(`Could not reach the API at ${API}: ${e.message}`);
