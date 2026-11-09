@@ -761,11 +761,16 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
           run; until then the honest page has no webcam section. */}
       <WebcamNote webcams={spot.webcams} renderedAt={new Date().toISOString()} />
 
-      <Section title="Weather on site">
-        <Block as="p" measure="read" className="text-sm text-ink-2">
-          Forecast is not connected yet.
-        </Block>
-      </Section>
+      {/* 🔴 CAMP-463: ТУТ БУЛА СЕКЦІЯ «Weather on site» З ОДНИМ РЯДКОМ
+          «Forecast is not connected yet». Власник назвав її окремо
+          (знімок 441/70): заголовок, під яким написано, чого ми ще не
+          вміємо, — це внутрішня кухня, винесена читачеві.
+
+          Прогнозу в нас немає, тож секції немає. Це те саме правило, що
+          вже діє поруч: `WebcamNote` мовчить, коли камер нема, а
+          `route-figures.tsx` друкує тире, а не «coming soon», бо «це
+          обіцянка з датою, якої ми не знаємо». Коли прогноз зʼявиться,
+          зʼявиться й секція — разом із даними, а не замість них. */}
 
       {data.nearby.length > 0 && (
         <Section title="Campsites nearby">

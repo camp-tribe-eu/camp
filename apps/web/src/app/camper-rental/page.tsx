@@ -88,10 +88,17 @@ function faq() {
       // practical reason is true on its own and needs no citation.
       a: "Because we hold none. We link to the companies that rent campers rather than mirroring their prices: a number copied here is stale the week after, and a figure that is wrong is worse than a figure that is absent. The same reasoning is why our trip cost calculator prices fuel from the European Commission bulletin, dated, and asks you for the campsite fee.",
     },
-    {
-      q: "How does CampTribe make money from this?",
-      a: "The intention is commission on bookings made through partner links. Today there are no partner links on this site at all — the affiliate applications are open and unanswered — so this page earns nothing. When that changes, the disclosure sits beside the link rather than in the footer, and what is paid for will never be the order things appear in.",
-    },
+    // 🔴 CAMP-463: ТУТ БУЛО ПИТАННЯ «How does CampTribe make money from
+    // this?» із відповіддю про те, що партнерських посилань немає,
+    // заявки подані й без відповіді, а сторінка нічого не заробляє.
+    //
+    // Право ЄС вимагає розкривати комерційний звʼязок ТАМ, ДЕ ВІН Є
+    // (UCPD, ст. 7(2) і Omnibus): оголошувати його ВІДСУТНІСТЬ не
+    // зобовʼязує ніщо. Тобто цей абзац не виконував обовʼязку — він
+    // розповідав читачеві про стан наших перемовин.
+    //
+    // Коли посилання зʼявляться, розкриття повернеться — біля самого
+    // посилання, як і було сказано, а не в підвалі. Див. CAMP-462.
     {
       q: "What most often costs more than expected at the counter?",
       // 🔴 "usually with an administration fee", not "with": the hire
@@ -161,8 +168,13 @@ export default function CamperRentalHub() {
         <strong className="text-ink">
           There are no prices and no vehicles here.
         </strong>{" "}
-        We hold no rental inventory, we have no partner, and we are not going to
-        invent a fleet to look busier than we are. Every number on these pages
+        {/* 🔴 CAMP-463: тут стояло «we hold no rental inventory, we have
+            no partner, and we are not going to invent a fleet to look
+            busier than we are». Перша половина речення корисна читачеві —
+            вона каже, чого тут НЕ шукати; друга розповідала про стан
+            наших справ і про те, якими ми НЕ хочемо здаватись. Лишилось
+            те, що про сторінку, а не про нас. */}
+        We hold no rental inventory and do not invent one. Every number on these pages
         is either a count of our own {count(MEASURED.total.spots)} campsite
         records — measured on{" "}
         <time dateTime={MEASURED.measuredAt}>
@@ -322,32 +334,16 @@ export default function CamperRentalHub() {
 
       <RentalOfferSlot offers={offers} where="Europe" />
 
-      <section
-        aria-labelledby="missing-heading"
-        className="mt-12 border-t border-line-2 pt-8"
-      >
-        <h2 id="missing-heading" className="text-xl text-heading">
-          What this section does not have yet, and why
-        </h2>
-        <Block as="p" measure="read" className="mt-3 text-ink-2">
-          No prices, no availability, no vehicle listings and no partners. The
-          affiliate applications are open and unanswered, and until they are
-          answered there is nothing to show — so the slot above stays empty
-          rather than being filled with something that looks like an offer.
-        </Block>
-        <Block as="p" measure="read" className="mt-3 text-ink-2">
-          When there are partners, they will arrive as plain links in this
-          writing, not as a synchronised feed of somebody else&rsquo;s
-          inventory. That is an architecture decision rather than a stage:
-          mirroring a partner&rsquo;s prices means publishing numbers that are
-          stale the week after, and it is the same reason{" "}
-          <Link className="underline" href="/tools/camper-trip-cost">
-            the trip cost calculator
-          </Link>{" "}
-          prices fuel from the European Commission and asks you for the campsite
-          fee.
-        </Block>
-      </section>
+{/* 🔴 CAMP-463: ТУТ БУЛА СЕКЦІЯ «What this section does not have
+          yet, and why» — про відсутніх партнерів, подані й непочуті
+          заявки та про те, чому слот порожній.
+
+          Власник про цей клас тексту: «ти що вирішив нас скомпроментувати
+          на весь світ?». Він має рацію по суті, а не лише по тону:
+          сторінка, що пояснює читачеві стан наших перемовин, говорить
+          про нас, а не про те, по що він прийшов.
+
+          Порожній слот і так порожній — він не потребує підпису. */}
 
       <section
         aria-labelledby="faq-heading"
