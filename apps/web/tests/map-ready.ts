@@ -85,7 +85,7 @@ async function waitForState(
   accept: readonly string[],
   timeout: number,
   what: string,
-): Promise<void> {
+): Promise<string> {
   if (accept.length === 0) {
     throw new Error(
       `${what}: перелік прийнятних станів порожній — таке чекання не ` +
@@ -94,14 +94,21 @@ async function waitForState(
   }
   await page.waitForSelector(sel, { timeout });
   try {
-    await page.waitForFunction(
+    // 🔴 ПРЕДИКАТ ПОВЕРТАЄ САМЕ ЗНАЧЕННЯ, А НЕ `true` (CAMP-473).
+    // `waitForFunction` віддає хендл на те, що повернув предикат, тож
+    // стан, який ми дочекались, приходить ІЗ ТОГО САМОГО кадру, де його
+    // побачили. Раніше він повертав `true`, і викликач читав атрибут
+    // ДРУГИМ запитом — а між двома запитами вузол встигає перемалюватись.
+    // Усі прийнятні стани — непорожні рядки, тобто істинні.
+    const handle = await page.waitForFunction(
       ([s, a, want]: [string, string, string[]]) => {
         const v = document.querySelector(s)?.getAttribute(a);
-        return v !== null && v !== undefined && want.includes(v);
+        return v !== null && v !== undefined && want.includes(v) ? v : null;
       },
       [sel, attr, [...accept]] as [string, string, string[]],
       { timeout },
     );
+    return (await handle.jsonValue()) as string;
   } catch (cause) {
     // 🔴 «Не вдалось прочитати» і «атрибута немає» — ДВА РІЗНІ факти, і
     // плутати їх не можна. Заміряно: при закритій сторінці читання
@@ -150,7 +157,20 @@ export async function waitForWildfireNote(
   page: Page,
   timeout = 20_000,
 ): Promise<void> {
-  await waitForState(
+  // 🔴 СТАН БЕРЕТЬСЯ З ТОГО САМОГО ЧЕКАННЯ (CAMP-473). Раніше тут стояв
+  // другий запит `page.getAttribute(NOTE, 'data-state', { timeout: 1_000 })`,
+  // і саме він упав у CI 09.11.2026 на PR, який не чіпав ні мапи, ні
+  // пожеж: `TimeoutError: page.getAttribute: Timeout 1000ms exceeded`,
+  // «waiting for locator('[data-testid=\"wildfire-note\"]')». Повтор
+  // пройшов, тож сторож мигтіння справедливо почервонив збірку.
+  //
+  // Чекання вище на той момент уже знайшло вузол І дочекалось потрібного
+  // стану, тобто обидва твердження були істинні. Між ним і другим
+  // запитом React перемальовує нотатку, старий вузол відчіпляється, і
+  // одна секунда на пошук нового іноді не встигає. Секунда тут була
+  // бюджетом на ПОБІЧНЕ читання, а не на чекання — тож правильна правка
+  // не «підняти до 5 с», а прибрати другий запит зовсім.
+  const state = await waitForState(
     page,
     NOTE,
     'data-state',
@@ -169,7 +189,6 @@ export async function waitForWildfireNote(
   //
   // `data-in-view` порожній, поки шар пожеж вимкнено (`off`) — тоді й
   // речення не залежить від кадру, і чекати нема на що.
-  const state = await page.getAttribute(NOTE, 'data-state', { timeout: 1_000 });
   if (state === 'off') return;
   try {
     await page.waitForFunction(
