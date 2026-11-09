@@ -5,11 +5,10 @@ import {
   getGuide,
   getGuides,
   needsAiDisclosure,
-  PROVENANCE_LABEL,
 } from '@/lib/guides';
 import { abs, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
-import { Block } from '@/components/layout';
+import GuideArticle from '@/components/guide-article';
 
 // CAMP-66 — one guide.
 //
@@ -46,7 +45,6 @@ export default async function GuidePage(props: { params: Promise<Params> }) {
   const guide = await getGuide(slug);
   if (!guide) notFound();
 
-  const label = PROVENANCE_LABEL[guide.provenance];
   const path = `/guides/${slug}`;
 
   return (
@@ -82,62 +80,9 @@ export default async function GuidePage(props: { params: Promise<Params> }) {
         </Link>
       </p>
 
-      <h1 className="mt-3 max-w-[22ch] text-3xl leading-tight md:text-[42px]">
-        {guide.title}
-      </h1>
-
-      {/* 🔴 Before the text, always. */}
-      <aside
-        data-testid="provenance"
-        data-provenance={guide.provenance}
-        className="mt-5 rounded-card border border-line-2 bg-surface-2 p-4 text-sm leading-6 text-ink-2"
-      >
-        <strong className="font-semibold text-heading">
-          {label?.short ?? guide.provenance}
-        </strong>
-        {label?.explain && <> {label.explain}</>}
-        {needsAiDisclosure(guide.provenance) && guide.generator && (
-          <> The program is <code>{guide.generator}</code>.</>
-        )}
-        {guide.authorName && (
-          <>
-            {' '}
-            Written by {guide.authorName}
-            {guide.authorCredentials ? ` — ${guide.authorCredentials}` : ''}.
-          </>
-        )}
-        {guide.factsCheckedAt && (
-          <>
-            {' '}
-            The figures were taken from our records on{' '}
-            <time dateTime={guide.factsCheckedAt}>
-              {new Date(guide.factsCheckedAt).toLocaleDateString('en-GB', {
-                day: 'numeric',
-                month: 'long',
-                year: 'numeric',
-              })}
-            </time>
-            .
-          </>
-        )}
-      </aside>
-
-      {guide.body && (
-        <Block measure="read" className="mt-8 space-y-4 text-ink-2">
-          {guide.body.split('\n\n').map((block, i) => {
-            if (block.startsWith('- ')) {
-              return (
-                <ul key={i} className="list-disc space-y-1 pl-5">
-                  {block.split('\n').map((line, j) => (
-                    <li key={j}>{line.replace(/^- /, '')}</li>
-                  ))}
-                </ul>
-              );
-            }
-            return <p key={i}>{block}</p>;
-          })}
-        </Block>
-      )}
+      {/* 🔴 Один вміст на два шляхи — сторінку й шухляду
+          (CAMP-460). Чому саме так, див. `components/guide-article.tsx`. */}
+      <GuideArticle guide={guide} />
     </main>
   );
 }
