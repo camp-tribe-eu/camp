@@ -126,7 +126,7 @@ function EmptyCard({ state }: { state: EmptyState }) {
         >
           {state.icon}
         </div>
-        <h2 id={heading} className="mb-1.5 text-base font-semibold text-heading">
+        <h2 id={heading} className="mb-1.5 text-base text-heading">
           {state.title}
         </h2>
         <p className="text-[13px] leading-[1.55] text-ink-2">{state.body}</p>
@@ -154,7 +154,7 @@ export function CabinetView({ profile }: { profile: Profile }) {
     <Shell title={CABINET_TITLE}>
       <section aria-labelledby="profile-name" className={`${CARD} mt-6 px-4 py-4 md:px-5`}>
         {/* Імʼя, а коли його немає, — адреса. Не вигадане «Hello, user». */}
-        <h2 id="profile-name" className="break-all text-[19px] font-semibold text-heading">
+        <h2 id="profile-name" className="break-all text-[19px] text-heading">
           {profile.displayName ?? profile.email}
         </h2>
         {profile.displayName !== null && (

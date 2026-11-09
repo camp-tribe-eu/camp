@@ -95,7 +95,7 @@ export function RichText({
               <h2
                 key={i}
                 id={b.id ?? undefined}
-                className="scroll-mt-24 text-xl font-semibold text-heading"
+                className="scroll-mt-24 text-xl text-heading"
               >
                 <Spans spans={b.spans} />
               </h2>
@@ -105,7 +105,7 @@ export function RichText({
               <h3
                 key={i}
                 id={b.id ?? undefined}
-                className="scroll-mt-24 text-base font-semibold text-heading"
+                className="scroll-mt-24 text-base text-heading"
               >
                 <Spans spans={b.spans} />
               </h3>

@@ -126,7 +126,7 @@ export default async function RentalCountryPage({
         / {c.name}
       </nav>
 
-      <h1 className="mt-2 text-3xl font-bold leading-tight md:text-[42px]">
+      <h1 className="mt-2 text-3xl leading-tight md:text-[42px]">
         Renting a camper in {inProse(c)}
       </h1>
 
@@ -135,7 +135,7 @@ export default async function RentalCountryPage({
       <RentalDisclosure offers={offers.length} />
 
       <section aria-labelledby="rules-heading" className="mt-12">
-        <h2 id="rules-heading" className="text-2xl font-bold text-heading">
+        <h2 id="rules-heading" className="text-2xl text-heading">
           Three things that are true here and not next door
         </h2>
         <ul className="mt-6 space-y-6">
@@ -144,7 +144,7 @@ export default async function RentalCountryPage({
               key={fact.title}
               className="rounded-card border border-line-2 bg-surface p-5"
             >
-              <h3 className="text-lg font-semibold text-heading">
+              <h3 className="text-lg text-heading">
                 {fact.title}
               </h3>
               <Block as="p" measure="read" className="mt-2 text-ink-2">{fact.body}</Block>
@@ -182,7 +182,7 @@ export default async function RentalCountryPage({
           aria-labelledby="fuel-heading"
           className="mt-10 rounded-card border border-line-2 bg-surface-2 p-5"
         >
-          <h2 id="fuel-heading" className="text-xl font-semibold text-heading">
+          <h2 id="fuel-heading" className="text-xl text-heading">
             What the driving costs
           </h2>
           <Block as="p" measure="read" className="mt-3 text-ink-2">
@@ -220,7 +220,7 @@ export default async function RentalCountryPage({
       >
         <h2
           id="providers-heading"
-          className="text-xl font-semibold text-heading"
+          className="text-xl text-heading"
         >
           Rental companies
         </h2>
@@ -261,7 +261,7 @@ export default async function RentalCountryPage({
         aria-labelledby="next-heading"
         className="mt-12 border-t border-line-2 pt-8"
       >
-        <h2 id="next-heading" className="text-xl font-semibold text-heading">
+        <h2 id="next-heading" className="text-xl text-heading">
           Before you book
         </h2>
         <Block as="p" measure="read" className="mt-3 text-ink-2">

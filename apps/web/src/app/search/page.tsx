@@ -74,7 +74,7 @@ export default async function SearchPage() {
 
       <Breadcrumbs crumbs={crumbs} />
 
-      <h1 className="mt-4 text-2xl font-bold text-heading sm:text-3xl">
+      <h1 className="mt-4 text-2xl text-heading sm:text-3xl">
         Search
       </h1>
       <Block as="p" measure="read" className="mt-2 text-sm text-ink-2">
@@ -94,7 +94,7 @@ export default async function SearchPage() {
       </div>
 
       <section className="mt-10 border-t border-line-2 pt-6">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-2">
+        <h2 className="text-xs uppercase tracking-wide text-ink-2">
           Or browse by country
         </h2>
         <ul className="mt-3 flex flex-wrap gap-x-2 gap-y-3">
@@ -119,7 +119,7 @@ export default async function SearchPage() {
           say what is often searched, and recently viewed is a feature
           of the browser, not a sentence for this page. */}
       <section className="mt-10 border-t border-line-2 pt-6">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-2">
+        <h2 className="text-xs uppercase tracking-wide text-ink-2">
           Not looking for a campsite?
         </h2>
         <Block as="p" measure="read" className="mt-2 text-sm text-ink-2">

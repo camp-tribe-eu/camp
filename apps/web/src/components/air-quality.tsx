@@ -132,7 +132,7 @@ export function AirQualityPanel({
           only text that is identical on EVERY page it appears on. */}
       <h2
         id="air-quality-heading"
-        className="text-xl font-bold md:text-[25px]"
+        className="text-xl md:text-[25px]"
         data-boilerplate="air-heading"
       >
         Air quality

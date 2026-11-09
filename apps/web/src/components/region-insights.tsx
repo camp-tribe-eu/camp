@@ -37,7 +37,7 @@ export default async function RegionInsights({
     >
       <h2
         id="region-insights-heading"
-        className="text-xl font-bold md:text-[25px]"
+        className="text-xl md:text-[25px]"
       >
         Camping in {counts.region}
       </h2>

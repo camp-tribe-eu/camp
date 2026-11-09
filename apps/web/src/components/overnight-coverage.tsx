@@ -45,7 +45,7 @@ export default function OvernightCoverage({
     >
       <h2
         id="overnight-coverage-heading"
-        className="text-base font-semibold text-heading"
+        className="text-base text-heading"
       >
         Staying the night in a motorhome
       </h2>

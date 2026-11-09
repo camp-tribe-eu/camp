@@ -225,7 +225,7 @@ function Hero({
                 секцію, зникає підпис, а не навігація: посилання на країни
                 це дані, а не контент (CAMP-365 п.4). */}
             {stay?.heading && (
-              <h2 className="text-base font-semibold">{stay.heading}</h2>
+              <h2 className="text-base">{stay.heading}</h2>
             )}
             {stay?.body && <p className="mt-1 text-sm text-ink-2">{stay.body}</p>}
             <ul className="mt-4 flex flex-wrap gap-x-2 gap-y-3">
@@ -251,7 +251,7 @@ function Hero({
               inventing a rental listing would misrepresent what it has. */}
           <div className="rounded-card border border-dashed border-line bg-transparent p-5">
             {drive?.heading && (
-              <h2 className="text-base font-semibold">{drive.heading}</h2>
+              <h2 className="text-base">{drive.heading}</h2>
             )}
             {drive?.body && (
               <Block as="p" measure="read" className="mt-1 text-sm text-ink-2">{drive.body}</Block>
@@ -281,7 +281,7 @@ function Countries({
   return (
     <section className="border-y border-line-2 bg-surface">
       <div className="mx-auto max-w-wrap px-4 py-12 xl:px-6">
-        <h2 className="text-xl font-bold md:text-[25px]">Countries</h2>
+        <h2 className="text-xl md:text-[25px]">Countries</h2>
         <ul className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {countries.map((c) => (
             <li key={c.country}>
@@ -328,7 +328,7 @@ function Notable({
   return (
     <section className="mx-auto max-w-wrap px-4 py-12 xl:px-6">
       {text?.heading && (
-        <h2 className="text-xl font-bold md:text-[25px]">{text.heading}</h2>
+        <h2 className="text-xl md:text-[25px]">{text.heading}</h2>
       )}
       {text?.body && (
         <Block as="p" measure="read" className="mt-2 text-sm text-ink-2">{text.body}</Block>

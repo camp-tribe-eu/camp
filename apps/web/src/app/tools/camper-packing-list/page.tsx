@@ -38,7 +38,7 @@ export default function PackingListPage() {
         })}
       />
 
-      <h1 className="text-3xl font-bold leading-tight md:text-[42px]">
+      <h1 className="text-3xl leading-tight md:text-[42px]">
         Camper packing list
       </h1>
       <Block as="p" measure="read" className="mt-4 text-ink-2">
@@ -50,7 +50,7 @@ export default function PackingListPage() {
       </Block>
 
       <Block as="section" measure="read" className="mt-6 rounded-card border border-line-2 bg-surface-2 p-4">
-        <h2 className="text-sm font-semibold uppercase tracking-[0.08em] text-ink-2">
+        <h2 className="text-sm uppercase tracking-[0.08em] text-ink-2">
           What is not on this list
         </h2>
         <p className="mt-2 text-ink-2">

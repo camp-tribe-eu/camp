@@ -82,7 +82,7 @@ export default async function GuidePage(props: { params: Promise<Params> }) {
         </Link>
       </p>
 
-      <h1 className="mt-3 max-w-[22ch] text-3xl font-bold leading-tight md:text-[42px]">
+      <h1 className="mt-3 max-w-[22ch] text-3xl leading-tight md:text-[42px]">
         {guide.title}
       </h1>
 

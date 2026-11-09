@@ -64,7 +64,7 @@ export type EmailSection = {
 export function EmailCard(s: EmailSection) {
   return (
     <section aria-labelledby="set-email" className={`${CARD} mt-4`}>
-      <h2 id="set-email" className="text-base font-semibold text-heading">
+      <h2 id="set-email" className="text-base text-heading">
         Email
       </h2>
       <p className="mt-1 break-all text-sm text-ink-2">
@@ -126,7 +126,7 @@ export type PasswordSection = {
 export function PasswordCard(s: PasswordSection) {
   return (
     <section aria-labelledby="set-password" className={`${CARD} mt-4`}>
-      <h2 id="set-password" className="text-base font-semibold text-heading">
+      <h2 id="set-password" className="text-base text-heading">
         Password
       </h2>
       <p className={NOTE}>
@@ -180,7 +180,7 @@ export type LettersSection = {
 export function LettersCard(s: LettersSection) {
   return (
     <section aria-labelledby="set-letters" className={`${CARD} mt-4`}>
-      <h2 id="set-letters" className="text-base font-semibold text-heading">
+      <h2 id="set-letters" className="text-base text-heading">
         Letters
       </h2>
       {/* 🔴 ГАЛОЧКА ПОРОЖНЯ, ПОКИ ЛЮДИНА САМА ЇЇ НЕ ПОСТАВИТЬ, і стан тут —

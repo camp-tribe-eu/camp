@@ -39,7 +39,7 @@ export function messageFor(o: ClaimOutcome | null): string | null {
 export function ClaimIntro({ spot }: { spot: string }) {
   return (
     <>
-      <h1 className="text-2xl font-semibold text-ink">{CLAIM_TITLE}</h1>
+      <h1 className="text-2xl text-ink">{CLAIM_TITLE}</h1>
       {/* 🔴 СКАЗАНО, КУДИ ПІДЕ ЛИСТ І ЧОМУ, ДО того як людина натисне.
           Інакше вона натискає, не знаючи, що ми пишемо третій стороні —
           і дізнається про це з чужої скарги. */}
@@ -111,7 +111,7 @@ export function CodeView({
 }) {
   return (
     <section className={PANEL}>
-      <h1 className="text-2xl font-semibold text-ink">{CLAIM_TITLE}</h1>
+      <h1 className="text-2xl text-ink">{CLAIM_TITLE}</h1>
       {/* 🔴 МАСКА, А НЕ АДРЕСА. Її дає API і більше нічого не дає:
           сторінка не може показати те, чого не отримала. */}
       <p className={HINT}>
@@ -159,7 +159,7 @@ export function CodeView({
 export function DoneView({ spot }: { spot: string }) {
   return (
     <section className={PANEL}>
-      <h1 className="text-2xl font-semibold text-ink">
+      <h1 className="text-2xl text-ink">
         {spot} is yours to manage
       </h1>
       <p className={HINT}>
@@ -181,7 +181,7 @@ export function DoneView({ spot }: { spot: string }) {
 export function NoSpotView() {
   return (
     <section className={PANEL}>
-      <h1 className="text-2xl font-semibold text-ink">{CLAIM_TITLE}</h1>
+      <h1 className="text-2xl text-ink">{CLAIM_TITLE}</h1>
       <p className={HINT}>
         Open this page from a campsite, so we know which listing you mean.
       </p>

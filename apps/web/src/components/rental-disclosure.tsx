@@ -33,7 +33,7 @@ export default function RentalDisclosure({ offers }: { offers: number }) {
       aria-label="How this section is funded"
       className="mt-6 rounded-card border border-line-blue bg-accent-surface p-4"
     >
-      <h2 className="text-sm font-semibold uppercase tracking-[0.08em] text-heading">
+      <h2 className="text-sm uppercase tracking-[0.08em] text-heading">
         How this page is paid for
       </h2>
       {offers > 0 ? (

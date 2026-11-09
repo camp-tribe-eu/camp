@@ -106,7 +106,7 @@ export default async function GuidesByTopic(props: {
         </ol>
       </nav>
 
-      <h1 className="mt-4 text-3xl font-bold leading-tight md:text-[42px]">
+      <h1 className="mt-4 text-3xl leading-tight md:text-[42px]">
         {TOPICS[topic]}
       </h1>
 
@@ -119,7 +119,7 @@ export default async function GuidesByTopic(props: {
 
       {groups.map((group) => (
         <section key={group.country} className="mt-10">
-          <h2 className="text-xl font-bold md:text-[25px]">
+          <h2 className="text-xl md:text-[25px]">
             <Link
               href={`/guides/country/${group.country}`}
               className="hover:underline"

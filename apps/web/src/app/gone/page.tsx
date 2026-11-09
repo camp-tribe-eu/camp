@@ -41,7 +41,7 @@ export default async function GonePage() {
       <p className="text-sm font-semibold uppercase tracking-[0.12em] text-ink-2">
         410 · Gone
       </p>
-      <h1 className="mt-2 text-3xl font-bold md:text-[42px]">
+      <h1 className="mt-2 text-3xl md:text-[42px]">
         This campsite is no longer listed
       </h1>
       <Block as="p" measure="read" className="mt-3 text-ink-2">
@@ -53,7 +53,7 @@ export default async function GonePage() {
       <GoneNotice gone={gone} />
 
       <section className="mt-8">
-        <h2 className="text-xl font-bold md:text-[25px]">Keep looking</h2>
+        <h2 className="text-xl md:text-[25px]">Keep looking</h2>
         <ul className="mt-3 flex flex-wrap gap-x-2 gap-y-3">
           {countries.map((c) => (
             <li key={c.country}>

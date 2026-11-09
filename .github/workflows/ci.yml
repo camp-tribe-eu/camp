@@ -281,6 +281,22 @@ jobs:
       - name: Page width is not a reading column
         run: node scripts/ci/check-prose-width.mjs
 
+      # 🔴 CAMP-467. Вагу заголовка задавав клас на самому заголовку: 151
+      # місце в 67 файлах — 80 разів `font-bold` (700) і 71 раз
+      # `font-semibold` (600). Заголовок того самого рівня в різних файлах
+      # важив по-різному, бо рішення ухвалювалось 151 раз окремо. Тема
+      # ухвалює його один раз: `h1,.h1,…,h6,.h6{font-weight:
+      # var(--heading-font-weight)}` і `"heading_font": "archivo_n7"` → 700.
+      # Те саме правило тепер у globals.css, а цей сторож тримає шлях
+      # закритим.
+      - name: Heading-weight guard still catches a weight set on the tag
+        run: |
+          set -o pipefail
+          node scripts/ci/check-heading-weight.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-heading-weight self-test:' >/dev/null
+      - name: Heading weight is decided by one rule, not by each heading
+        run: node scripts/ci/check-heading-weight.mjs
+
       # 🔴 Строк зберігання, який виконує код, а не документ: 12 місяців
       # від закриття заявки, 24 для нерозглянутих — правила в RULES
       # скрипта, юніт systemd і прапорці звірені тут же.

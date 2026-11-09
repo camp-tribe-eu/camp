@@ -49,7 +49,7 @@ export function WarningPanel({
       aria-labelledby="warnings-heading"
       className={`mt-8 ${className}`.trim()}
     >
-      <h2 id="warnings-heading" className="text-lg font-semibold text-heading">
+      <h2 id="warnings-heading" className="text-lg text-heading">
         Official weather warnings
       </h2>
 

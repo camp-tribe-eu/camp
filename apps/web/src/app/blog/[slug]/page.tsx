@@ -141,7 +141,7 @@ export default async function BlogPost({
 
       <article className="mt-4">
         <header className="border-b border-line-2 pb-5">
-          <h1 className="text-3xl font-bold leading-tight md:text-[42px]">
+          <h1 className="text-3xl leading-tight md:text-[42px]">
             {post.title}
           </h1>
           <p className="mt-3 text-sm text-ink-2">
@@ -163,7 +163,7 @@ export default async function BlogPost({
           className="mt-10 border-t border-line-2 pt-6"
           data-testid="read-next"
         >
-          <h2 id="read-next" className="text-base font-semibold">
+          <h2 id="read-next" className="text-base">
             Read next
           </h2>
           <ul className="mt-4 grid gap-4 md:grid-cols-2">

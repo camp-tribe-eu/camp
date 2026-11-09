@@ -144,7 +144,7 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
         <p className="text-xs font-semibold uppercase tracking-[0.1em] text-ink-2">
           {route.countries.map((c) => countryName(c)).join(' · ')}
         </p>
-        <h1 className="mt-2 text-3xl font-bold leading-tight md:text-[42px]">
+        <h1 className="mt-2 text-3xl leading-tight md:text-[42px]">
           {route.name}
         </h1>
         <Block as="p" measure="read" className="mt-3 text-lg leading-7 text-ink-2">
@@ -161,7 +161,7 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
       />
 
       <section aria-labelledby="map-heading" className="mt-10">
-        <h2 id="map-heading" className="text-xl font-bold md:text-[25px]">
+        <h2 id="map-heading" className="text-xl md:text-[25px]">
           The route
         </h2>
         <RouteMapEmbed
@@ -188,7 +188,7 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
       </section>
 
       <section aria-labelledby="about-heading" className="mt-10">
-        <h2 id="about-heading" className="text-xl font-bold md:text-[25px]">
+        <h2 id="about-heading" className="text-xl md:text-[25px]">
           What this route is for
         </h2>
         <Block measure="read" className="mt-4 space-y-4 leading-7 text-ink-2">
@@ -218,7 +218,7 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
       </section>
 
       <section aria-labelledby="stages-heading" className="mt-12">
-        <h2 id="stages-heading" className="text-xl font-bold md:text-[25px]">
+        <h2 id="stages-heading" className="text-xl md:text-[25px]">
           The stages
         </h2>
         <Block as="p" measure="read" className="mt-2 text-sm text-ink-2">
@@ -252,7 +252,7 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
                     {i + 1}
                   </span>
                   <div>
-                    <h3 className="text-lg font-bold text-heading">
+                    <h3 className="text-lg text-heading">
                       {stage.name}
                     </h3>
                     <p className="text-xs text-ink-2">

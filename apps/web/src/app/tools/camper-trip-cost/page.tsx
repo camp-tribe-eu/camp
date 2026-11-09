@@ -102,7 +102,7 @@ export default function TripCostPage() {
         })}
       />
 
-      <h1 className="text-3xl font-bold leading-tight md:text-[42px]">
+      <h1 className="text-3xl leading-tight md:text-[42px]">
         What does a camper trip cost?
       </h1>
       <Block as="p" measure="read" className="mt-4 text-ink-2">
@@ -143,7 +143,7 @@ export default function TripCostPage() {
       <FuelPriceTable />
 
       <section className="mt-12" aria-labelledby="faq-heading">
-        <h2 id="faq-heading" className="text-2xl font-bold text-heading">
+        <h2 id="faq-heading" className="text-2xl text-heading">
           Questions we can actually answer
         </h2>
         <Block as="dl" measure="read" className="mt-4 space-y-5">

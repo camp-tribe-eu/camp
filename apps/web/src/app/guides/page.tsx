@@ -62,7 +62,7 @@ export default async function GuidesIndex() {
         )}
       />
 
-      <h1 className="text-3xl font-bold leading-tight md:text-[42px]">Guides</h1>
+      <h1 className="text-3xl leading-tight md:text-[42px]">Guides</h1>
       <Block as="p" measure="read" className="mt-4 text-ink-2">
         Each of these answers one question about one region, using counts from
         our own records. They say how many campsites have something recorded —
@@ -82,7 +82,7 @@ export default async function GuidesIndex() {
           </p>
 
           <section className="mt-10">
-            <h2 className="text-xl font-bold md:text-[25px]">By question</h2>
+            <h2 className="text-xl md:text-[25px]">By question</h2>
             <ul className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {topics.map((t) => (
                 <li key={t.topic}>
@@ -103,7 +103,7 @@ export default async function GuidesIndex() {
           </section>
 
           <section className="mt-10">
-            <h2 className="text-xl font-bold md:text-[25px]">By country</h2>
+            <h2 className="text-xl md:text-[25px]">By country</h2>
             <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
               {countries.map((c) => (
                 <li key={c.country}>
@@ -125,7 +125,7 @@ export default async function GuidesIndex() {
 
           {lost.length > 0 && (
             <section className="mt-10">
-              <h2 className="text-xl font-bold md:text-[25px]">
+              <h2 className="text-xl md:text-[25px]">
                 Not filed anywhere
               </h2>
               <Block as="p" measure="read" className="mt-2 text-ink-2">

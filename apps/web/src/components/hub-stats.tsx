@@ -152,7 +152,7 @@ export function HubFaq({
       <style href="ct-faq" precedence="ct-components">
         {FAQ_CSS}
       </style>
-      <h2 id="hub-faq-heading" className="text-xl font-bold md:text-[25px]">
+      <h2 id="hub-faq-heading" className="text-xl md:text-[25px]">
         Questions about camping in {region}
       </h2>
       <div className="ct-faq">

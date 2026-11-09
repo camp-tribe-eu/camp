@@ -76,7 +76,7 @@ export default async function ToolsIndex() {
 
       <Breadcrumbs crumbs={crumbs} />
 
-      <h1 className="mt-4 text-3xl font-bold leading-tight md:text-[42px]">
+      <h1 className="mt-4 text-3xl leading-tight md:text-[42px]">
         {page.title}
       </h1>
 

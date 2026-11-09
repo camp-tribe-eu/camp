@@ -73,7 +73,7 @@ export default function RouteSources({
     >
       <h2
         id="route-sources-heading"
-        className="text-sm font-semibold uppercase tracking-[0.08em] text-ink-2"
+        className="text-sm uppercase tracking-[0.08em] text-ink-2"
       >
         Where this comes from
       </h2>

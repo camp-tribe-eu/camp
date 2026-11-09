@@ -52,7 +52,7 @@ export default function PlanPage() {
     <main className="mx-auto max-w-wrap px-4 py-10 xl:px-6">
       <script {...jsonLdProps(breadcrumbList(crumbs))} />
 
-      <h1 className="text-3xl font-bold leading-tight md:text-[42px]">
+      <h1 className="text-3xl leading-tight md:text-[42px]">
         Trip planner
       </h1>
 
@@ -84,7 +84,7 @@ export default function PlanPage() {
       <PlanForm />
 
       <section className="mt-12" aria-labelledby="plan-today-heading">
-        <h2 id="plan-today-heading" className="text-2xl font-bold text-heading">
+        <h2 id="plan-today-heading" className="text-2xl text-heading">
           Also on the site
         </h2>
         <Block as="ul" measure="read" className="mt-4 list-disc space-y-2 pl-5 text-ink-2">

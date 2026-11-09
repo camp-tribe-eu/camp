@@ -16,7 +16,7 @@ export function H2({ id, children }: { id: string; children: ReactNode }) {
   return (
     <h2
       id={id}
-      className="mt-10 scroll-mt-24 text-xl font-bold text-heading first:mt-0"
+      className="mt-10 scroll-mt-24 text-xl text-heading first:mt-0"
     >
       {children}
     </h2>
@@ -33,7 +33,7 @@ export function H3({ children, id }: { children: ReactNode; id?: string }) {
   //
   // Сторінки на JSX `id` не передають, тож їхня розмітка не змінилась.
   return (
-    <h3 id={id} className="mt-6 text-base font-semibold text-heading">
+    <h3 id={id} className="mt-6 text-base text-heading">
       {children}
     </h3>
   );

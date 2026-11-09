@@ -106,7 +106,7 @@ export default async function LegalPageRoute({
       </nav>
 
       <header className="mt-4 border-b border-line-2 pb-5">
-        <h1 className="text-2xl font-bold text-heading sm:text-3xl">
+        <h1 className="text-2xl text-heading sm:text-3xl">
           {doc.title}
         </h1>
         <Block as="p" measure="read" className="mt-2 text-sm text-ink-2">{doc.summary}</Block>
@@ -138,7 +138,7 @@ export default async function LegalPageRoute({
         aria-label="Other legal pages"
         className="mt-12 border-t border-line-2 pt-5"
       >
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-2">
+        <h2 className="text-xs uppercase tracking-wide text-ink-2">
           Also here
         </h2>
         <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">

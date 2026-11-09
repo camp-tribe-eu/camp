@@ -86,7 +86,7 @@ export default async function CampingIndex() {
 
       {/* 2. Плитки країн — усі 27, не лише ті, де є дані. */}
       <section aria-labelledby="countries" className="mt-10">
-        <h2 id="countries" className="scroll-mt-20 text-xl font-bold md:text-[25px]">
+        <h2 id="countries" className="scroll-mt-20 text-xl md:text-[25px]">
           Countries
         </h2>
         {countries.length === 0 ? (

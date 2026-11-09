@@ -231,7 +231,7 @@ export default function ProviderCatalogue({
               data-testid="provider-row"
               className="rounded-card border border-line bg-surface p-6 shadow-card"
             >
-              <h3 className="text-lg font-semibold">
+              <h3 className="text-lg">
                 <Link href={`/camper-rental/providers/${p.slug}`}>
                   {p.name}
                 </Link>

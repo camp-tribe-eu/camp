@@ -186,7 +186,7 @@ export default async function CountryHub(props: { params: Promise<Params> }) {
 
       {/* 5. Region cards — every region, including the single-site ones. */}
       <section aria-labelledby="regions" className="mt-10">
-        <h2 id="regions" className="scroll-mt-20 text-xl font-bold md:text-[25px]">
+        <h2 id="regions" className="scroll-mt-20 text-xl md:text-[25px]">
           Regions
         </h2>
         <Block as="p" measure="read" className="mt-2 text-ink-2">

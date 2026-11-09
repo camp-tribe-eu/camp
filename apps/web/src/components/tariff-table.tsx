@@ -149,7 +149,7 @@ export default function TariffTable({
     >
       <h2
         id="tariffs-heading"
-        className="text-sm font-semibold uppercase tracking-[0.08em] text-ink-2"
+        className="text-sm uppercase tracking-[0.08em] text-ink-2"
       >
         What it costs
       </h2>
@@ -210,7 +210,7 @@ export default function TariffTable({
         // not today's price, and the reader planning tonight is the one
         // who pays for the confusion.
         <div className="mt-5" data-testid="tariffs-upcoming">
-          <h3 className="text-sm font-semibold text-heading">
+          <h3 className="text-sm text-heading">
             {current.length === 0
               ? 'These prices have not started yet'
               : 'A season that has not started'}
@@ -238,7 +238,7 @@ export default function TariffTable({
 
       {expired.length > 0 && (
         <div className="mt-5" data-testid="tariffs-expired">
-          <h3 className="text-sm font-semibold text-heading">
+          <h3 className="text-sm text-heading">
             {current.length === 0
               ? 'These prices have expired'
               : 'The last season that ended'}

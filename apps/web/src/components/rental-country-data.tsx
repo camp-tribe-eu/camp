@@ -60,7 +60,7 @@ export default function RentalCountryData({
       aria-labelledby="our-data-heading"
       className="mt-10 rounded-card border border-line-2 bg-surface p-5"
     >
-      <h2 id="our-data-heading" className="text-xl font-semibold text-heading">
+      <h2 id="our-data-heading" className="text-xl text-heading">
         What our own records say about {inProse(country)}
       </h2>
 

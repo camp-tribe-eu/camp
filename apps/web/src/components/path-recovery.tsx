@@ -88,7 +88,7 @@ export default function PathRecovery() {
 
   return (
     <div className="mt-8 rounded-card border border-line-2 bg-surface p-5">
-      <h2 className="text-lg font-bold text-heading">
+      <h2 className="text-lg text-heading">
         You were probably looking for {region ? region.name : country.name}
       </h2>
       <p className="mt-2 text-sm text-ink-2">

@@ -157,7 +157,7 @@ export default async function RegionListing({
         </ol>
       </nav>
 
-      <h1 className="mt-4 text-3xl font-bold md:text-[42px]">
+      <h1 className="mt-4 text-3xl md:text-[42px]">
         Campsites in {data.region}
       </h1>
       <Block as="p" measure="read" className="mt-3 text-ink-2">
@@ -452,7 +452,7 @@ function EmptyResult({
       <p className="text-[11px] font-semibold uppercase tracking-[.1em] text-warn">
         {active > 1 ? `Nothing matches all ${active} filters` : 'Nothing matches this filter'}
       </p>
-      <h2 id="no-match" className="text-xl font-bold">
+      <h2 id="no-match" className="text-xl">
         {emptyHeadline(q, region)}
       </h2>
       <p className="max-w-[56ch] text-ink-2">
@@ -556,7 +556,7 @@ async function RegionNeighbours({
 
   return (
     <section className="mt-10">
-      <h2 className="text-xl font-bold md:text-[25px]">
+      <h2 className="text-xl md:text-[25px]">
         Other regions in {cName}
       </h2>
       <ul className="mt-3 flex flex-wrap gap-x-2 gap-y-3">

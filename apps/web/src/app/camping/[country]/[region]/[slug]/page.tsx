@@ -355,7 +355,7 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
         <p className="text-xs font-semibold uppercase tracking-widest text-ink-2">
           {SPOT_TYPE_LABEL[spot.type]}
         </p>
-        <h1 className="mt-2 text-3xl font-bold leading-tight md:text-[42px]">
+        <h1 className="mt-2 text-3xl leading-tight md:text-[42px]">
           {/* An unnamed site still needs a heading a person can read and a
               search engine can rank. "Campsite" alone is neither, and it
               would also disagree with the <title>. */}
@@ -1023,7 +1023,7 @@ function Breadcrumbs({ spot, params }: { spot: Spot; params: Params }) {
 function NoPhotos() {
   return (
     <section className="mt-6 rounded-card border border-line-2 bg-surface p-5 shadow-card">
-      <h2 className="text-base font-semibold">
+      <h2 className="text-base">
         We don&rsquo;t publish pictures we haven&rsquo;t verified
       </h2>
       <Block as="p" measure="read" className="mt-2 text-sm text-ink-2">
@@ -1134,7 +1134,7 @@ function Section({
 }) {
   return (
     <section className="mt-8">
-      <h2 className="text-xl font-bold md:text-[25px]">{title}</h2>
+      <h2 className="text-xl md:text-[25px]">{title}</h2>
       <div className="mt-3">{children}</div>
     </section>
   );

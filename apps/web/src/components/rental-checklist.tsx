@@ -67,7 +67,7 @@ export default function RentalChecklist() {
       aria-labelledby="checklist-heading"
       className="mt-12"
     >
-      <h2 id="checklist-heading" className="text-2xl font-bold text-heading">
+      <h2 id="checklist-heading" className="text-2xl text-heading">
         Eight questions to ask before you sign
       </h2>
       <Block as="p" measure="read" className="mt-3 text-ink-2">
@@ -83,7 +83,7 @@ export default function RentalChecklist() {
             key={item.q}
             className="rounded-card border border-line-2 bg-surface p-5"
           >
-            <h3 className="font-semibold text-heading">
+            <h3 className="text-heading">
               <span className="text-ink-3">{i + 1}.</span> {item.q}
             </h3>
             <Block as="p" measure="read" className="mt-2 text-ink-2">{item.why}</Block>

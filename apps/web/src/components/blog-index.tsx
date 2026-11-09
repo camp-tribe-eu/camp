@@ -66,7 +66,7 @@ export default function BlogIndexView({
 
       <Breadcrumbs crumbs={crumbs} />
 
-      <h1 className="mt-4 text-3xl font-bold leading-tight md:text-[42px]">
+      <h1 className="mt-4 text-3xl leading-tight md:text-[42px]">
         {BLOG_TITLE}
       </h1>
       <Block as="p" measure="read" className="mt-4 text-ink-2">{BLOG_DESCRIPTION}</Block>
@@ -85,7 +85,7 @@ export default function BlogIndexView({
               key={p.slug}
               className="rounded-card border border-line-2 bg-surface p-5 shadow-card"
             >
-              <h2 className="text-base font-semibold">
+              <h2 className="text-base">
                 <Link
                   href={`${BLOG_PATH}/${p.slug}`}
                   className="text-heading hover:underline"

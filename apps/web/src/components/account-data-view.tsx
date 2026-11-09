@@ -80,7 +80,7 @@ function ExportBlock({
       {/* макет: «GDPR · стаття 15 і 20» */}
       <p className={LEGAL}>GDPR · Articles 15 and 20</p>
       {/* макет: «Завантажити мої дані» */}
-      <h2 id="export-heading" className="mt-1 text-base font-semibold text-heading">
+      <h2 id="export-heading" className="mt-1 text-base text-heading">
         Download my data
       </h2>
       {/* макет: «ZIP: профіль, маршрути, збережені кемпінги, ваші фото в оригіналі й історія
@@ -249,7 +249,7 @@ export function DataView({
         {/* макет: «GDPR · стаття 17» */}
         <p className={LEGAL}>GDPR · Article 17</p>
         {/* макет: «Видалити акаунт» */}
-        <h2 id="delete-heading" className="mt-1 text-base font-semibold text-heading">
+        <h2 id="delete-heading" className="mt-1 text-base text-heading">
           Delete my account
         </h2>
         {/* макет: «Назавжди. Перед цим ми покажемо, що саме зникне, а що за законом і за виданою

@@ -82,7 +82,7 @@ function Prose({ section, values }: RenderProps) {
   return (
     <>
       {section.heading && (
-        <h2 className="text-xl font-semibold text-heading">
+        <h2 className="text-xl text-heading">
           {section.heading}
         </h2>
       )}
@@ -272,7 +272,7 @@ function Cards({ section, values }: RenderProps) {
           key={t.href}
           className="rounded-card border border-line-2 bg-surface p-5"
         >
-          <h2 className="text-xl font-semibold">
+          <h2 className="text-xl">
             <Link className="text-heading underline" href={t.href}>
               {t.title}
             </Link>
@@ -338,7 +338,7 @@ function FuelCountries({ section, values }: RenderProps) {
 
   return (
     <section aria-labelledby="by-country-heading" className="mt-12">
-      <h2 id="by-country-heading" className="text-xl font-bold md:text-[25px]">
+      <h2 id="by-country-heading" className="text-xl md:text-[25px]">
         {section.heading}
       </h2>
       {note && <Block as="p" measure="read" className="mt-2 text-sm text-ink-2">{note}</Block>}
@@ -398,7 +398,7 @@ function Hero({ section, values }: RenderProps) {
   return (
     <>
       {section.heading && (
-        <h1 className="max-w-[18ch] text-3xl font-bold leading-tight md:text-[42px]">
+        <h1 className="max-w-[18ch] text-3xl leading-tight md:text-[42px]">
           {section.heading}
         </h1>
       )}
@@ -416,7 +416,7 @@ function Steps({ section, values }: RenderProps) {
   return (
     <section className="mx-auto max-w-wrap px-4 py-12 xl:px-6">
       {section.heading && (
-        <h2 className="text-xl font-bold md:text-[25px]">{section.heading}</h2>
+        <h2 className="text-xl md:text-[25px]">{section.heading}</h2>
       )}
       <ol className="mt-5 grid grid-cols-1 gap-5 md:grid-cols-3">
         {items.map((s, i) => (
@@ -424,7 +424,7 @@ function Steps({ section, values }: RenderProps) {
             <span className="text-xs font-semibold uppercase tracking-widest text-ink-2">
               Step {i + 1}
             </span>
-            <h3 className="mt-1 text-base font-semibold">{s.term}</h3>
+            <h3 className="mt-1 text-base">{s.term}</h3>
             <Block as="p" measure="read" className="mt-1 text-sm text-ink-2">{s.text}</Block>
           </li>
         ))}

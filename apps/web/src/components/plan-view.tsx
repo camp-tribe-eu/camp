@@ -122,7 +122,7 @@ export function PlanFormView({
         onSubmit();
       }}
     >
-      <h2 id="plan-form-heading" className="text-lg font-semibold text-heading">
+      <h2 id="plan-form-heading" className="text-lg text-heading">
         Your trip
       </h2>
 
@@ -141,7 +141,7 @@ export function PlanFormView({
           data-testid="plan-errors"
           className="mt-4 rounded border border-warn/40 bg-warn/5 p-4 text-sm text-ink"
         >
-          <h3 className="font-semibold text-heading">There is a problem</h3>
+          <h3 className="text-heading">There is a problem</h3>
           <ul className="mt-2 list-disc space-y-1 pl-5">
             {failing.map((f) => (
               <li key={f}>
@@ -289,7 +289,7 @@ function Echo({ request }: { request: PlanRequest }) {
   ];
   return (
     <>
-      <h3 className="mt-4 text-xs font-semibold uppercase tracking-[0.08em] text-ink-2">
+      <h3 className="mt-4 text-xs uppercase tracking-[0.08em] text-ink-2">
         What you asked for
       </h3>
       {/* 🔴 Стовпчиком, а не рядками «ліворуч — праворуч»: панель завширшки
@@ -438,7 +438,7 @@ function NightBody({ day, night }: { day: number; night: PlannedNight }) {
 function DayItem({ day, last }: { day: PlannedDay; last: boolean }) {
   return (
     <li className="border-t border-line-2 pt-3 first:border-t-0 first:pt-0">
-      <h4 className="font-semibold text-heading">Day {day.day}</h4>
+      <h4 className="text-heading">Day {day.day}</h4>
       <p className="mt-1 text-ink">
         {distance(day.runM)} {STRAIGHT_LINE}
         {last ? ', to your destination.' : '.'}
@@ -451,7 +451,7 @@ function DayItem({ day, last }: { day: PlannedDay; last: boolean }) {
 function HowChosen({ plan }: { plan: PlannedTrip }) {
   return (
     <section className="mt-6" aria-labelledby="plan-how-heading">
-      <h3 id="plan-how-heading" className="text-sm font-semibold uppercase tracking-[0.08em] text-ink-2">
+      <h3 id="plan-how-heading" className="text-sm uppercase tracking-[0.08em] text-ink-2">
         How the nights were chosen
       </h3>
       <p className="mt-2 text-sm text-ink-2">
@@ -651,7 +651,7 @@ export function PlanOutcomePanel({ run }: { run: PlanRun }) {
       aria-labelledby="plan-result-heading"
       className="rounded-card border border-line-2 bg-surface p-5"
     >
-      <h2 id="plan-result-heading" className="text-lg font-semibold text-heading">
+      <h2 id="plan-result-heading" className="text-lg text-heading">
         Your route
       </h2>
       {/* 🔴 Ділянка оголошень існує завжди, ще до першої відповіді:

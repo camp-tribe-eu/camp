@@ -18,7 +18,7 @@ export function RentalThresholds() {
       aria-labelledby="thresholds-heading"
       className="mt-12"
     >
-      <h2 id="thresholds-heading" className="text-2xl font-bold text-heading">
+      <h2 id="thresholds-heading" className="text-2xl text-heading">
         The four numbers on the contract that decide the trip
       </h2>
       <Block as="p" measure="read" className="mt-3 text-ink-2">
@@ -35,7 +35,7 @@ export function RentalThresholds() {
             key={t.id}
             className="rounded-card border border-line-2 bg-surface p-5"
           >
-            <h3 className="font-narrow text-2xl font-bold text-heading">
+            <h3 className="font-narrow text-2xl text-heading">
               {t.value}
             </h3>
             <Block as="p" measure="read" className="mt-1 font-semibold text-ink">{t.what}</Block>
@@ -69,7 +69,7 @@ export function RentalShapes() {
       aria-labelledby="shapes-heading"
       className="mt-12"
     >
-      <h2 id="shapes-heading" className="text-2xl font-bold text-heading">
+      <h2 id="shapes-heading" className="text-2xl text-heading">
         The shapes you will be offered
       </h2>
       <Block as="p" measure="read" className="mt-3 text-ink-2">
@@ -86,7 +86,7 @@ export function RentalShapes() {
             key={s.id}
             className="rounded-card border border-line-2 bg-surface p-5"
           >
-            <h3 className="font-semibold text-heading">{s.name}</h3>
+            <h3 className="text-heading">{s.name}</h3>
             <p className="mt-2 text-ink-2">{s.defined}</p>
             <p className="mt-2 text-ink-2">
               <span className="font-semibold text-ink">
