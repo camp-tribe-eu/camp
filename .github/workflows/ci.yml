@@ -1982,11 +1982,19 @@ jobs:
       # nobody told, while the comment beside the cap still quoted 56%
       # from the first run. A ceiling that only speaks when it is hit is
       # not a budget — the message arrives in a red build, which is the
-      # worst moment to choose between raising the cap and moving the
-      # file out of the bundle.
+      # worst moment to decide anything.
       #
-      # 🔴 Both boundaries are rehearsed rather than waited for: 75%
-      # warns, over 100% throws, and the size is printed either way.
+      # 🔴 CAMP-472 fixed the number itself. The caps were Cloudflare
+      # Workers figures applied to a deployment that is `next start` on
+      # our own machine, where no such limit exists. Both generators now
+      # share ONE measured cap, and the budget guards runaway growth —
+      # an import that suddenly yields ten times the rows — rather than
+      # a platform ceiling we do not have.
+      #
+      # 🔴 Both boundaries are rehearsed rather than waited for: the
+      # warning fires at WARN_AT (the cases derive their sizes FROM that
+      # constant, so lowering it cannot quietly go unchecked), over 100%
+      # throws, and the size is printed either way.
       # 🔴 The output is GREPPED, not merely produced.
       #
       # A review showed this step passing three ways while nothing ran:
