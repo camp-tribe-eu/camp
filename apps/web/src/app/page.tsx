@@ -14,6 +14,7 @@ import { heroLead, printable } from '@/lib/campsite-count';
 import { abs, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
 import { ButtonLink } from '@/components/button';
+import SpecLevel from '@/components/spec-level';
 import { pageContent, type SectionView } from '@/lib/page-content';
 import {
   PageSections,
@@ -375,10 +376,20 @@ function Notable({
                       ].toLowerCase()}`
                     : ''}
               </p>
-              <p className="mt-2 text-xs text-ink-2">
-                <span className="tabular-nums">{known}</span> of{' '}
-                {AMENITY_KEYS.length} facilities recorded
-              </p>
+              {/* 🔴 CAMP-449, пункт 7: шкала замість рядка тексту. Число
+                  НЕ змінилось — це та сама частка, обидві половини якої
+                  беруться з `AMENITY_KEYS` (див. 🔴 вище: колись тут
+                  стояло «8 of 5»). Шкала лише показує її оком, і це
+                  шкала ЗАМІРЯНОГО, а не оцінки: ми не вигадуємо
+                  «комфорт 4 з 5». */}
+              <div className="mt-2">
+                <SpecLevel
+                  label="Facilities recorded"
+                  value={known}
+                  max={AMENITY_KEYS.length}
+                  testId="facilities-level"
+                />
+              </div>
             </li>
           );
         })}
