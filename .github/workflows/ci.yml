@@ -1525,6 +1525,27 @@ jobs:
       - name: No near-duplicate generated pages
         run: node scripts/seo/check-duplicate-pages.mjs
 
+      # CAMP-463. Найрізкіше місце ревю власника: сайт розповідав
+      # читачеві, що партнерів немає, заявки подані й без відповіді, а
+      # сторінка нічого не заробляє; на сторінці кемпінгу стояв
+      # заголовок «Weather on site» з єдиним рядком «Forecast is not
+      # connected yet».
+      #
+      # 🔴 ПО ЗІБРАНИХ СТОРІНКАХ, А НЕ ПО `src/`: текст їде ще з бази
+      # (правові сторінки, гіди) і з CMS, а греп по коду того не бачить —
+      # зате червоніє на коментарях, які пояснюють, чому фразу прибрано.
+      #
+      # 🔴 Самотест перший, і його вивід ГРЕПАЄТЬСЯ: перша редакція цього
+      # скрипта викликала `chooseAction` із чужою сигнатурою, нічого не
+      # запускала й виходила НУЛЕМ. Сторож проти мовчазних провалів сам
+      # був мовчазним провалом; цей рядок — другий замок.
+      - name: The site does not talk about our own affairs
+        run: |
+          set -o pipefail
+          node scripts/ci/check-no-internal-kitchen.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-no-internal-kitchen self-test:' >/dev/null
+          node scripts/ci/check-no-internal-kitchen.mjs
+
       # 🔴 CAMP-163. The stripper this guard depends on had no rehearsal,
       # and that is how it shipped a pattern that stopped at the first
       # closing tag: a `data-boilerplate` block holding a link kept most

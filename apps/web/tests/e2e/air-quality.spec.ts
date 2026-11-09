@@ -503,14 +503,25 @@ test.describe('what else the served HTML must not do', () => {
     }
   });
 
-  test('the section sits between the bathing water and the weather', () => {
+  test('the section sits after the bathing water', () => {
+    // 🔴 ТРЕТІЙ ЯКІР ПРИБРАНО РАЗОМ ІЗ ТИМ, НА ЩО ВІН ВКАЗУВАВ. Тут
+    // стояло ще `p.html.indexOf('Weather on site')`, і твердження було
+    // «між водою для купання і погодою». CAMP-463 прибрав секцію
+    // «Weather on site» — вона складалась із одного рядка «Forecast is
+    // not connected yet», тобто з заголовка над зізнанням, чого ми не
+    // вміємо.
+    //
+    // Якір НЕ замінено іншим: усе, що йде далі на цій сторінці
+    // («Campsites nearby», «Questions we can answer»), умовне, і
+    // прив'язка до нього зробила б тест залежним від фікстури. Краще
+    // одне твердження, яке завжди щось означає, ніж два, одне з яких
+    // мовчить на половині сторінок.
     const p = pages.find((x) => x.state === 'reported')!;
     const bathing = p.html.indexOf('data-testid="bathing-water"');
     const air = p.html.indexOf('data-testid="air-quality"');
-    const weather = p.html.indexOf('Weather on site');
-    expect(bathing).toBeGreaterThan(-1);
+    expect(bathing, 'на сторінці немає блоку про воду — замір сліпий').toBeGreaterThan(-1);
+    expect(air, 'на сторінці немає блоку про повітря — замір сліпий').toBeGreaterThan(-1);
     expect(air).toBeGreaterThan(bathing);
-    expect(weather).toBeGreaterThan(air);
   });
 });
 
