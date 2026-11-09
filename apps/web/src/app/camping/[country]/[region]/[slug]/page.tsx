@@ -675,7 +675,6 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
           the page does not keep. */}
       <TariffTable
         tariffs={spot.tariffs}
-        withheld={spot.tariffsWithheld ?? 0}
       />
 
       {/* 🔴 CAMP-168: the official bathing water classification.

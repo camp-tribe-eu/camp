@@ -39,14 +39,15 @@ const tariff = (over: Partial<Tariff> = {}): Tariff => ({
   ...over,
 });
 
-test.describe('a price without a season never reaches the page', () => {
-  test('a tariff with neither date is refused', () => {
-    // 🔴 The whole card in one assertion. The API filters these in SQL;
-    // this is the second, independent lock, because the API is one
-    // query in one service and this is the last thing before the screen.
+test.describe('🔴 CAMP-475: ціна без сезону доходить до сторінки — але каже про це', () => {
+  test('недатований тариф проходить, і `hasValidityPeriod` про нього чесний', () => {
+    // Рішення власника 09.11.2026. Раніше тут стояло протилежне
+    // твердження: недатований рядок відмовлявся. Замір, що зробив те
+    // правило надто дорогим: 5 757 рядків із 13 560 без дати, і лише
+    // 884 кемпінги з 23 911 французьких показували ціну взагалі.
     const undated = tariff({ validFrom: null, validUntil: null });
-    expect(hasValidityPeriod(undated)).toBe(false);
-    expect(displayableTariffs([undated])).toEqual([]);
+    expect(hasValidityPeriod(undated), 'дати в нього й справді немає').toBe(false);
+    expect(displayableTariffs([undated])).toEqual([undated]);
   });
 
   test('one end of the season is enough to date a price', () => {
@@ -62,12 +63,15 @@ test.describe('a price without a season never reaches the page', () => {
     ).toBe(false);
   });
 
-  test('an undated tariff is dropped by grouping, not merely unlabelled', () => {
+  test('недатований тариф лягає в «current», а не зникає при групуванні', () => {
     const groups = groupTariffs(
       [tariff(), tariff({ validFrom: null, validUntil: null })],
       new Date('2026-05-01T00:00:00Z'),
     );
-    expect(groups.current.length + groups.expired.length).toBe(1);
+    expect(groups.current.length + groups.expired.length).toBe(2);
+    // І саме в «current»: «сезону не названо» — це не «сезон минув».
+    expect(groups.current.length).toBe(2);
+    expect(groups.expired.length).toBe(0);
   });
 
   test('a row is drawn whole or not at all', () => {
@@ -76,12 +80,16 @@ test.describe('a price without a season never reaches the page', () => {
     // step removes anything `formatPeriod` would refuse, so deleting
     // that check broke no test. Asserted here, where it is reachable.
     expect(isRenderableTariff(tariff())).toBe(true);
-    // A season that matches the shape of a date and is not one.
+    // 🔴 Дата, яка має форму дати й нею не є, більше не вбиває рядок —
+    // вона вбиває лише ТВЕРДЖЕННЯ про сезон: `formatPeriod` віддасть
+    // null, і в колонці стане «Season not stated». Це чесніше, ніж
+    // ховати ціну через те, що ми не вміємо прочитати її дату.
     expect(
       isRenderableTariff(tariff({ validFrom: '01/04/2026', validUntil: null })),
-    ).toBe(false);
-    // A period with no amount beside it — the API refuses this, and the
-    // page is the last place that can.
+    ).toBe(true);
+    expect(formatPeriod(tariff({ validFrom: '01/04/2026', validUntil: null }))).toBeNull();
+    // А от рядок без суми не малюється й тепер: послаблення стосувалось
+    // дати, не числа.
     expect(
       isRenderableTariff(tariff({ minPrice: null, maxPrice: null })),
     ).toBe(false);

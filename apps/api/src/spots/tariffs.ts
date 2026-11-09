@@ -73,7 +73,37 @@ const FRESH_TARIFF_SQL =
   `t.fetched_at >= (SELECT max(fetched_at) FROM spot_tariffs)` +
   ` - interval '${TARIFF_STALE_AFTER_DAYS} days'`;
 
-export const DISPLAYABLE_TARIFF_SQL = `(${DATED_TARIFF_SQL} AND ${FRESH_TARIFF_SQL})`;
+/**
+ * 🔴 CAMP-475, РІШЕННЯ ВЛАСНИКА 09.11.2026: НЕДАТОВАНУ ЦІНУ ПОКАЗУЄМО.
+ *
+ * Дослівно: «показуй ціни де є, дата може бути показана чи відсутня тут,
+ * але треба поставити … ми отримуємо данні із офіційних мереж але
+ * фінальна ціна може відрізнятись, просимо уточнити у провайдера».
+ *
+ * Чому попереднє правило взагалі існувало (CAMP-147): «ціна без періоду
+ * це не ціна, а історія, і читач робить висновок, що ми брешемо». Воно
+ * знімається не мовчки, а в обмін на застереження біля кожної ціни —
+ * значок «i» з поясненням, звідки число і що остаточна ціна в оператора.
+ *
+ * 🔴 ЩО ЦЕ КОШТУЄ ЧИСЛОМ. Замір на проді 09.11.2026: з 13 560 рядків
+ * 7 803 датовані й 5 757 — ні. Тобто правило ховало 42% усього, що ми
+ * маємо, і лише 884 кемпінги з 23 911 французьких показували свіжу
+ * датовану ціну (3,7%). Саме це число й зробило правило надто дорогим.
+ *
+ * Свіжість (нижче) лишається: рядок, якого фід БІЛЬШЕ НЕ НАЗИВАЄ, — не
+ * «ціна без дати», а ціна, яку джерело зняло. Її не показуємо й далі.
+ */
+export const DISPLAYABLE_TARIFF_SQL = `(${FRESH_TARIFF_SQL})`;
+
+/**
+ * 🔴 А ОСЬ ДЛЯ «from €X» НА ХАБІ ПРАВИЛО ЛИШАЄТЬСЯ СУВОРИМ, і це не
+ * непослідовність. У таблиці на сторінці кемпінгу поруч із числом стоїть
+ * застереження й позначка «season not stated» — читач бачить, чого це
+ * число варте. Плитка хаба показує ОДНЕ число без жодного контексту, і
+ * «from €1 a night», зліплене з туристичного збору без дати, було б саме
+ * тією брехнею, проти якої написано CAMP-147.
+ */
+export const HUB_PRICE_TARIFF_SQL = `(${DATED_TARIFF_SQL} AND ${FRESH_TARIFF_SQL})`;
 
 /**
  * 🔴 WITHHELD IS **NOT** `NOT DISPLAYABLE`, AND THE DIFFERENCE IS A LIE
@@ -87,7 +117,7 @@ export const DISPLAYABLE_TARIFF_SQL = `(${DATED_TARIFF_SQL} AND ${FRESH_TARIFF_S
  * the source, and the page says nothing about it rather than something
  * untrue.
  */
-export const WITHHELD_TARIFF_SQL = `(NOT ${DATED_TARIFF_SQL} AND ${FRESH_TARIFF_SQL})`;
+export const WITHHELD_TARIFF_SQL = `(false)`;
 
 /** One line of a price list, as the API sends it. */
 export interface TariffView {

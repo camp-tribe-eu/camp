@@ -141,13 +141,64 @@ test.describe('database §joined: що не лежить у записі', () =>
     // І обидва рішення справді приймаються в коді запиту, а не лежать у рядку.
     const svc = readCode(join(API_SRC, 'spots', 'spots.service.ts'));
     expect(svc).toMatch(/indexable:\s*r\.spots\s*>=\s*REGION_INDEX_THRESHOLD/);
-    const detail = readCode(join(API_SRC, 'spots', 'detail-query.ts'));
-    expect(detail).toMatch(/\$\{\s*withheldTariffCountSql\('s\.id'\)\s*\}\s+AS\s+tariffs_withheld/);
 
     const text = pageText('database');
     expect(text).toContain('neither is stored in the campsite record');
     expect(text).toContain('is worked out when the page is built');
     expect(text, 'стара фраза «carries whether» повернулась').not.toContain('record also carries');
+  });
+});
+
+/**
+ * 🔴 CAMP-475. Сторінка описує ПРАВИЛО ПОКАЗУ ЦІНИ, і з 09.11.2026 це вже
+ * інше правило: недатовану ціну показуємо, застарілу — ні. Редакція 1.1
+ * казала протилежне, і доти, доки це речення не звірялося з кодом, воно
+ * могло розійтися з ним мовчки — як і розійшлося.
+ *
+ * Тому тут жодного літерала-твердження: число 21 береться з
+ * `TARIFF_STALE_AFTER_DAYS`, слова «Season not stated» — з
+ * `NO_SEASON_LABEL`, а «показуємо незалежно від дати» доводиться тим, що
+ * в `DISPLAYABLE_TARIFF_SQL` не лишилось умови про дату.
+ */
+test.describe('database §joined: правило показу ціни', () => {
+  test('🔴 речення про ціну дорівнює тому, що робить код', () => {
+    const tariffs = readCode(join(API_SRC, 'spots', 'tariffs.ts'));
+
+    // Число днів — з коду, не з тексту тесту.
+    const days = /TARIFF_STALE_AFTER_DAYS\s*=\s*(\d+)/.exec(tariffs);
+    expect(days, 'у tariffs.ts немає TARIFF_STALE_AFTER_DAYS — розбір сліпий').toBeTruthy();
+
+    // Умова показу: свіжість є, дати немає. Саме це й каже сторінка.
+    const displayable = /DISPLAYABLE_TARIFF_SQL\s*=\s*`([^`]*)`/.exec(tariffs);
+    expect(displayable, 'у tariffs.ts немає DISPLAYABLE_TARIFF_SQL — розбір сліпий').toBeTruthy();
+    expect(
+      displayable![1],
+      'умова показу знову дивиться на дату — сторінка про це більше не каже',
+    ).not.toContain('DATED_TARIFF_SQL');
+    expect(displayable![1], 'умова показу більше не дивиться на свіжість').toContain(
+      'FRESH_TARIFF_SQL',
+    );
+
+    // Позначка періоду — з коду веба.
+    const web = readCode(join(ROOT, 'apps', 'web', 'src', 'lib', 'tariffs.ts'));
+    const label = /NO_SEASON_LABEL\s*=\s*'([^']+)'/.exec(web);
+    expect(label, 'у web/lib/tariffs.ts немає NO_SEASON_LABEL — розбір сліпий').toBeTruthy();
+
+    const text = pageText('database');
+    expect(text, `сторінка не називає строк ${days![1]} днів із TARIFF_STALE_AFTER_DAYS`).toContain(
+      `${days![1]} days`,
+    );
+    expect(text, `сторінка не називає позначку «${label![1]}»`).toContain(label![1]);
+    expect(
+      text,
+      'сторінка знову обіцяє ховати ціну за відсутність дати',
+    ).not.toContain('from whether the source gave it any date');
+
+    // І нота біля ціни, про яку сторінка каже, справді є в компоненті.
+    const table = readCode(join(ROOT, 'apps', 'web', 'src', 'components', 'tariff-table.tsx'));
+    expect(table, 'у tariff-table.tsx немає ноти про джерело ціни').toContain(
+      'data-testid="tariffs-price-note"',
+    );
   });
 });
 
