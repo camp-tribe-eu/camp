@@ -54,7 +54,14 @@ const hubPath = (h: Hub) => `/camping/${h.country}/${h.slug}`;
 const rect = (page: Page, selector: string) =>
   page.locator(selector).first().evaluate((el) => {
     const r = el.getBoundingClientRect();
-    return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, height: r.height };
+    return {
+      top: r.top,
+      bottom: r.bottom,
+      left: r.left,
+      right: r.right,
+      width: r.width,
+      height: r.height,
+    };
   });
 
 /**
@@ -148,6 +155,28 @@ test.describe('🔴 CAMP-452 — the map highlights what the list shows', () => 
     // 🔴 Positive wait (tests/map-ready.ts): a misspelt attribute would
     // never equal 'ready', and the test would say so rather than pass.
     await expect(map).toHaveAttribute('data-map-state', 'ready', { timeout: 20_000 });
+
+    // 🔴 «READY» І ПРАВИЛЬНІ ЧИСЛА НЕ ОЗНАЧАЮТЬ, ЩО МАПУ ВИДНО.
+    //
+    // Саме це й трапилось усередині цієї картки, і знайдено було ОКОМ, а
+    // не тестом: полотно MapLibre мало 0 px, бо власний CSS бібліотеки
+    // приїжджає пізніше й перебивав `position:absolute` нашої обгортки —
+    // а підпис при цьому чесно казав «7 of 30 sites … are highlighted».
+    // Тобто сторінка з невидимою мапою проходила кожну перевірку нижче.
+    //
+    // Числа тут перевіряють ЗВʼЯЗОК переліку з мапою; цей блок перевіряє,
+    // що мапа взагалі зайняла місце. Межі навмисно грубі: 200×150 — це
+    // «щось намальоване», а не макет. Точні розміри міряти тут не можна,
+    // вони залежать від ширини проєкту.
+    const canvas = await rect(page, '[data-testid="region-map"] canvas');
+    expect(
+      canvas.width,
+      `полотно мапи завширшки ${Math.round(canvas.width)} px — мапи не видно`,
+    ).toBeGreaterThan(200);
+    expect(
+      canvas.height,
+      `полотно мапи заввишки ${Math.round(canvas.height)} px — мапи не видно`,
+    ).toBeGreaterThan(150);
 
     // The legend is the map's OWN count over the markers it drew.
     const legend = await page.getByTestId('region-map-legend').textContent();
