@@ -3,6 +3,7 @@ import { COMPANY, LEGAL_PAGES, legalPath } from "@/lib/legal";
 import { CookieSettingsLink } from "./cookie-consent";
 import { CurrentYear } from "./current-year";
 import { SiteNavDrawer } from "./site-nav-drawer";
+import ThemeToggle from "./theme-toggle";
 import { NavDropdown } from "./site-nav-dropdown";
 import { SiteHeaderFrame } from "./site-header-frame";
 import type { NavItem } from "@/lib/navigation";
@@ -231,6 +232,13 @@ export function SiteHeader({ nav }: { nav: NavItem[] }) {
           </ul>
         </nav>
 
+        {/* 🔴 ПЕРЕМИКАЧ ТЕМИ — ПОРУЧ ІЗ БУРГЕРОМ, НА ВСІХ ШИРИНАХ
+            (CAMP-448, пункт 3). Темна тема в нас описана з першого дня,
+            але дотягнутись до неї міг лише той, у кого вона стоїть у
+            системі. Кнопка віддає цей вибір читачеві й уміє повернути
+            його системі назад. */}
+        <ThemeToggle />
+
         <SiteNavDrawer items={nav} />
     </SiteHeaderFrame>
   );
@@ -251,117 +259,151 @@ function flattenNav(items: NavItem[], out: NavItem[] = []): NavItem[] {
  * eventually forgotten on one of them.
  */
 export function SiteFooter({ nav = [] }: { nav?: NavItem[] }) {
+  const more = flattenNav(nav);
   return (
     <footer className="mt-16 border-t border-line-2 bg-surface">
-      <div className="mx-auto max-w-wrap px-4 py-8 text-xs text-ink-2 xl:px-6">
-        {/* 🔴 РОЗДІЛ `footer` ІЗ CMS, І ДО СЬОГОДНІ ЙОГО НЕ МАЛЮВАВ НІХТО.
-            Поле `location` у таблиці є, API віддає три розділи, а каркас
-            споживав лише `header`. Тобто рядок із `location='footer'`
-            можна було додати в базу й не отримати нічого — мовчки
-            (CAMP-397, знайшов власник).
+      <div className="mx-auto max-w-wrap px-4 py-10 text-xs text-ink-2 xl:px-6">
+        {/* 🔴 ЧОТИРИ КОЛОНКИ, А НЕ СМУЖКА (CAMP-448, знімки 441/25–441/26).
+            Власник: підвал має бути витвором. Було: три плоскі ряди
+            посилань і два абзаци — усе одного розміру, без ієрархії.
 
-            🔴 Правові посилання нижче сюди НЕ переїжджають: вони
-            будуються з `LEGAL_PAGES` навмисно (CAMP-56), щоб жодне
-            обовʼязкове посилання не можна було випадково видалити з CMS. */}
-        {/* 🔴 CAMP-448: підвал теж читає `children`. Ряд тут плаский, тож
-            діти стають одразу за батьком, у його порядку, — розкривач у
-            підвалі нікому не потрібен, а пункт, який не доїхав, — дефект
-            того самого класу, що й у шапці. */}
-        {nav.length > 0 && (
-          <nav aria-label="More" className="mb-4">
-            <ul className="flex flex-wrap items-center gap-x-4">
-              {flattenNav(nav).map((item) => (
-                <li key={item.href}>
+            Розподіл за призначенням, як просить картка: основна
+            навігація лишається в шапці, а сюди йдуть розділи, правові
+            сторінки, контакт і походження даних. */}
+        <div className="grid gap-8 md:grid-cols-2 xl:grid-cols-4">
+          {/* 1. Хто ми. */}
+          <div>
+            <Link
+              href="/"
+              className="flex items-center gap-2 text-base font-bold text-heading"
+            >
+              <span aria-hidden="true">⛺</span>
+              CampTribe
+            </Link>
+            <p className="mt-3 max-w-[32ch]">
+              Campsites across the EU-27, with what is around each one —
+              measured from published data, with the gaps left as gaps.
+            </p>
+          </div>
+
+          {/* 2. Розділи з CMS. Порожній перелік не малює колонки взагалі:
+               заголовок над порожнечею читається як поломка. */}
+          {more.length > 0 && (
+            <nav aria-label="More">
+              <h2 className="text-xs text-heading">More</h2>
+              <ul className="mt-3">
+                {more.map((item) => (
+                  <li key={item.href}>
+                    <Link
+                      href={item.href}
+                      className="flex min-h-12 items-center underline"
+                    >
+                      {item.label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          )}
+
+          {/* 3. Правові сторінки. 🔴 Будуються з `LEGAL_PAGES` (CAMP-56),
+               а не з CMS: обовʼязкове посилання не можна випадково
+               видалити з бази. */}
+          <nav aria-label="Legal">
+            <h2 className="text-xs text-heading">Legal</h2>
+            <ul className="mt-3">
+              {LEGAL_PAGES.map((p) => (
+                <li key={p.slug}>
                   <Link
-                    href={item.href}
+                    href={legalPath(p.slug)}
                     className="flex min-h-12 items-center underline"
                   >
-                    {item.label}
+                    {p.title}
                   </Link>
                 </li>
               ))}
+              <li className="flex min-h-12 items-center">
+                <CookieSettingsLink />
+              </li>
             </ul>
           </nav>
-        )}
-        <Block as="p" measure="read">
-          Campsite data ©{" "}
-          <a
-            href="https://www.openstreetmap.org/copyright"
-            className="underline"
-            rel="noopener"
-          >
-            OpenStreetMap contributors
-          </a>
-          , available under the{" "}
-          <a
-            href="https://opendatacommons.org/licenses/odbl/"
-            className="underline"
-            rel="noopener"
-          >
-            Open Database License
-          </a>
-          . Boundaries from Natural Earth. Elevation from the Copernicus DEM.
-          Distances and terrain are calculated by CampTribe from that data —{" "}
-          <Link href="/legal/attribution" className="underline">
-            full sources and licences
-          </Link>
-          .
-        </Block>
 
-        {/* 🔴 CAMP-56: on every page, because that is where a reader
-            looks for them and because the E-Commerce Directive expects
-            the operator to be identifiable without hunting. Built from
-            LEGAL_PAGES, so a page added to that list cannot be one the
-            footer forgets. */}
-        {/* 🔴 ЦЕ РЯД НАВІГАЦІЇ, А НЕ ТЕКСТ У РЕЧЕННІ, тож під правило
-            48 px він підпадає. Заміряно 19.10.2026 на 375 px: усі
-            дванадцять посилань підвалу були нижчі за 48, здебільшого
-            13 px — тобто висота самого рядка тексту.
+          {/* 4. Звідки дані. ODbL вимагає атрибуції там, де дані
+               показують, тож вона в підвалі кожної сторінки. */}
+          <div>
+            <h2 className="text-xs text-heading">
+              Where the data comes from
+            </h2>
+            <Block as="p" measure="read" className="mt-3">
+              Campsite data ©{" "}
+              <a
+                href="https://www.openstreetmap.org/copyright"
+                className="underline"
+                rel="noopener"
+              >
+                OpenStreetMap contributors
+              </a>
+              , available under the{" "}
+              <a
+                href="https://opendatacommons.org/licenses/odbl/"
+                className="underline"
+                rel="noopener"
+              >
+                Open Database License
+              </a>
+              . Boundaries from Natural Earth. Elevation from the Copernicus
+              DEM. Distances and terrain are calculated by CampTribe from that
+              data —{" "}
+              <Link href="/legal/attribution" className="underline">
+                full sources and licences
+              </Link>
+              .
+            </Block>
+          </div>
+        </div>
 
-            Посилання всередині абзаців вище лишаються як були:
-            «OpenStreetMap contributors» у реченні — це текст, і робити
-            його 48 px заввишки було б неправильно.
-
-            `gap-y-1` (4 px) замінено на `gap-y-0`, бо висота тепер у
-            самих пунктах: при `min-h-12` і проміжку 4 px зони не
-            перекриваються, але й зайвий відступ між рядками вже не
-            потрібен. */}
-        <nav aria-label="Legal" className="mt-2">
-          <ul className="flex flex-wrap items-center gap-x-4">
-            {LEGAL_PAGES.map((p) => (
-              <li key={p.slug}>
-                <Link
-                  href={legalPath(p.slug)}
-                  className="flex min-h-12 items-center underline"
-                >
-                  {p.title}
-                </Link>
-              </li>
-            ))}
-            <li>
-              <CookieSettingsLink />
-            </li>
-          </ul>
-        </nav>
-
-        {/* 🔴 У ПІДВАЛІ — НАЗВА, РІК І ПРАВА. БІЛЬШЕ НІЧОГО.
+        {/* 🔴 НИЗ: НАЗВА, РІК, ПРАВА — І БІЛЬШЕ НІЧОГО.
             Рішення власника 20.10.2026: адреса й номер підприємства
-            публікуються, але на правових сторінках, а не під кожною
+            публікуються на правових сторінках, а не під кожною
             сторінкою сайту. Обовʼязок — опублікувати; показувати осідок
             під кожною фотографією обовʼязком не є, а осідок це його дім.
-            Посилання на правову інформацію стоїть рядком вище, тож шлях
-            до даних короткий і очевидний.
 
             Рік рахує `CurrentYear` у браузері, а не розмітка на збірці —
             чому саме так, пояснено в тому компоненті. */}
-        <p className="mt-4">
-          {/* Рік збірки йде пропом і служить запасним значенням для
-              читача без JS; справжній рік ставить браузер. Чому саме
-              так — у самому компоненті, і це не стиль, а виправлений
-              дефект. */}
-          © <CurrentYear fallback={new Date().getFullYear()} />. {COMPANY.name}.
-          All rights reserved.
-        </p>
+        <div className="mt-10 flex flex-wrap items-center justify-between gap-4 border-t border-line-2 pt-6">
+          <p>
+            © <CurrentYear fallback={new Date().getFullYear()} />.{" "}
+            {COMPANY.name}. All rights reserved.
+          </p>
+          {/* 🔴 «ДОГОРИ» — ЗВИЧАЙНЕ ПОСИЛАННЯ НА ЯКІР, А НЕ КНОПКА З JS.
+              Підвал опиняється під читачем після довгої сторінки, і
+              найдешевший спосіб повернути його вгору не повинен залежати
+              від того, чи доїхав скрипт. `#top` стоїть на `<body>`
+              макета.
+
+              🔴 ПЛАВНОСТІ НЕ ДОДАЄМО НАВМИСНО. `scroll-behavior: smooth`
+              на `html` — правило сайту, не цього посилання: воно зачепило б
+              і решту якорів, і повносторінкові знімки, які Playwright
+              робить прокручуванням. Стрибок угору миттєвий і цим чесний. */}
+          <a
+            href="#top"
+            data-testid="to-top"
+            className="flex min-h-12 items-center gap-2 underline"
+          >
+            Back to top
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+            >
+              <path d="M12 19V5M5 12l7-7 7 7" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </a>
+        </div>
       </div>
     </footer>
   );

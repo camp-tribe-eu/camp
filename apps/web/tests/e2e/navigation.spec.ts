@@ -316,3 +316,149 @@ test.describe("🔴 CAMP-365 — меню з бази", () => {
     }
   });
 });
+
+/**
+ * CAMP-448, пункт 5 — підвал як витвір, а не смужка (знімки 441/25–441/26).
+ *
+ * 🔴 ТУТ ПЕРЕВІРЯЄТЬСЯ СТРУКТУРА, А НЕ ВИГЛЯД. Було три плоскі ряди
+ * посилань однакового розміру; стало чотири колонки за призначенням.
+ * Ієрархія — це те, що читач бачить першим, і те, що найлегше загубити
+ * наступною правкою.
+ */
+test.describe("🔴 CAMP-448 — підвал", () => {
+  test("чотири колонки, і кожна названа", async ({ page }) => {
+    await page.goto("/");
+
+    // 🔴 СКІЛЬКИ КОЛОНОК — ЗАЛЕЖИТЬ ВІД ШИРИНИ, І ТЕСТ МУСИТЬ ЦЕ ЗНАТИ.
+    //
+    // Перша редакція вимагала рівно чотири скрізь — і впала на
+    // mobile-chrome, де одна колонка правильна: чотири на 390 px
+    // нечитабельні. Пороги ті самі, що в розмітці (`md:` 768, `xl:` 1280),
+    // і беруться з реальної ширини вікна, а не з назви проєкту.
+    const grid = page.locator("footer > div > div").first();
+    const cols = await grid.evaluate(
+      (el) => getComputedStyle(el).gridTemplateColumns.split(" ").length,
+    );
+    const width = page.viewportSize()?.width ?? 0;
+    expect(width, "ширина вікна невідома — замір нічого не доводить").toBeGreaterThan(0);
+    const want = width >= 1280 ? 4 : width >= 768 ? 2 : 1;
+    expect(cols, `на ${width} px колонок ${cols}, а має бути ${want}`).toBe(want);
+
+    // 🔴 А ОСЬ ЦЕ НЕ ЗАЛЕЖИТЬ ВІД ШИРИНИ: розділи мусять бути названі
+    // на будь-якому екрані, інакше підвал знову стає смужкою посилань.
+    for (const name of ["More", "Legal", "Where the data comes from"]) {
+      await expect(
+        page.locator("footer h2", { hasText: name }),
+        `у підвалі немає розділу «${name}»`,
+      ).toHaveCount(1);
+    }
+
+    // Правові сторінки лишились на місці — їх будує LEGAL_PAGES, і
+    // загубити їх підвалом означало б загубити обовʼязкове посилання.
+    const legal = page.locator('footer nav[aria-label="Legal"] a');
+    await expect(legal, "правових посилань у підвалі не лишилось").not.toHaveCount(
+      0,
+    );
+
+    // Атрибуція ODbL має бути ТАМ, ДЕ ПОКАЗАНІ ДАНІ, тобто на кожній
+    // сторінці; переїзд у колонку не привід її загубити.
+    await expect(
+      page.locator("footer", { hasText: "OpenStreetMap contributors" }),
+    ).toHaveCount(1);
+  });
+
+  test("🔴 «догори» — якір, що працює без скрипта", async ({ page }) => {
+    await page.goto("/");
+
+    const toTop = page.getByTestId("to-top");
+    await expect(toTop, "посилання «догори» немає").toHaveCount(1);
+    // Якір, а не кнопка: саме тому він працює і тоді, коли JS не доїхав.
+    await expect(toTop).toHaveAttribute("href", "#top");
+    await expect(page.locator("body#top")).toHaveCount(1);
+
+    await page.evaluate(() => window.scrollTo(0, 4000));
+    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+    await toTop.click();
+    await expect
+      .poll(() => page.evaluate(() => window.scrollY), {
+        message: "сторінка не повернулась угору",
+      })
+      .toBeLessThan(50);
+  });
+});
+
+/**
+ * CAMP-448, пункт 3 — перемикач день/ніч.
+ *
+ * 🔴 ТЕМНА ТЕМА БУЛА В НАС ІЗ ПЕРШОГО ДНЯ, І ЧИТАЧ ДО НЕЇ НЕ ДОТЯГУВАВСЯ.
+ * Усі токени описані двічі — `@media (prefers-color-scheme: dark)` і
+ * `:root[data-theme="dark"]`, — тож людина зі світлою системою не могла
+ * обрати темну НІКОЛИ.
+ */
+test.describe("🔴 CAMP-448 — перемикач теми", () => {
+  test("три стани по колу, і фон справді міняється", async ({ page }) => {
+    await page.goto("/");
+    const button = page.getByTestId("theme-toggle");
+    await expect(button, "перемикача немає").toHaveCount(1);
+
+    const theme = () =>
+      page.evaluate(() => document.documentElement.dataset.theme ?? null);
+    const bg = () =>
+      page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+
+    // Поки вибору немає — атрибута немає, і сайт іде за системою.
+    expect(await theme(), "на старті вже стоїть вибір").toBeNull();
+
+    await button.click();
+    expect(await theme()).toBe("light");
+    const light = await bg();
+
+    await button.click();
+    expect(await theme()).toBe("dark");
+    const dark = await bg();
+    // 🔴 Не просто «атрибут змінився»: фон мусить справді стати іншим,
+    // інакше перемикач пересував би лише рядок у розмітці.
+    expect(dark, `фон не змінився: ${light} → ${dark}`).not.toBe(light);
+
+    await button.click();
+    expect(await theme(), "третій клік не повернув вибір системі").toBeNull();
+  });
+
+  test("🔴 вибір переживає перезавантаження і ставиться до першого малювання", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    const button = page.getByTestId("theme-toggle");
+    await button.click();
+    await button.click();
+    expect(
+      await page.evaluate(() => document.documentElement.dataset.theme),
+    ).toBe("dark");
+
+    await page.reload();
+    // 🔴 Без скрипта в `<head>` тут був би спалах білого: React ставить
+    // атрибут після гідратації. Тому перевіряємо і сам атрибут, і те,
+    // що інструкція приїхала у ВІДДАНОМУ HTML.
+    expect(
+      await page.evaluate(() => document.documentElement.dataset.theme),
+      "вибір не пережив перезавантаження",
+    ).toBe("dark");
+
+    const html = await page.content();
+    expect(html, "у сторінці немає скрипта, що ставить тему до рендера").toContain(
+      "camptribe.theme",
+    );
+  });
+
+  test("🔴 сміття в сховищі ігнорується, а не ставиться атрибутом", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.evaluate(() => localStorage.setItem("camptribe.theme", "chartreuse"));
+    await page.reload();
+    expect(
+      await page.evaluate(() => document.documentElement.dataset.theme ?? null),
+      "невідоме значення доїхало до атрибута",
+    ).toBeNull();
+  });
+});

@@ -135,7 +135,12 @@ test.describe('кукі: перелік на сторінці = перелік �
     expect(apiFiles.length).toBeGreaterThan(50);
     const text = pageText('cookies');
     expect(text).toContain('the code of this site sets no cookies');
-    expect(text).toContain('three entries');
+    // 🔴 ЧИСЛО НЕ ВПИСУЄТЬСЯ СЮДИ СЛОВОМ. Воно стояло тут «three» і
+    // застаріло тієї ж хвилини, коли код почав писати четвертий ключ
+    // (CAMP-448): тест червонів на правильній сторінці. Скільки саме
+    // записів — рахує тест нижче, з коду; тут лишається твердження, що
+    // речення про перелік на сторінці взагалі є.
+    expect(text).toMatch(/\b(one|two|three|four|five) entries\b/);
     expect(text).toContain('and nothing else');
     expect(otherStores(), 'код ставить кукі чи користується сховищем, про яке сторінка мовчить').toEqual([]);
   });

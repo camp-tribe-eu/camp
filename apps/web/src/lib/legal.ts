@@ -169,8 +169,11 @@ export const LEGAL_PAGES: LegalPage[] = [
     // name the person asking, the mask instead of the address, the three and
     // ten a day, and the one-month term. Register §11 carries the same
     // numbers. Migration 1794400000000-PrivacySpotClaims.
-    version: '2.5',
-    effectiveFrom: '2026-11-03',
+    // 2.6 (10.11.2026): четвертий запис у сховищі браузера — вибір
+    // теми (`camptribe.theme`), який пише перемикач день/ніч у шапці.
+    // Міграція 1795100000000-ThemeChoiceStorage разом із цим рядком.
+    version: '2.6',
+    effectiveFrom: '2026-11-10',
   },
   {
     slug: 'cookies',
@@ -181,8 +184,13 @@ export const LEGAL_PAGES: LegalPage[] = [
     // named (not "the only thing"), and the map paragraph says which pages
     // have the style buttons. Migration 1793801000000-CookiesHonestClaims.
     // Raising this voids a saved consent once — the site is closed.
-    version: '1.1',
-    effectiveFrom: '2026-11-02',
+    // 1.2 (10.11.2026): записів стало чотири — додався `camptribe.theme`,
+    // вибір світлої чи темної теми. Міграція
+    // 1795100000000-ThemeChoiceStorage разом із цим рядком.
+    // 🔴 Підняття версії ОДИН РАЗ знеціннює збережену згоду — сайт
+    // закритий, тож ціна цього сьогодні нульова.
+    version: '1.2',
+    effectiveFrom: '2026-11-10',
   },
   {
     slug: 'disclaimer',
