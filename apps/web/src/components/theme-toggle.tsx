@@ -2,7 +2,21 @@
 
 import { useEffect, useState } from 'react';
 
-import { THEME_KEY, type ThemeChoice } from '@/lib/theme-bootstrap';
+import type { ThemeChoice } from '@/lib/theme-bootstrap';
+
+/**
+ * 🔴 КЛЮЧ ОГОЛОШЕНИЙ ТУТ ЛІТЕРАЛОМ, А НЕ ІМПОРТОВАНИЙ, І ЦЕ ВИМОГА
+ * СТОРОЖА, А НЕ СМАК. `legal-claims.ts` читає кожен `.setItem(` у
+ * `apps/web/src` і мусить НАЗВАТИ ключ, щоб звірити його зі сторінками
+ * «Cookies» і «Privacy». Він розкриває лише сталу, оголошену в ТОМУ
+ * САМОМУ файлі: `.setItem(THEME_KEY)` з імпортом він назвати не вміє й
+ * чесно падає — «сторож не вміє його назвати, а сторінка кукі мусить».
+ *
+ * Друга копія того самого рядка живе в `lib/theme-bootstrap.ts` (скрипт
+ * у `<head>` не може імпортувати з клієнтського модуля). Розійтись їм
+ * не дає `theme-key.spec.ts`: він звіряє цей літерал зі скриптом.
+ */
+export const THEME_KEY = 'camptribe.theme';
 
 /**
  * Перемикач день/ніч — CAMP-448, пункт 3.
@@ -21,14 +35,21 @@ import { THEME_KEY, type ThemeChoice } from '@/lib/theme-bootstrap';
  * нічим.
  *
  * 🔴 ВИБІР ЗБЕРІГАЄТЬСЯ НА ПРИСТРОЇ, А НЕ В НАШІЙ БАЗІ. Це налаштування
- * ока, не акаунта: воно не варте ні рядка в базі, ні куки, яку довелося б
- * оголошувати в політиці. `localStorage` може кинути (приватне вікно,
- * заблоковані дані сайту), тож кожне читання й запис загорнуті.
+ * ока, не акаунта: ні рядка в базі, ні куки. `localStorage` може кинути
+ * (приватне вікно, заблоковані дані сайту), тож кожне читання й запис
+ * загорнуті.
+ *
+ * 🔴 АЛЕ НАЗВАТИ ЙОГО НА СТОРІНЦІ ВСЕ ОДНО ТРЕБА, і ключ зветься
+ * `camptribe.theme` саме тому. Сторож `legal-storage-surfaces.spec.tsx`
+ * читає КОЖЕН `.setItem(` у `apps/web/src` і вимагає, щоб той самий
+ * перелік стояв на сторінках «Cookies» і «Privacy». Він і впіймав цю
+ * зміну: перша редакція писала ключ `ct-theme`, якого не називала жодна
+ * сторінка. Запис описаний міграціями ThemeChoiceCookies і ThemeChoicePrivacy.
  */
 
 function readChoice(): ThemeChoice {
   try {
-    const v = localStorage.getItem(THEME_KEY);
+    const v = window.localStorage.getItem(THEME_KEY);
     return v === 'dark' || v === 'light' ? v : 'system';
   } catch {
     return 'system';
@@ -40,8 +61,8 @@ function apply(choice: ThemeChoice) {
   if (choice === 'system') delete root.dataset.theme;
   else root.dataset.theme = choice;
   try {
-    if (choice === 'system') localStorage.removeItem(THEME_KEY);
-    else localStorage.setItem(THEME_KEY, choice);
+    if (choice === 'system') window.localStorage.removeItem(THEME_KEY);
+    else window.localStorage.setItem(THEME_KEY, choice);
   } catch {
     // Приватне вікно або заблоковані дані сайту: вибір діє до
     // перезавантаження, і це краще, ніж не діяти зовсім.

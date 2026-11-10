@@ -11,6 +11,8 @@ import { PrivacyBrowserStorage1793900000000 } from '../migrations/1793900000000-
 import { PrivacySpotClaims1794400000000 } from '../migrations/1794400000000-PrivacySpotClaims';
 import { AttributionFlags1794800000000 } from '../migrations/1794800000000-AttributionFlags';
 import { DatabaseUndatedPrices1794900000000 } from '../migrations/1794900000000-DatabaseUndatedPrices';
+import { ThemeChoiceCookies1795100000000 } from '../migrations/1795100000000-ThemeChoiceCookies';
+import { ThemeChoicePrivacy1795200000000 } from '../migrations/1795200000000-ThemeChoicePrivacy';
 
 /**
  * Правові документи такими, якими їх лишають у базі ВСІ міграції разом.
@@ -56,6 +58,9 @@ const UPDATES: ReadonlyArray<SeededLegalPage> = [
   new AttributionFlags1794800000000().page,
   // CAMP-475: недатована ціна показується, застаріла — ні.
   new DatabaseUndatedPrices1794900000000().page,
+  // CAMP-448: четвертий запис у сховищі браузера — вибір теми.
+  new ThemeChoiceCookies1795100000000().page,
+  new ThemeChoicePrivacy1795200000000().page,
 ];
 
 export function seededLegalPages(): SeededLegalPage[] {

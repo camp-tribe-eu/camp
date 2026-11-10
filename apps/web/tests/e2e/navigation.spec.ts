@@ -428,7 +428,7 @@ test.describe("🔴 CAMP-448 — перемикач теми", () => {
 
     const html = await page.content();
     expect(html, "у сторінці немає скрипта, що ставить тему до рендера").toContain(
-      "ct-theme",
+      "camptribe.theme",
     );
   });
 
@@ -436,7 +436,7 @@ test.describe("🔴 CAMP-448 — перемикач теми", () => {
     page,
   }) => {
     await page.goto("/");
-    await page.evaluate(() => localStorage.setItem("ct-theme", "chartreuse"));
+    await page.evaluate(() => localStorage.setItem("camptribe.theme", "chartreuse"));
     await page.reload();
     expect(
       await page.evaluate(() => document.documentElement.dataset.theme ?? null),

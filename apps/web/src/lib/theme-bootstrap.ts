@@ -8,7 +8,14 @@
  * вже зроблено для `lib/error-bootstrap.ts`.
  */
 
-export const THEME_KEY = 'ct-theme';
+/**
+ * 🔴 ДРУГА КОПІЯ КЛЮЧА, І ВОНА ТУТ НАВМИСНО. Скрипт у `<head>` ставиться
+ * з серверного макета й не може імпортувати з клієнтського компонента, а
+ * сторож правових сторінок вимагає, щоб ключ був ЛІТЕРАЛОМ у тому файлі,
+ * де стоїть `.setItem(` (`components/theme-toggle.tsx`). Розійтись цим
+ * двом не дає `tests/unit/theme-key.spec.ts`.
+ */
+const THEME_KEY = 'camptribe.theme';
 
 export type ThemeChoice = 'system' | 'light' | 'dark';
 
