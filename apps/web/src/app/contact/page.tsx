@@ -5,6 +5,7 @@ import { alternatesFor } from "@/lib/i18n";
 import { breadcrumbList, jsonLdProps } from "@/lib/jsonld";
 import { pageContent } from "@/lib/page-content";
 import { PageSections } from "@/components/page-sections";
+import { LayeredBanner } from "@/components/layered-banner";
 
 // CAMP-209 завела цю сторінку, CAMP-365 забрала з неї текст.
 //
@@ -48,9 +49,23 @@ export default async function Contact() {
     <main className="mx-auto max-w-wrap px-4 py-10 xl:px-6">
       <script {...jsonLdProps(breadcrumbList(crumbs))} />
 
-      <h1 className="text-3xl leading-tight md:text-[42px]">
-        {page.title}
-      </h1>
+      {/* 🔴 БАНЕР НЕСЕ `h1` (CAMP-464). Власник про цю сторінку: «взагалі
+          не красиво і сухо». Форма зворотного звʼязку, яку він просить,
+          — це нова обробка персональних даних і свій розділ у політиці,
+          тож вона йде окремою карткою. А верх сторінка дістає зараз, тим
+          самим ходом, що /tools і /about.
+
+          Опис — `metaDescription` сторінки: той самий рядок, яким вона
+          вже представляється в пошуку, тож нового твердження тут немає. */}
+      <LayeredBanner
+        headingLevel={1}
+        background={{ src: "/banners/eu-dawn.svg" }}
+        tickerText="WRITE TO US"
+        heading={page.title}
+        description={page.metaDescription ?? undefined}
+        minHeight="min(42svh, 340px)"
+        textSize={{ desktop: "140px", mobile: "48px" }}
+      />
 
       <div className="mt-6">
         <PageSections sections={page.sections} />

@@ -117,3 +117,32 @@ test.describe("🔴 CAMP-365 — /contact із CMS", () => {
     expect(ld, "крихта не веде на себе").toContain("/contact");
   });
 });
+
+/**
+ * CAMP-464 — у сторінки контактів зʼявився верх.
+ *
+ * 🔴 ТЕ САМЕ ТВЕРДЖЕННЯ, ЩО НА /about І /tools, І ВОНО ТУТ ПОТРІБНЕ
+ * ОКРЕМО: найдешевший спосіб зіпсувати банер — лишити старий заголовок
+ * під ним «щоб було помітніше». Тоді сторінка дістає два `h1`, а з ними
+ * зламаний обрис для читача екрана й для пошуковика.
+ */
+test.describe('🔴 CAMP-464 — верх сторінки контактів', () => {
+  test('заголовок один, він у банері й не порожній', async ({ page }) => {
+    await page.goto('/contact');
+
+    await expect(page.locator('main h1'), 'заголовків не один').toHaveCount(1);
+    await expect(
+      page.locator('main .ct-banner h1'),
+      'заголовок лишився поза банером',
+    ).toHaveCount(1);
+
+    const text = (await page.locator('main h1').innerText()).trim();
+    expect(text.length, 'заголовок порожній').toBeGreaterThan(2);
+    expect(await page.title(), `«${text}» немає в назві вкладки`).toContain(text);
+
+    const height = await page
+      .locator('main .ct-banner')
+      .evaluate((el) => Math.round(el.getBoundingClientRect().height));
+    expect(height, `висота банера ${height} px`).toBeGreaterThan(200);
+  });
+});
