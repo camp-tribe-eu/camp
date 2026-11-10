@@ -182,6 +182,29 @@ test.describe('hub crawl path', () => {
       .click();
     await expect(page).toHaveURL(new RegExp(`${hub(paged!)}/page/2$`));
     await expect(page.locator('main ul li a').first()).toBeVisible();
+
+    // 🔴 CAMP-451, «Спосіб перевірки»: «перехід на останню сторінку
+    // віддає 200 і непорожній список».
+    //
+    // Твердження живе ТУТ, а не в окремому тесті, і це не ліньки. Свій
+    // тест мусив би мати свій `test.skip` на той самий випадок «нічого
+    // не пагінується» — і сторож бюджету пропусків упіймав мене на
+    // 39 проти 38: «тест, що відмовився бігти, не відрізнити від тесту,
+    // що пройшов». Регіон із пагінацією вже знайдено рядком вище.
+    const last = Math.ceil(paged!.spots / REGION_PER_PAGE);
+    expect(last, 'остання сторінка порахувалась у 1 — пагінації немає').toBeGreaterThan(1);
+
+    const url = `${hub(paged!)}/page/${last}`;
+    const res = await request.get(url);
+    expect(res.status(), `${url} → ${res.status()}`).toBe(200);
+
+    // 🔴 200 САМ ПО СОБІ НІЧОГО НЕ ДОВОДИТЬ: порожня остання сторінка
+    // теж віддасть 200. Тому рахуються картки у відданому HTML.
+    const cards = ((await res.text()).match(/class="ct-card"/g) ?? []).length;
+    expect(
+      cards,
+      `${url}: ${paged!.spots} місць, сторінка ${last} з ${last}, карток ${cards}`,
+    ).toBeGreaterThan(0);
   });
 
   test('a region that fits on one page shows no paginator', async ({
@@ -273,30 +296,6 @@ test.describe('🔴 CAMP-451 — картки регіонів на сторін
     testInfo.annotations.push({ type: 'замір', description: summary });
 
     expect(drawn, summary).toBe(expected);
-  });
-
-  test('🔴 остання сторінка регіону віддає 200 і непорожній список', async ({
-    request,
-  }, testInfo) => {
-    const { all } = await regions(request);
-    const paged = all.find((r) => r.spots > REGION_PER_PAGE);
-    test.skip(!paged, 'Nothing paginates at the current data volume.');
-
-    const last = Math.ceil(paged!.spots / REGION_PER_PAGE);
-    expect(last, 'остання сторінка порахувалась у 1 — пагінації немає').toBeGreaterThan(1);
-
-    const url = `${hub(paged!)}/page/${last}`;
-    const res = await request.get(url);
-    expect(res.status(), `${url} → ${res.status()}`).toBe(200);
-
-    const html = await res.text();
-    // 🔴 200 САМ ПО СОБІ НІЧОГО НЕ ДОВОДИТЬ: порожня остання сторінка
-    // теж віддасть 200. Тому рахуємо картки кемпінгів у відданому HTML.
-    const cards = (html.match(/class="ct-card"/g) ?? []).length;
-    const summary = `${url}: ${paged!.spots} місць, сторінка ${last} з ${last}, карток ${cards}`;
-    console.log(summary);
-    testInfo.annotations.push({ type: 'замір', description: summary });
-    expect(cards, summary).toBeGreaterThan(0);
   });
 
   /**
