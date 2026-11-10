@@ -329,11 +329,29 @@ test.describe("🔴 CAMP-448 — підвал", () => {
   test("чотири колонки, і кожна названа", async ({ page }) => {
     await page.goto("/");
 
+    // 🔴 СКІЛЬКИ КОЛОНОК — ЗАЛЕЖИТЬ ВІД ШИРИНИ, І ТЕСТ МУСИТЬ ЦЕ ЗНАТИ.
+    //
+    // Перша редакція вимагала рівно чотири скрізь — і впала на
+    // mobile-chrome, де одна колонка правильна: чотири на 390 px
+    // нечитабельні. Пороги ті самі, що в розмітці (`md:` 768, `xl:` 1280),
+    // і беруться з реальної ширини вікна, а не з назви проєкту.
     const grid = page.locator("footer > div > div").first();
     const cols = await grid.evaluate(
       (el) => getComputedStyle(el).gridTemplateColumns.split(" ").length,
     );
-    expect(cols, `колонок ${cols}, а має бути чотири на цій ширині`).toBe(4);
+    const width = page.viewportSize()?.width ?? 0;
+    expect(width, "ширина вікна невідома — замір нічого не доводить").toBeGreaterThan(0);
+    const want = width >= 1280 ? 4 : width >= 768 ? 2 : 1;
+    expect(cols, `на ${width} px колонок ${cols}, а має бути ${want}`).toBe(want);
+
+    // 🔴 А ОСЬ ЦЕ НЕ ЗАЛЕЖИТЬ ВІД ШИРИНИ: розділи мусять бути названі
+    // на будь-якому екрані, інакше підвал знову стає смужкою посилань.
+    for (const name of ["More", "Legal", "Where the data comes from"]) {
+      await expect(
+        page.locator("footer h2", { hasText: name }),
+        `у підвалі немає розділу «${name}»`,
+      ).toHaveCount(1);
+    }
 
     // Правові сторінки лишились на місці — їх будує LEGAL_PAGES, і
     // загубити їх підвалом означало б загубити обовʼязкове посилання.
