@@ -56,16 +56,102 @@
 
 import measured from '@/data/rental/measured.json';
 import placementData from '@/data/rental/placements.json';
-import {
-  RENTAL_COUNTRIES,
-  rentalCountry,
-  type RentalCountry,
-} from '@/data/rental/countries';
+import { COUNTRY_CONFIG } from '@/data/rental/country-config';
+import { apiFetch } from './api';
 import { ordinal } from './fuel';
 import { offersFor, placementProblems, type Offer, type Placement } from './affiliate';
 
-export type { RentalCountry };
-export { RENTAL_COUNTRIES, rentalCountry };
+/**
+ * Країна оренди: текст із CMS плюс те, що лишилось у коді.
+ *
+ * 🔴 CAMP-479: `data` і `definiteArticle` приходять НЕ з бази. Вони
+ * обирають обчислення й граматику, а не показуються читачеві — див.
+ * `@/data/rental/country-config`.
+ */
+export interface RentalCountry {
+  code: string;
+  name: string;
+  angle: string;
+  intro: string;
+  dataIntro: string;
+  facts: CountryFact[];
+  data: DataLead;
+  definiteArticle?: true;
+}
+
+export interface FactSource {
+  name: string;
+  url: string;
+}
+
+export interface CountryFact {
+  title: string;
+  body: string;
+  source: FactSource;
+}
+
+export interface DataLead {
+  metric: MetricKey;
+  kind: 'share' | 'count' | 'per-region';
+}
+
+/** Та сама витримка, що в меню, маршрутів і налаштувань сайту. */
+const RENTAL_REVALIDATE_SECONDS = 900;
+
+/**
+ * 🔴 КРАЇНА БЕЗ РЯДКА В КОНФІГУ — ЦЕ ПОМИЛКА, А НЕ ЗАМОВЧУВАННЯ.
+ *
+ * Редактор може завести сторінку країни в CMS; обчислення для неї
+ * оголошує код. Мовчазне замовчування показало б читачеві замір іншої
+ * країни — правдоподібне число не на тому місці, найгірший різновид
+ * помилки. Тому тут виняток із назвою коду.
+ */
+function withConfig(c: Omit<RentalCountry, 'data' | 'definiteArticle'>): RentalCountry {
+  const cfg = COUNTRY_CONFIG[c.code];
+  if (!cfg) {
+    throw new Error(
+      `країна «${c.code}» є в CMS, але не має рядка в COUNTRY_CONFIG: ` +
+        'невідомо, який замір вести на її сторінку. Додай рядок або ' +
+        'зніми сторінку з публікації.',
+    );
+  }
+  return { ...c, data: { metric: cfg.metric, kind: cfg.kind },
+           ...(cfg.definiteArticle ? { definiteArticle: true as const } : {}) };
+}
+
+export async function rentalCountries(): Promise<RentalCountry[]> {
+  const res = await apiFetch('/rental/countries', {
+    next: { revalidate: RENTAL_REVALIDATE_SECONDS },
+  });
+  if (!res.ok) {
+    throw new Error(
+      `країни оренди недосяжні: GET /rental/countries → ${res.status}`,
+    );
+  }
+  const body = (await res.json()) as {
+    countries?: Array<Omit<RentalCountry, 'data' | 'definiteArticle'>>;
+  };
+  return (body.countries ?? []).map(withConfig);
+}
+
+export async function rentalCountry(
+  code: string,
+): Promise<RentalCountry | null> {
+  const res = await apiFetch(
+    `/rental/countries/${encodeURIComponent(code)}`,
+    { next: { revalidate: RENTAL_REVALIDATE_SECONDS } },
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(
+      `країна «${code}» недосяжна: GET /rental/countries/${code} → ` +
+        `${res.status}. Це не «сторінки немає» — це недосяжна база.`,
+    );
+  }
+  return withConfig(
+    (await res.json()) as Omit<RentalCountry, 'data' | 'definiteArticle'>,
+  );
+}
 
 /**
  * The country's name as a sentence wants it — "Germany", but "the
@@ -361,8 +447,10 @@ export function countryProblems(c: RentalCountry): string[] {
 }
 
 /** The countries that pass the gate. This is what the section publishes. */
-export function publishableCountries(): RentalCountry[] {
-  return RENTAL_COUNTRIES.filter((c) => countryProblems(c).length === 0);
+export async function publishableCountries(): Promise<RentalCountry[]> {
+  return (await rentalCountries()).filter(
+    (c) => countryProblems(c).length === 0,
+  );
 }
 
 // ── Affiliate placements ────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { RENTAL_COUNTRY_FIXTURE } from "../fixtures/rental-country";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -175,6 +176,14 @@ async function renderSearch(): Promise<string> {
       // Юніт мережі не має — віддаємо ту саму фікстуру, з якої він
       // будує очікування. Інакше тест падає на запиті, якого раніше не
       // було, і це читається як поломка рендера.
+      if (url.includes("/rental/countries")) {
+        // 🔴 CAMP-479: сторінки оренди теж ходять в API за своїм текстом.
+        return json(
+          /\/rental\/countries\/.+/.test(url)
+            ? RENTAL_COUNTRY_FIXTURE
+            : { countries: [RENTAL_COUNTRY_FIXTURE] },
+        );
+      }
       if (url.includes("/routes/content")) {
         return json(
           /\/routes\/content\/.+/.test(url)
@@ -332,6 +341,14 @@ test.describe("/routes", () => {
     // не стереже на чужій машині й у CI.
     await withFetch(
       (url) => {
+        if (url.includes("/rental/countries")) {
+          // 🔴 CAMP-479: сторінки оренди теж ходять в API за своїм текстом.
+          return json(
+            /\/rental\/countries\/.+/.test(url)
+              ? RENTAL_COUNTRY_FIXTURE
+              : { countries: [RENTAL_COUNTRY_FIXTURE] },
+          );
+        }
         if (url.includes("/routes/content")) {
           return json(
             /\/routes\/content\/.+/.test(url)
@@ -516,6 +533,14 @@ test.describe("/routes", () => {
         // Юніт мережі не має — віддаємо ту саму фікстуру, з якої він
         // будує очікування. Інакше тест падає на запиті, якого раніше не
         // було, і це читається як поломка рендера.
+        if (url.includes("/rental/countries")) {
+          // 🔴 CAMP-479: сторінки оренди теж ходять в API за своїм текстом.
+          return json(
+            /\/rental\/countries\/.+/.test(url)
+              ? RENTAL_COUNTRY_FIXTURE
+              : { countries: [RENTAL_COUNTRY_FIXTURE] },
+          );
+        }
         if (url.includes("/routes/content")) {
           return json(
             /\/routes\/content\/.+/.test(url)
@@ -715,6 +740,14 @@ async function renderCamping(): Promise<string> {
       // Юніт мережі не має — віддаємо ту саму фікстуру, з якої він
       // будує очікування. Інакше тест падає на запиті, якого раніше не
       // було, і це читається як поломка рендера.
+      if (url.includes("/rental/countries")) {
+        // 🔴 CAMP-479: сторінки оренди теж ходять в API за своїм текстом.
+        return json(
+          /\/rental\/countries\/.+/.test(url)
+            ? RENTAL_COUNTRY_FIXTURE
+            : { countries: [RENTAL_COUNTRY_FIXTURE] },
+        );
+      }
       if (url.includes("/routes/content")) {
         return json(
           /\/routes\/content\/.+/.test(url)
@@ -749,6 +782,14 @@ async function renderMap(): Promise<string> {
       // Юніт мережі не має — віддаємо ту саму фікстуру, з якої він
       // будує очікування. Інакше тест падає на запиті, якого раніше не
       // було, і це читається як поломка рендера.
+      if (url.includes("/rental/countries")) {
+        // 🔴 CAMP-479: сторінки оренди теж ходять в API за своїм текстом.
+        return json(
+          /\/rental\/countries\/.+/.test(url)
+            ? RENTAL_COUNTRY_FIXTURE
+            : { countries: [RENTAL_COUNTRY_FIXTURE] },
+        );
+      }
       if (url.includes("/routes/content")) {
         return json(
           /\/routes\/content\/.+/.test(url)
@@ -790,6 +831,14 @@ async function renderLlmsTxt(): Promise<string> {
       // Юніт мережі не має — віддаємо ту саму фікстуру, з якої він
       // будує очікування. Інакше тест падає на запиті, якого раніше не
       // було, і це читається як поломка рендера.
+      if (url.includes("/rental/countries")) {
+        // 🔴 CAMP-479: сторінки оренди теж ходять в API за своїм текстом.
+        return json(
+          /\/rental\/countries\/.+/.test(url)
+            ? RENTAL_COUNTRY_FIXTURE
+            : { countries: [RENTAL_COUNTRY_FIXTURE] },
+        );
+      }
       if (url.includes("/routes/content")) {
         return json(
           /\/routes\/content\/.+/.test(url)

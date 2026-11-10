@@ -261,7 +261,7 @@ export async function hubUrls(): Promise<SitemapUrl[]> {
   // The card asked for 200–300 city pages; publishing them would be the
   // scaled-content problem CAMP-130 refused, and this file is the place
   // where such a thing would show up as several hundred near-identical
-  // `loc` lines. It lists exactly what `publishableCountries()` passes,
+  // `loc` lines. It lists exactly what `await publishableCountries()` passes,
   // so a country that stops meeting the content gate leaves the sitemap
   // on the same build that stops rendering it.
   //
@@ -286,7 +286,7 @@ export async function hubUrls(): Promise<SitemapUrl[]> {
     priority: '0.7',
     lastmod: MEASURED.measuredAt,
   });
-  for (const country of publishableCountries()) {
+  for (const country of await publishableCountries()) {
     urls.push({
       loc: `${SITE}/camper-rental/${country.code}`,
       changefreq: 'monthly',

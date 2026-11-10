@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { RENTAL_COUNTRY_FIXTURE } from "../fixtures/rental-country";
 import { ROUTE_FIXTURE } from "../fixtures/route";
 import CampsitePage from "@/app/camping/[country]/[region]/[slug]/page";
 import Home from "@/app/page";
@@ -44,6 +45,14 @@ async function withFetch<T>(impl: Fetcher, run: () => Promise<T>): Promise<T> {
       const u = String(url);
       // 🔴 CAMP-479: див. пояснення в `campsite-count.spec.ts` — порожній
       // перелік маршрутів це поломка за задумом, тож підміна віддає один.
+      if (u.includes("/rental/countries")) {
+        // 🔴 CAMP-479: сторінки оренди теж ходять в API за своїм текстом.
+        return json(
+          /\/rental\/countries\/.+/.test(u)
+            ? RENTAL_COUNTRY_FIXTURE
+            : { countries: [RENTAL_COUNTRY_FIXTURE] },
+        );
+      }
       if (u.includes("/routes/content")) {
         return json(
           /\/routes\/content\/.+/.test(u)
