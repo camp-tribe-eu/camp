@@ -1,6 +1,5 @@
-import json, subprocess
-S='/private/tmp/claude-501/-Users-george-Documents-UTD-Claude------Camping/4c5eb47a-c753-4472-9de1-950e5f95976a/scratchpad'
-src=json.load(open(f'{S}/routes.json'))
+import json, os, subprocess
+src=json.load(open(os.environ.get('ROUTES_DUMP', '/tmp/routes.json'), encoding='utf-8'))
 
 SQL = """
 select json_agg(x) from (
@@ -11,7 +10,7 @@ select json_agg(x) from (
   from pages p join page_translations t on t.page_id=p.id
   where p.type='route') x;
 """
-out=subprocess.run(['psql','postgres://george@localhost:5432/camptribe_dev','-t','-A','-c',SQL],
+out=subprocess.run(['psql',os.environ.get('DATABASE_URL', 'postgres://localhost:5432/camptribe_dev'),'-t','-A','-c',SQL],
                    capture_output=True,text=True).stdout.strip()
 db={r['slug']: r for r in (json.loads(out) or [])}
 

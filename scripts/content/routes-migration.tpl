@@ -28,6 +28,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 
 interface SeedSection {
   sort: number;
+  /** Роль секції на сторінці: `intro`, `season`, `roads`, `stage:N`. */
+  slot: string;
   type: string;
   heading: string | null;
   body: string;
@@ -98,6 +100,7 @@ export class SeedRoutesContent1795600000000 implements MigrationInterface {
         ...r.sections,
         {
           sort: r.sections.length,
+          slot: 'attribution',
           type: 'prose',
           heading: 'Where this data comes from',
           body: r.attribution,
@@ -106,9 +109,9 @@ export class SeedRoutesContent1795600000000 implements MigrationInterface {
 
       for (const s of sections) {
         const row: Array<{ id: string }> = await queryRunner.query(
-          `INSERT INTO page_sections (page_id, sort, type, visible)
-           VALUES ($1, $2, $3, true) RETURNING id`,
-          [pageId, s.sort, s.type],
+          `INSERT INTO page_sections (page_id, sort, type, slot, visible)
+           VALUES ($1, $2, $3, $4, true) RETURNING id`,
+          [pageId, s.sort, s.type, s.slot],
         );
         await queryRunner.query(
           `INSERT INTO page_section_translations

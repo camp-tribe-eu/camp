@@ -28,6 +28,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 
 interface SeedSection {
   sort: number;
+  /** Роль секції на сторінці: `intro`, `season`, `roads`, `stage:N`. */
+  slot: string;
   type: string;
   heading: string | null;
   body: string;
@@ -110,24 +112,28 @@ const ROUTES: SeedRoute[] = [
     sections: [
       {
         sort: 0,
+        slot: 'intro',
         type: 'prose',
         heading: null,
         body: 'This is the easiest drive in this library and the hardest one to get a pitch on. The road south from La Rochelle barely climbs, the sea is on your right for nine days, and the campsites are so thick on the ground that our database holds 223 within 25 km of La Rochelle alone and 300 around the Île d’Oléron — more than some of the other routes here have in an entire country.\n\nThat density is the point and also the trap. Abundance in the data is not availability in August: the coastal sites are the ones every French family books in February, and a plan that assumes you will find something at six in the evening is a plan to sleep in an inland car park. The routes here do not book anything for you, and we do not know what any of these sites charge or whether they have a space — what we can tell you is where they are, which ones are municipal, and which are the bare aires de camping-car that exist precisely for the night you got it wrong.\n\nThe landscape changes less than the map suggests and more than you expect. North of the Gironde it is flat oyster country, low and tidal and mostly about water. South of Arcachon you enter the Landes — not a natural forest but a planted one, maritime pine sown from the middle of the nineteenth century to fix shifting dunes and drain the marsh behind them, and it runs almost unbroken for 200 kilometres. Then the ground finally tilts, the Pyrenees appear in the windscreen, and the last two stages are Basque rather than French in a way you can hear in the place names.\n\nTake bicycles. The Vélodyssée cycle route shadows this entire coast on its own tarmac, and from most of these stages the beach is a flat twenty-minute ride away — which matters, because parking a motorhome at a French Atlantic beach in August is its own small war.',
       },
       {
         sort: 1,
+        slot: 'season',
         type: 'prose',
         heading: 'When to go',
         body: 'The coast works from May to September, but July and August are a different trip: this is where a large share of France goes on holiday at once, and the seaside municipal sites fill weeks ahead. May, June and the first half of September are the same beaches with somewhere to park.',
       },
       {
         sort: 2,
+        slot: 'roads',
         type: 'prose',
         heading: 'The driving',
         body: 'Flat, straight and easy, with one real constraint: the coastal access roads through the dunes are narrow, one-way in places, and lined with height barriers at the beach car parks. Nothing here needs mountain driving; everything here needs a plan for where the van sleeps.',
       },
       {
         sort: 3,
+        slot: 'stage:0',
         type: 'prose',
         heading: 'La Rochelle',
         body: 'Start in the one town on this coast that was a city before it was a resort — a walled Atlantic port whose harbour mouth is still guarded by two medieval towers, and the only stage where the evening is about stone rather than sand.',
@@ -151,6 +157,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 4,
+        slot: 'stage:1',
         type: 'prose',
         heading: 'Le Château-d’Oléron',
         body: 'Two nights because Oléron is a place to stop moving: a big, low island reached by a free bridge, where the interesting part is the tidal oyster country on the eastern shore rather than the surf beaches everyone drives to on the west.',
@@ -174,6 +181,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 5,
+        slot: 'stage:2',
         type: 'prose',
         heading: 'Royan',
         body: 'A town worth one night for an unusual reason: it was destroyed by bombing in January 1945 and rebuilt in the 1950s, so it is a rare chance to see a whole French seaside resort designed in one go, in concrete, by people who believed in it.',
@@ -192,6 +200,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 6,
+        slot: 'stage:3',
         type: 'prose',
         heading: 'Arcachon',
         body: 'The one stage where the coast does something dramatic: a shallow tidal basin full of oyster frames on one side, and on the other the Dune du Pilat, a wall of sand high enough to climb and slowly moving inland over the pine forest behind it.',
@@ -215,6 +224,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 7,
+        slot: 'stage:4',
         type: 'prose',
         heading: 'Mimizan',
         body: 'One night deep in the Landes pine, because this is the stretch that explains the region: 200 kilometres of planted forest, ruler-straight firebreak tracks, and a beach at the end of a road through the trees.',
@@ -233,6 +243,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 8,
+        slot: 'stage:5',
         type: 'prose',
         heading: 'Soorts-Hossegor',
         body: 'The surf stage, and honestly so: the beach breaks here are heavy, shifting sandbanks that have hosted world-tour events, which is another way of saying this is not the beach to teach a child to swim at.',
@@ -250,6 +261,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 9,
+        slot: 'stage:6',
         type: 'prose',
         heading: 'Biarritz',
         body: 'Finish where the coast finally has cliffs and the Pyrenees show up behind them — a resort with an imperial past, a rocky shoreline, and the beach where European surfing effectively started in the 1950s.',
@@ -320,24 +332,28 @@ const ROUTES: SeedRoute[] = [
     sections: [
       {
         sort: 0,
+        slot: 'intro',
         type: 'prose',
         heading: null,
         body: 'Every Tuscany itinerary is a list of hill towns. What none of them tell you is the thing that shapes every single day of this trip: the towns are on hills because they were built to be defended, and the campsites are in the valleys because that is where there is flat ground, water and a road. So the pattern of this route is not drive-park-explore. It is drive, park low, and climb — on foot, by bus, or on the escalators and funiculars that several of these towns have installed precisely because everyone has this problem.\n\nThat is not a complaint, it is the plan. Accepting it means you can stop somewhere for two nights and walk up in the cool of the morning instead of circling a medieval gate at noon looking for a space that does not exist. It also means the stages here are short. Lucca to Florence is not a driving day, so the day is not spent driving.\n\nThe route deliberately begins and ends away from Florence. Florence is on it — skipping it would be perverse — but it is one night in the middle, treated as the city it is, and the route is built around the smaller places on either side, which is where the hill-town landscape actually is. Siena and Pienza are the Tuscany of the photographs. Volterra is older than either of them and gets far fewer visitors, and it is where this route finishes on purpose.\n\nOur database holds between 24 and 42 campsites within 25 km of each of these stages, which is enough choice to matter and few enough that the good ones are known. Pienza has a campsite 155 metres from the coordinate we use for the town — the closest stage-to-campsite distance on any route in this library.',
       },
       {
         sort: 1,
+        slot: 'season',
         type: 'prose',
         heading: 'When to go',
         body: 'April to June and September to October. July and August are not merely busy here, they are hot in a way that changes the shape of the day — inland Tuscany regularly sits in the mid-thirties, the hill towns have no shade in their squares, and a van without air conditioning is unusable from noon until five.',
       },
       {
         sort: 2,
+        slot: 'roads',
         type: 'prose',
         heading: 'The driving',
         body: 'Narrow, winding, walled and frequently one-way in the old centres, with signed ZTL restricted-traffic zones that a foreign plate will still be fined for entering. The valley roads between towns are easy. The last kilometre into any of these towns is the part to leave the van out of.',
       },
       {
         sort: 3,
+        slot: 'stage:0',
         type: 'prose',
         heading: 'Lucca',
         body: 'Start with the exception to the whole route: a walled town on flat ground, where the Renaissance ramparts were never demolished and are now a tree-lined park you can cycle the entire circuit of, about four kilometres around.',
@@ -361,6 +377,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 4,
+        slot: 'stage:1',
         type: 'prose',
         heading: 'Firenze',
         body: 'Two nights and no pretence that it is a hill town: park once on the edge, take the bus in twice, and treat it as the one city stop where the reason to be here is indoors and needs booking.',
@@ -384,6 +401,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 5,
+        slot: 'stage:2',
         type: 'prose',
         heading: 'Siena',
         body: 'The town that lost: Siena was Florence’s rival until plague and defeat froze it, which is exactly why its medieval centre survived so completely and why the shell-shaped square at its heart is unlike anything else in Italy.',
@@ -407,6 +425,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 6,
+        slot: 'stage:3',
         type: 'prose',
         heading: 'Pienza',
         body: 'Two nights in the Val d’Orcia, because this is the landscape people actually come to Tuscany for, and because Pienza itself is a curiosity: a village rebuilt in the 1460s as a single planned Renaissance design by a pope who had been born there.',
@@ -430,6 +449,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 7,
+        slot: 'stage:4',
         type: 'prose',
         heading: 'Volterra',
         body: 'Finish somewhere much older and much quieter: an Etruscan town on a high ridge, with walls and a gate that predate the Romans, and a hillside on one flank that is actively eroding and has been taking the edge of the town with it for centuries.',
@@ -507,24 +527,28 @@ const ROUTES: SeedRoute[] = [
     sections: [
       {
         sort: 0,
+        slot: 'intro',
         type: 'prose',
         heading: null,
         body: 'The Dalmatian coast is 500 kilometres of one road, the Jadranska magistrala, and the temptation is to treat it as a drive. It is not. Everything interesting about this coast is that it is broken into islands, and the moment an island is in your plan the planning unit stops being kilometres and becomes sailings. A vehicle ferry that runs six times a day in August runs twice in October, and the space for a motorhome on it is a different and smaller allocation than the space for a car.\n\nSo this route is built around that constraint rather than pretending it away. It has one island stage, not four, and it is placed in the middle where a missed sailing costs you an afternoon rather than the end of the trip. The rest is mainland, where the coast road is genuinely spectacular and genuinely slow — it is two lanes, it hugs the water, and behind it the Dinaric mountains come down almost to the sea, so there is nowhere for a faster road to go.\n\nThe campsite picture here is unusually good. Our database holds 102 sites within 25 km of Zadar and 61 around Šibenik, and a large share of Croatian coastal camping is small, family-run and right on the water — the country has a long tradition of it. It thins as you go south: 17 within 25 km of Dubrovnik, which is a real constraint on the last stage rather than a gap in our data.\n\nOne honest warning about the end. Dubrovnik is the most visited place on this coast and the least suited to arriving in a vehicle; the old town is walled, closed to traffic, and served by car parks that were not designed for this. Treat the last stage as somewhere you park and take a bus from, and it works.',
       },
       {
         sort: 1,
+        slot: 'season',
         type: 'prose',
         heading: 'When to go',
         body: 'May, June, September and October. This is a shoulder-season route by design: in July and August the coast road is a queue, the island ferries sell out for vehicles, and the campsites on the seafront are full — while in late September the sea is still warm enough to swim in and the same sites are half empty.',
       },
       {
         sort: 2,
+        slot: 'roads',
         type: 'prose',
         heading: 'The driving',
         body: 'A two-lane coast road with sea on one side and rock on the other, slow, exposed to the bura wind in autumn, and busy with the same traffic you are in. The island roads are narrower again. Nothing is technically hard; everything takes longer than the map suggests.',
       },
       {
         sort: 3,
+        slot: 'stage:0',
         type: 'prose',
         heading: 'Zadar',
         body: 'Begin on a peninsula with a Roman forum lying in the open, and the one seafront in Europe that is worth being at specifically for the sound: the Sea Organ turns swell into notes through pipes under the marble steps.',
@@ -547,6 +571,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 4,
+        slot: 'stage:1',
         type: 'prose',
         heading: 'Šibenik',
         body: 'A stop for the river rather than the sea: Šibenik sits where the Krka comes out through a gorge, and it is the base for the waterfalls upstream — a genuinely different landscape twenty minutes inland.',
@@ -568,6 +593,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 5,
+        slot: 'stage:2',
         type: 'prose',
         heading: 'Split',
         body: 'Two nights, because Split is not a city with a Roman ruin in it — the old town is inside Diocletian’s palace, with flats and bars built into the fourth-century walls, and it also happens to be the ferry port for the island stage that follows.',
@@ -590,6 +616,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 6,
+        slot: 'stage:3',
         type: 'prose',
         heading: 'Hvar',
         body: 'The island night, and the reason to check the sailing before anything else: Hvar is long, low and lavender-scented, and the town is a Venetian harbour with a fortress above it that you climb for the view of the Pakleni islands.',
@@ -612,6 +639,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 7,
+        slot: 'stage:4',
         type: 'prose',
         heading: 'Makarska',
         body: 'Back on the mainland under the Biokovo ridge, which rises to well over 1 500 metres directly behind the beach — the most abrupt sea-to-mountain transition anywhere on this route.',
@@ -630,6 +658,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 8,
+        slot: 'stage:5',
         type: 'prose',
         heading: 'Dubrovnik',
         body: 'Finish with two nights so that one of them can be early morning inside the walls, which is the only time the walled town is a place rather than a queue; park outside and come in by bus or boat.',
@@ -707,24 +736,28 @@ const ROUTES: SeedRoute[] = [
     sections: [
       {
         sort: 0,
+        slot: 'intro',
         type: 'prose',
         heading: null,
         body: 'This is the only route in the library where the van is the support vehicle rather than the point. The EuroVelo 6 cycle path runs the whole length of this valley on dedicated, almost entirely flat tarmac, separated from traffic for most of it, and it is one of the busiest long-distance cycle routes in Europe for good reason. The sensible way to do this week is to drive a short hop each morning, park, and ride.\n\nWhich means the stages here are close together on purpose. This is the shortest route in this library by distance and it has as many stages as routes twice its length — that is not padding, it is the design. Every stage is a place to leave the vehicle for a day, and the interesting ground between them is covered on two wheels rather than four.\n\nThree countries in seven days, and unusually for Europe they are genuinely different from one another on the same river. Vienna is monumental and orderly. Bratislava is forty minutes downstream, was a Hungarian coronation city for centuries, spent fifty years behind the Iron Curtain, and has an old town the size of a large village under a castle on a rock. Hungary begins in flat farmland and ends with the river turning sharply south through wooded hills at the Danube Bend, which is the prettiest stretch of the whole week and the one most people miss because it is not on the motorway.\n\nCampsite provision is solid and well distributed — between 19 and 54 sites within 25 km of each stage in our records, with the highest count around Szentendre because it is effectively Budapest’s weekend hinterland. This is also the one route here where you will find genuinely good municipal riverside sites, a central European habit that the Atlantic coast has largely lost.',
       },
       {
         sort: 1,
+        slot: 'season',
         type: 'prose',
         heading: 'When to go',
         body: 'April to October, and it is the longest usable season of any route in this library because nothing here depends on a pass being open or a sea being warm. High summer is fine — this is a river valley, not a Mediterranean coast — and the two best months are probably May, when the meadows are up, and late September, when the light along the Danube Bend is at its best.',
       },
       {
         sort: 2,
+        slot: 'roads',
         type: 'prose',
         heading: 'The driving',
         body: 'Flat, easy and unremarkable — this is the least demanding driving in the library. Two things to know: Austria, Slovakia and Hungary each require their own motorway vignette or e-toll, bought separately, and the old centres of Bratislava, Szentendre and Budapest are tight, cobbled and not places to take a long vehicle.',
       },
       {
         sort: 3,
+        slot: 'stage:0',
         type: 'prose',
         heading: 'Wien',
         body: 'Start at the imperial end of the river, where the Danube has been engineered into straight channels and an artificial island, and where a single night is enough because the city deserves a separate trip rather than a rushed one.',
@@ -748,6 +781,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 4,
+        slot: 'stage:1',
         type: 'prose',
         heading: 'Bratislava',
         body: 'Barely an hour downstream and an entirely different country: a compact baroque old town under a square white castle, and the only capital in the world that borders two other states.',
@@ -770,6 +804,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 5,
+        slot: 'stage:2',
         type: 'prose',
         heading: 'Győr',
         body: 'The first Hungarian stop, at the meeting of three rivers, with a baroque old town that almost no foreign visitor stops for and that is all the better for it.',
@@ -788,6 +823,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 6,
+        slot: 'stage:3',
         type: 'prose',
         heading: 'Esztergom',
         body: 'Hungary’s ecclesiastical capital and the start of the Danube Bend, with the largest church in the country on a hill above the river and a bridge across to Slovakia that was left broken from 1944 until 2001.',
@@ -810,6 +846,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 7,
+        slot: 'stage:4',
         type: 'prose',
         heading: 'Szentendre',
         body: 'A small riverside town of Serbian orthodox churches and steep lanes, close enough to Budapest to be its weekend escape, which makes it the right place to sleep before the city rather than in it.',
@@ -833,6 +870,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 8,
+        slot: 'stage:5',
         type: 'prose',
         heading: 'Budapest',
         body: 'Finish in the one European capital whose defining feature is that it is two cities on opposite banks — hilly Buda and flat Pest — and where the correct end to a week on the river is a thermal bath.',
@@ -903,24 +941,28 @@ const ROUTES: SeedRoute[] = [
     sections: [
       {
         sort: 0,
+        slot: 'intro',
         type: 'prose',
         heading: null,
         body: 'The card that started this library asked for an Alps route. It is worth being precise about what that can mean for us: our database covers the EU-27, and Switzerland is not in it. There is not one Swiss campsite in our records — not because Switzerland has none, but because it is outside the scope the project decided on. So this is the Alps as the European Union holds them, which is Austria, the Italian Dolomites, and the German and Slovenian edges. It is not a lesser version. The Dolomites are limestone rather than granite, they are vertical in a way the western Alps are not, and they are the part of the range a first visit should see anyway.\n\nAltitude is the organising fact of this week. It decides the temperature you sleep at — a valley campsite at 600 metres and a pass at 2 200 metres are different climates on the same afternoon — and it decides where a large vehicle can and cannot go. Several of the roads connecting these stages are engineered hairpin passes with length restrictions, and a long motorhome with a trailer is genuinely excluded from some of them rather than merely uncomfortable.\n\nThe route crosses a language border in the middle of it, twice, without crossing much of a cultural one. South Tyrol is Italian territory where German is the first language of most of the population, so Bressanone is also Brixen and the menu changes before the country does. The stages are ordered so that the crossing happens on a main valley road rather than a pass, which matters if the weather turns.\n\nCampsite density is good and evenly spread: between 23 and 45 sites within 25 km of every stage in our data. What varies is altitude, and the route notes it where it matters, because a site at 1 400 metres in mid-September is a genuinely cold night in a van without heating.',
       },
       {
         sort: 1,
+        slot: 'season',
         type: 'prose',
         heading: 'When to go',
         body: 'June to September, and the boundaries are hard rather than soft. The high passes this route uses carry snow gates and several do not open until late May or early June; by mid-October they begin to close again. A week planned for May here is a week of valley roads and closed signs.',
       },
       {
         sort: 2,
+        slot: 'roads',
         type: 'prose',
         heading: 'The driving',
         body: 'Engineered mountain roads — wide, well surfaced, and relentlessly steep and twisting, with hairpins signed for vehicle length on several passes. Descending is the part that punishes a heavy vehicle: use the gears, not the brakes. Check pass status the morning you drive it, not the week before.',
       },
       {
         sort: 3,
+        slot: 'stage:0',
         type: 'prose',
         heading: 'Innsbruck',
         body: 'Start in the valley city that the whole range funnels through — a compact old town with a mountain wall directly behind it, and a funicular from the centre that puts you above 2 000 metres inside half an hour.',
@@ -944,6 +986,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 4,
+        slot: 'stage:1',
         type: 'prose',
         heading: 'Brixen / Bressanone',
         body: 'Cross into Italy without noticing it: an old episcopal town in the Eisack valley where the architecture is Tyrolean, the street signs are bilingual, and the surrounding orchards are the first sign you are on the southern side of the range.',
@@ -967,6 +1010,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 5,
+        slot: 'stage:2',
         type: 'prose',
         heading: 'Cortina d’Ampezzo',
         body: 'Two nights in the middle of the limestone, because this is the base for the Dolomites proper and because the drive in over the passes is long enough that arriving and leaving on the same day wastes it.',
@@ -990,6 +1034,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 6,
+        slot: 'stage:3',
         type: 'prose',
         heading: 'Canazei',
         body: 'The highest stage on the route, at the head of the Val di Fassa and the junction of four famous passes — which is exactly why it is a single night: it is a place to be positioned, not a place to settle.',
@@ -1013,6 +1058,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 7,
+        slot: 'stage:4',
         type: 'prose',
         heading: 'Lienz',
         body: 'Come down and finish back in Austria where the Drau valley opens out — a warmer, lower, gentler end to the week, with a Roman town under the fields outside it.',
@@ -1087,24 +1133,28 @@ const ROUTES: SeedRoute[] = [
     sections: [
       {
         sort: 0,
+        slot: 'intro',
         type: 'prose',
         heading: null,
         body: 'Portugal had a reputation, for about a decade, as the place in Europe where you could park a van anywhere near the sea and nobody would mind. That reputation is out of date and it is worth saying so at the top of the page, because acting on it is now how people get fined. The law was tightened in 2021 to prohibit overnighting in vehicles outside authorised places, with the protected coastal stretches enforced hardest — which, inconveniently, is exactly the coast this route follows.\n\nThe practical answer is that Portugal also built the solution: a dense network of small paid aires and private sites specifically for motorhomes, many of them a few hundred metres from the beaches people used to park on. Our database holds between 12 and 33 campsites within 25 km of every stage on this route. The change is not that there is nowhere to sleep. It is that "anywhere" became "somewhere", and you now need to know which.\n\nThe coast itself is one of the most consistent in Europe and consistently underrated by people who only know the Algarve. It is a nearly unbroken line of cliff, dune and long beach facing an ocean with nothing between it and America, which means swell all year and wind most afternoons. The surf culture is real and it runs the entire length: Peniche and Nazaré are known internationally, but there is a beach break in front of almost every stage here.\n\nThe route runs north to south for a reason that matters day to day: the prevailing wind on this coast is northerly, and driving into it for nine days is a noticeably worse trip than having it behind you. It also means the landscape gets progressively drier and emptier as you go, ending on the headland at the southwest corner of Europe, which is the correct place to stop.',
       },
       {
         sort: 1,
+        slot: 'season',
         type: 'prose',
         heading: 'When to go',
         body: 'April to June and September to October. The Portuguese Atlantic is cold water and steady wind all year, so this is not a route that gets better in August — it gets busier, and the coastal sites fill with Portuguese holidaymakers. The shoulder months have the same sea, the same light and far more room.',
       },
       {
         sort: 2,
+        slot: 'roads',
         type: 'prose',
         heading: 'The driving',
         body: 'Fast toll motorways inland and slow, pleasant national roads along the coast — the coastal ones are the point. Portuguese motorway tolling is partly electronic-only with no booths, which catches out foreign vehicles; sort the transponder or the pre-registration before you need it, not at the first gantry.',
       },
       {
         sort: 3,
+        slot: 'stage:0',
         type: 'prose',
         heading: 'Porto',
         body: 'Two nights to begin, in a granite city stacked up the side of a gorge, where the working river frontage and the port lodges on the far bank are both still doing the job they were built for.',
@@ -1127,6 +1177,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 4,
+        slot: 'stage:1',
         type: 'prose',
         heading: 'Aveiro',
         body: 'A lagoon town of canals and painted flat-bottomed boats built for harvesting seaweed, with a striped-house beach strip a short ride away — a complete change of texture on day three.',
@@ -1150,6 +1201,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 5,
+        slot: 'stage:2',
         type: 'prose',
         heading: 'Nazaré',
         body: 'One night at the place where an underwater canyon focuses Atlantic swell into the largest surfable waves ever ridden — which in a calm autumn week means a fishing town with a funicular, and in the right swell means something else entirely.',
@@ -1173,6 +1225,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 6,
+        slot: 'stage:3',
         type: 'prose',
         heading: 'Peniche',
         body: 'A working fishing port on a near-island headland with surf on both sides, so there is almost always one beach that is out of the wind — and a fortress that spent the twentieth century as a political prison.',
@@ -1196,6 +1249,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 7,
+        slot: 'stage:4',
         type: 'prose',
         heading: 'Vila Nova de Milfontes',
         body: 'Two nights on the Alentejo coast, which is the emptiest and least developed stretch of shoreline in mainland Portugal — cliffs, storks nesting on sea stacks, and a river mouth calm enough to swim in when the ocean is not.',
@@ -1219,6 +1273,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 8,
+        slot: 'stage:5',
         type: 'prose',
         heading: 'Sagres',
         body: 'Finish at the southwest corner of the continent, on a windswept plateau of low scrub above vertical cliffs, where Portugal’s Atlantic navigation was organised in the fifteenth century and where the coast simply runs out.',
@@ -1284,24 +1339,28 @@ const ROUTES: SeedRoute[] = [
     sections: [
       {
         sort: 0,
+        slot: 'intro',
         type: 'prose',
         heading: null,
         body: 'This is the shortest route in the library and the only one where the landscape disappears twice a day. The Wadden Sea is a continuous belt of tidal flats running from the Netherlands past Germany to Denmark, protected as a single UNESCO site, and at low water it is not sea at all — it is a hundred kilometres of exposed mud and sand with channels through it. At high water it is back. Everything here, including whether the thing you drove to see exists this afternoon, runs off that timetable.\n\nIt is also the easiest driving anywhere in this library by a wide margin. The land is flat, the roads are excellent, and the whole coast sits behind dikes that double as the best cycle network in Europe. For a large motorhome or a family with small children this is about as low-stress as European camping gets, which is why it is tagged for both. The Dutch stages in particular have campsite density that is hard to believe: 107 sites within 25 km of Den Burg on Texel, 92 around Lauwersoog, in a country the size of a French region.\n\nThe activity this coast is known for is wadlopen — walking out across the flats at low tide towards an island, in a guided group, because doing it alone is how people drown. It is a genuinely strange thing to do: several hours of knee-deep mud and channel crossings with the sea coming back at a fixed time. It is also regulated, guided and seasonal, and it is the single best reason to come here rather than to any other flat coast.\n\nThe route crosses into Germany at the end on purpose. The Dutch and East Frisian sides of the same tidal system are administered completely differently, look different behind the dike, and have a different idea of what a seaside town is for — and the contrast over five days is more interesting than four Dutch stages would have been.',
       },
       {
         sort: 1,
+        slot: 'season',
         type: 'prose',
         heading: 'When to go',
         body: 'April to September. This is a bird and tide route more than a sun route, and the two best windows are actually the migration peaks — late April and May on the way north, and late August into September on the way back, when the mudflats hold wader flocks in numbers that are hard to describe.',
       },
       {
         sort: 2,
+        slot: 'roads',
         type: 'prose',
         heading: 'The driving',
         body: 'Flat, straight and excellent, with two constraints that are not about difficulty: the island stages depend on car ferries that must be booked ahead for a vehicle in summer, and a great deal of the good stuff is on dike-top cycle paths where vehicles cannot go at all. Bring bikes or the route loses half its point.',
       },
       {
         sort: 3,
+        slot: 'stage:0',
         type: 'prose',
         heading: 'Den Burg, Texel',
         body: 'Start on the largest of the Dutch islands, reached by a twenty-minute ferry from Den Helder, where the whole western side is dune and the eastern side is mudflat — the two halves of this coast on one island.',
@@ -1325,6 +1384,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 4,
+        slot: 'stage:1',
         type: 'prose',
         heading: 'Harlingen',
         body: 'Back on the mainland in a Frisian harbour town that is still a working port for the island ferries, with a centre of seventeenth-century merchant houses along the water rather than behind it.',
@@ -1348,6 +1408,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 5,
+        slot: 'stage:2',
         type: 'prose',
         heading: 'Lauwersoog',
         body: 'A stop for darkness as much as for tides: the national park here was designated a dark-sky park, and it is one of the few places on this crowded coast where the night sky is genuinely black.',
@@ -1371,6 +1432,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 6,
+        slot: 'stage:3',
         type: 'prose',
         heading: 'Norddeich',
         body: 'Finish across the border in East Frisia, where the same tidal flats are called the Wattenmeer, the dike is higher, and the local institution is a very specific and non-negotiable approach to drinking tea.',
@@ -1447,24 +1509,28 @@ const ROUTES: SeedRoute[] = [
     sections: [
       {
         sort: 0,
+        slot: 'intro',
         type: 'prose',
         heading: null,
         body: 'The single most useful thing to understand about driving in the Irish southwest is that the distances are trivial and the days are still long. Every stage on this route is a short hop on the map. In practice each one takes far longer than it should, because the roads are single-track with passing places, hedged to head height on both sides so you cannot see round anything, and shared with tour coaches that go one way round the famous loops by convention.\n\nThis has a practical consequence for the vehicle. A large motorhome on the Ring of Kerry or the Beara peninsula is not impossible, but it is a job rather than a drive, and there are stretches where reversing a long vehicle to a passing place is the price of meeting a coach. A van conversion is the right tool here in a way that is not true of the Danube or the French Atlantic. This route is tagged accordingly, and it is the only one in the library where the vehicle recommendation is a real restriction rather than a preference.\n\nThe weather deserves the same honesty. It rains here, frequently, in every month, and a week without rain would be remarkable. But it rains in bands that move through, so the useful skill is not avoiding it but reading it: a wet morning is very often a clear afternoon, and the light after a front goes through is the reason people photograph this coast so obsessively.\n\nCampsite provision is thin and clustered — our database holds between 8 and 35 sites within 25 km of each stage, and the nearest campsite to Kenmare is more than fifteen kilometres away, the largest stage-to-campsite gap anywhere in this library. Ireland has 519 campsites in our records in total — fewer than the single French département of Charente-Maritime, which has 643. Book, or at least ring ahead.',
       },
       {
         sort: 1,
+        slot: 'season',
         type: 'prose',
         heading: 'When to go',
         body: 'May to September. Not because of temperature — Ireland barely has one, the sea moderates everything to a narrow band — but because of daylight and opening. In June you get light until half past ten at night; in November you get it until four, the peninsula roads are dark and wet, and most of the campsites on this route are closed.',
       },
       {
         sort: 2,
+        slot: 'roads',
         type: 'prose',
         heading: 'The driving',
         body: 'Single-track lanes with passing places, high hedges, blind bends and oncoming coaches, plus the left-hand driving that catches out anyone arriving from the continent. The N-roads between towns are fine. Everything on a peninsula is not. Fuel and water are in the towns, not on the loops.',
       },
       {
         sort: 3,
+        slot: 'stage:0',
         type: 'prose',
         heading: 'Kinsale',
         body: 'Start somewhere sheltered and civilised before the road gets hard: a narrow-streeted harbour town at the mouth of the Bandon, with two star forts guarding the estuary and a food reputation out of all proportion to its size.',
@@ -1488,6 +1554,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 4,
+        slot: 'stage:1',
         type: 'prose',
         heading: 'Bantry',
         body: 'The gateway to the wildest of the peninsulas, on a long sheltered bay where a French invasion fleet anchored in 1796 and was driven off by the weather rather than by anyone defending it.',
@@ -1511,6 +1578,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 5,
+        slot: 'stage:2',
         type: 'prose',
         heading: 'Kenmare',
         body: 'A planned eighteenth-century town at the head of its own bay, sitting at the junction of the Ring of Kerry and the Beara road — useful positioning, and the one stage where the nearest campsite in our data is a real drive away.',
@@ -1534,6 +1602,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 6,
+        slot: 'stage:3',
         type: 'prose',
         heading: 'Killarney',
         body: 'The busiest stop on the route and worth it for one reason: the national park behind the town has the largest remaining native oak woodland in Ireland, and you can walk or cycle into it directly from the edge of the campsites.',
@@ -1557,6 +1626,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 7,
+        slot: 'stage:4',
         type: 'prose',
         heading: 'Dingle',
         body: 'A working fishing harbour in an Irish-speaking district, and the base for the one loop on this route that everyone agrees is better than the famous one — Slea Head, with early Christian stone huts standing in the fields beside the road.',
@@ -1580,6 +1650,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 8,
+        slot: 'stage:5',
         type: 'prose',
         heading: 'Doolin',
         body: 'Finish on the edge of the Burren, a bare limestone pavement full of Arctic and Mediterranean plants growing in the same cracks — a landscape that looks like nothing else in the country, with the Cliffs of Moher at its southern end.',
@@ -1657,24 +1728,28 @@ const ROUTES: SeedRoute[] = [
     sections: [
       {
         sort: 0,
+        slot: 'intro',
         type: 'prose',
         heading: null,
         body: 'Allemansrätten, the right of public access, is the reason people come to Sweden with a tent, and it is also the most misunderstood thing about travelling here. The right is real and it is broad: you may walk, swim, pick berries and pitch a tent for a night on most uncultivated land without asking anyone. It is not a right to park a motorhome wherever you like. Vehicles are governed by road traffic law, not by allemansrätten, and a van parked overnight on a forest track is in a completely different legal position from a tent carried there on foot.\n\nThat distinction runs through this whole route and it is worth getting right, because getting it wrong is how visitors end up resented in a country that is otherwise extraordinarily welcoming to campers. The practical shape of it: sleep on a site or in a marked parking area, and use the right of access for the walking, the swimming and the berry-picking, which is where it is genuinely generous.\n\nThe landscape does not change dramatically over these nine days and that is the appeal. It is water and conifer and birch, over and over, at an enormous scale — Sweden has something over 95 000 lakes large enough to name, and this route threads between two of the biggest, Vänern and Siljan. The change you do notice is northward: by Dalarna the summer nights have stopped going properly dark, the villages are red-painted timber, and the folk traditions that the rest of the country treats as heritage are still in ordinary use.\n\nCampsite density here is the second-thinnest of any route in this library, after the Peloponnese — between 6 and 32 sites within 25 km of each stage, and only 6 around Uppsala. Swedish sites tend to be large, lakeside, well equipped and busy in July, and the gaps between them are long. This is a route to plan the fuel stops on.',
       },
       {
         sort: 1,
+        slot: 'season',
         type: 'prose',
         heading: 'When to go',
         body: 'June to August. July is when Sweden itself is on holiday and the lakeside sites are busiest; late June is midsummer, which is the single best week to be here and also the one week when a lot of the country stops working. September is beautiful and cold, and the seasonal sites start closing.',
       },
       {
         sort: 2,
+        slot: 'roads',
         type: 'prose',
         heading: 'The driving',
         body: 'Excellent, empty two-lane roads through forest, with the two hazards that Swedish road signs keep warning you about and visitors keep underestimating: elk, which are large enough to come through a windscreen, and long dusk periods when they move. Distances between services are long.',
       },
       {
         sort: 3,
+        slot: 'stage:0',
         type: 'prose',
         heading: 'Stockholm',
         body: 'Start in a city built across fourteen islands where the lake meets the Baltic, and see the one thing you cannot see anywhere else: a seventeenth-century warship raised almost intact from the harbour mud.',
@@ -1698,6 +1773,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 4,
+        slot: 'stage:1',
         type: 'prose',
         heading: 'Örebro',
         body: 'A castle on an island in the middle of a town, and the right place to break the drive west — also the gateway to Kilsbergen, the low forested ridge that is the first properly empty country on this route.',
@@ -1721,6 +1797,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 5,
+        slot: 'stage:2',
         type: 'prose',
         heading: 'Karlstad',
         body: 'Two nights on the northern shore of Vänern, which is the largest lake in the European Union and big enough that the far side is below the horizon — this is the stage for getting in the water.',
@@ -1743,6 +1820,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 6,
+        slot: 'stage:3',
         type: 'prose',
         heading: 'Mora',
         body: 'The northern turning point, at the top of Lake Siljan — a crater lake formed by a meteorite impact, and the heart of the Dalarna traditions that most visitors only meet as a painted wooden horse.',
@@ -1766,6 +1844,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 7,
+        slot: 'stage:4',
         type: 'prose',
         heading: 'Leksand',
         body: 'Two nights at the southern end of the same lake, because this is where the midsummer celebrations are largest and where the traditional timber villages around the shore are worth a slow day rather than a drive-through.',
@@ -1787,6 +1866,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 8,
+        slot: 'stage:5',
         type: 'prose',
         heading: 'Uppsala',
         body: 'Finish in the old ecclesiastical and university capital, with Scandinavia’s largest cathedral and, four kilometres north, the burial mounds of the kings who ruled here before any of it.',
@@ -1864,24 +1944,28 @@ const ROUTES: SeedRoute[] = [
     sections: [
       {
         sort: 0,
+        slot: 'intro',
         type: 'prose',
         heading: null,
         body: 'Three countries in nine days sounds like a sprint, and everywhere else in Europe it would be. Here it is not, because the Baltic states are small and almost entirely empty: you cross a border, the language on the signs changes completely, and the landscape does not change at all. Pine forest, sand, bog, and very few people. The whole of Estonia holds fewer campsites in our database than the French département of Charente-Maritime.\n\nThat emptiness is the thing to plan around, and it is why this route is honest about a number most itineraries hide. Our database holds 12 campsites within 25 km of Tallinn, 12 around Pärnu, 9 around Nida, 11 around Vilnius. Compare the French Atlantic route, where the equivalent figure is 223. Nothing is wrong with the data — there simply are not many campsites, the distances between them are large, and "we will find something" is a worse plan here than anywhere else in this library.\n\nWhat you get in exchange is the quietest coastline in the European Union. The beaches at Jūrmala and on the Curonian Spit are white sand backed by pine, and in June they are close to deserted by the standards of any other EU coast. The Spit in particular is unlike anywhere else: a 98-kilometre sand bar, half of it Lithuanian and half Russian, with migrating dunes high enough to have buried villages, and a strict protection regime that means you camp where you are told and nowhere else.\n\nThe three capitals are genuinely three different cities and this route treats them that way. Tallinn has an intact Hanseatic upper and lower town. Riga is an imperial-scale city with one of Europe’s largest concentrations of Art Nouveau frontages. Vilnius is baroque, Catholic, and set inland among hills — the only stage on this route that is not within an hour of the sea.',
       },
       {
         sort: 1,
+        slot: 'season',
         type: 'prose',
         heading: 'When to go',
         body: 'June to August, and the reason is light rather than warmth. At these latitudes midsummer gives you eighteen or nineteen usable hours and the coast is genuinely warm; by late September it is dark at seven, most seasonal campsites have shut, and the route stops making sense.',
       },
       {
         sort: 2,
+        slot: 'roads',
         type: 'prose',
         heading: 'The driving',
         body: 'Long, straight, empty two-lane roads through forest, in good condition and lightly policed by speed cameras that are well signed. The distances are the difficulty: several of these hops are three or four hours with almost nothing in between, and fuel stops thin out badly once you leave the main corridors.',
       },
       {
         sort: 3,
+        slot: 'stage:0',
         type: 'prose',
         heading: 'Tallinn',
         body: 'Two nights to start, because Tallinn’s old town is a complete walled Hanseatic trading city on two levels and it deserves more than an afternoon — and because it is the one stage where the campsite is a bus ride from something worth two evenings.',
@@ -1905,6 +1989,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 4,
+        slot: 'stage:1',
         type: 'prose',
         heading: 'Pärnu',
         body: 'Estonia’s summer town, and the first time on this route that the Baltic looks inviting: a shallow, gently shelving sand bay that warms up far more than a sea at this latitude has any right to.',
@@ -1923,6 +2008,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 5,
+        slot: 'stage:2',
         type: 'prose',
         heading: 'Rīga',
         body: 'The biggest city in the Baltics and the one with the most surprising streets: the Art Nouveau district north of the old town is blocks of it at a scale found almost nowhere else in Europe.',
@@ -1945,6 +2031,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 6,
+        slot: 'stage:3',
         type: 'prose',
         heading: 'Liepāja',
         body: 'A port with an abandoned tsarist naval fortress town on its northern edge — half-demolished coastal batteries standing in the surf, which is a stranger and better stop than another old town.',
@@ -1962,6 +2049,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 7,
+        slot: 'stage:4',
         type: 'prose',
         heading: 'Nida',
         body: 'Two nights on the Curonian Spit, reached by ferry from Klaipėda: a sand bar between lagoon and sea where the dunes move, the villages are wooden and painted, and the protection rules mean you stay exactly where you are permitted to.',
@@ -1985,6 +2073,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 8,
+        slot: 'stage:5',
         type: 'prose',
         heading: 'Vilnius',
         body: 'Finish inland and uphill in a baroque capital that feels nothing like the two coastal ones — the largest old town in the Baltics, with a self-declared artists’ republic occupying one quarter of it.',
@@ -2056,24 +2145,28 @@ const ROUTES: SeedRoute[] = [
     sections: [
       {
         sort: 0,
+        slot: 'intro',
         type: 'prose',
         heading: null,
         body: 'Most camping routes assume summer. This one assumes the opposite, and it is aimed at the substantial population of northern Europeans who take a motorhome south in November and come back in March. The logic is simple: at this latitude, winter is the good season. Daytime temperatures in the coastal strip sit comfortably in the high teens, the sites that shut in the Alps are open here, and the cultural sights that are unbearable in a Seville August are pleasant in a Seville February.\n\nTwo things about that need saying honestly rather than glossed. First, winter here is not summer — it rains, mostly in the west and mostly in short heavy spells, and inland at altitude it is cold: Granada sits at around 700 metres with the Sierra Nevada behind it, and there is snow on those peaks in January while people are on the beach ninety minutes away. Second, the long-stay winter sites on this coast fill up with people who arrive in November and leave in March, which is a different kind of scarcity from the August rush and needs a different kind of planning.\n\nThe route is built as a west-to-east traverse rather than a loop, starting inland in Seville and finishing in the driest corner of the European mainland. That ordering is deliberate: it puts the cities at the start, when you have energy for them, and ends in the empty volcanic coast of Cabo de Gata, which is the part people wish they had left more time for. It also means you climb once, to Granada, rather than bouncing up and down off the coast.\n\nThe campsite spread is workable but not generous: our database holds between 9 and 29 sites within 25 km of each stage, with Cabo de Gata the thinnest at 9. That last figure is a genuine constraint rather than a data gap — it is a protected natural park, and the whole point of it is that there is not much there.',
       },
       {
         sort: 1,
+        slot: 'season',
         type: 'prose',
         heading: 'When to go',
         body: 'November to March, which is the whole reason this route exists. Everything else in this library is a summer trip; this one is specifically for the months when the rest of Europe is shut. The inversion is real — Seville in July is regularly above 40 °C and genuinely unpleasant, and the same city in February is shirtsleeves by lunchtime.',
       },
       {
         sort: 2,
+        slot: 'roads',
         type: 'prose',
         heading: 'The driving',
         body: 'Good fast dual carriageways between the cities and genuinely narrow mountain roads to reach the white villages, several with sharp switchbacks and low-hanging balconies in the village streets themselves. The Cabo de Gata access roads are unsurfaced in places. Winter rain turns a dry rambla crossing into a real one.',
       },
       {
         sort: 3,
+        slot: 'stage:0',
         type: 'prose',
         heading: 'Sevilla',
         body: 'Two nights to start, because Seville in winter is the best version of itself and because the two things to see here — the cathedral complex and the Alcázar — are both slow, both indoors-and-out, and both much better without a queue in the heat.',
@@ -2097,6 +2190,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 4,
+        slot: 'stage:1',
         type: 'prose',
         heading: 'Ronda',
         body: 'One night up in the sierra for the single most theatrical piece of geography in Spain: a town split by a gorge more than a hundred metres deep, with an eighteenth-century bridge across it that took forty years to build.',
@@ -2119,6 +2213,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 5,
+        slot: 'stage:2',
         type: 'prose',
         heading: 'Tarifa',
         body: 'Two nights at the southern tip of the continent, where you can see Africa across fourteen kilometres of water on a clear day and where the wind that makes this the kitesurfing capital of Europe blows more or less permanently.',
@@ -2142,6 +2237,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 6,
+        slot: 'stage:3',
         type: 'prose',
         heading: 'Granada',
         body: 'Two nights, and the only stage where you should book something months ahead: entry to the Alhambra is capped and timed, and arriving in Granada without a ticket is arriving to look at it from outside.',
@@ -2165,6 +2261,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 7,
+        slot: 'stage:4',
         type: 'prose',
         heading: 'San José, Cabo de Gata',
         body: 'Finish in the driest part of Europe: a protected volcanic coastline of bare rock, agave and small unbuilt coves, with no resort development at all, which after four towns is exactly the right way to end.',
@@ -2235,24 +2332,28 @@ const ROUTES: SeedRoute[] = [
     sections: [
       {
         sort: 0,
+        slot: 'intro',
         type: 'prose',
         heading: null,
         body: 'The Peloponnese is where Greek history is densest and Greek tourism is thinnest, which is an unusual combination and the whole argument for this route. Mycenae, Epidaurus, Sparta, Olympia and Messene are all on this peninsula, within a few hours of one another, and none of them carries anything like the crowds of Athens or Santorini. You can stand in the stadium at Olympia in May with a handful of other people in it.\n\nThe rhythm of the week writes itself and it is the opposite of a beach holiday’s. Start early, be at the site by eight or nine while the stone is still cool, be finished by noon, and spend the afternoon in the sea — which on this coast is warm from May and clear almost everywhere. Trying to do it the other way round is how people end up remembering Greek archaeology as an ordeal.\n\nBe honest about the campsite picture before you commit, because this route has the thinnest coverage in the library. Our database holds only 2 campsites within 25 km of Mystras and 4 around Olympia, against 19 at Nafplio and 13 at Pylos. Greece as a whole gives us 625 sites. Some of that is genuine — the interior is mountainous, empty and not set up for this — and some of it is mapping: Greek campsites are less thoroughly recorded in OpenStreetMap than Dutch or Croatian ones. Either way, the two inland stages need to be planned rather than improvised.\n\nThe peninsula is also more mountainous than people expect. The Taygetos range behind Sparta runs to well over 2 000 metres, the roads over it are serious, and the three southern prongs — Messenian, Mani and the eastern cape — are separated by them rather than by distance. This route deliberately stays on one side and ends inland rather than trying to loop all three in nine days.',
       },
       {
         sort: 1,
+        slot: 'season',
         type: 'prose',
         heading: 'When to go',
         body: 'April to June and September to October, and the constraint is not comfort but the archaeology. The sites on this route are open, unshaded stone in full sun, and walking round Mycenae or Olympia in a Greek July afternoon is a genuinely bad idea rather than merely a hot one. In May the same walk is pleasant and the sea is already swimmable.',
       },
       {
         sort: 2,
+        slot: 'roads',
         type: 'prose',
         heading: 'The driving',
         body: 'A modern toll motorway across the north and then a great deal of narrow mountain road, some of it with no barrier and a long drop. Village streets in the Mani are stone-walled and tight. Fuel is in the towns; assume nothing on the mountain sections, including phone signal.',
       },
       {
         sort: 3,
+        slot: 'stage:0',
         type: 'prose',
         heading: 'Nafplio',
         body: 'Two nights in the first capital of independent Greece — a Venetian-built harbour town under two fortresses, and the base for the two greatest sites in the Argolid, both within half an hour.',
@@ -2276,6 +2377,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 4,
+        slot: 'stage:1',
         type: 'prose',
         heading: 'Mystras',
         body: 'One night under the Byzantine city on the flank of Taygetos — a whole abandoned late-medieval town of churches, palaces and lanes climbing a hillside, which is a completely different Greece from the classical one either side of it.',
@@ -2299,6 +2401,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 5,
+        slot: 'stage:2',
         type: 'prose',
         heading: 'Gytheio',
         body: 'Two nights at the top of the Mani, in a working port with a tiny island joined by a causeway and a shipwreck on the beach outside town — and the point from which the tower villages of the peninsula are a day trip rather than a commitment.',
@@ -2322,6 +2425,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 6,
+        slot: 'stage:3',
         type: 'prose',
         heading: 'Pylos',
         body: 'A bay with a naval battle in it and a Mycenaean palace above it — and Voidokilia, a beach in an almost perfect circle that is genuinely worth a detour on a coast full of good ones.',
@@ -2344,6 +2448,7 @@ const ROUTES: SeedRoute[] = [
       },
       {
         sort: 7,
+        slot: 'stage:4',
         type: 'prose',
         heading: 'Olympia',
         body: 'Finish with two nights inland at the site the whole peninsula is best known for, so that you can be in the sanctuary at opening and still have a day for the museum — which holds the sculpture the site itself no longer has.',
@@ -2416,6 +2521,7 @@ export class SeedRoutesContent1795600000000 implements MigrationInterface {
         ...r.sections,
         {
           sort: r.sections.length,
+          slot: 'attribution',
           type: 'prose',
           heading: 'Where this data comes from',
           body: r.attribution,
@@ -2424,9 +2530,9 @@ export class SeedRoutesContent1795600000000 implements MigrationInterface {
 
       for (const s of sections) {
         const row: Array<{ id: string }> = await queryRunner.query(
-          `INSERT INTO page_sections (page_id, sort, type, visible)
-           VALUES ($1, $2, $3, true) RETURNING id`,
-          [pageId, s.sort, s.type],
+          `INSERT INTO page_sections (page_id, sort, type, slot, visible)
+           VALUES ($1, $2, $3, $4, true) RETURNING id`,
+          [pageId, s.sort, s.type, s.slot],
         );
         await queryRunner.query(
           `INSERT INTO page_section_translations
