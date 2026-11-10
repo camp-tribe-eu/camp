@@ -186,7 +186,7 @@ export async function GET() {
       );
     }
   }
-  for (const c of publishableCountries()) {
+  for (const c of await publishableCountries()) {
     lines.push(
       `- [Renting a camper in ${c.name}](${SITE}/camper-rental/${c.code}): ` +
         c.angle,

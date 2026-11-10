@@ -48,7 +48,7 @@ interface Params {
 export const dynamicParams = false;
 
 export async function generateStaticParams(): Promise<Params[]> {
-  return publishableCountries().map((c) => ({ country: c.code }));
+  return (await publishableCountries()).map((c) => ({ country: c.code }));
 }
 
 export async function generateMetadata({
@@ -57,7 +57,7 @@ export async function generateMetadata({
   params: Promise<Params>;
 }): Promise<Metadata> {
   const { country } = await params;
-  const c = rentalCountry(country);
+  const c = await rentalCountry(country);
   if (!c) return {};
   return {
     title: `Renting a camper in ${inProse(c)}`,
@@ -72,11 +72,12 @@ export default async function RentalCountryPage({
   params: Promise<Params>;
 }) {
   const { country } = await params;
-  const c = rentalCountry(country);
+  const c = await rentalCountry(country);
   // 🔴 `publishableCountries()` rather than a bare lookup: a country whose
   // content stopped passing the gate must 404 rather than render a page
   // that no longer meets the standard the section is built on.
-  if (!c || !publishableCountries().some((x) => x.code === c.code)) notFound();
+  if (!c || !(await publishableCountries()).some((x) => x.code === c.code))
+    notFound();
 
   const path = `/camper-rental/${c.code}`;
   const offers = rentalOffers(c.code);

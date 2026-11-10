@@ -195,14 +195,14 @@ const RENTAL = [
  * Чотири різновиди, перевірені по `FactSource` кожного хоста в `countries.ts`,
  * `thresholds.ts`, `rental-checklist.tsx` і `camper-rental/page.tsx`.
  */
+// 🔴 CAMP-479: `AUTHORITY` і `CONTEXT` пішли разом із фактами країн —
+// їхні причини тепер у `tests/e2e/rental-library.spec.ts`, бо саме там
+// тепер лежать твердження, які на них спираються. `LAW` і `OPERATOR`
+// лишились: їхні хости ще трапляються в коді поза орендою.
 const LAW =
   "the text of the law that is the origin of a norm the camper-rental page retells in its own words; cited as the source of the rule, nothing is fetched or reproduced";
-const AUTHORITY =
-  "the public body that issues or administers a rule (toll, vignette, emission zone, winter tyres, overnight stay) which the camper-rental page retells in its own words; cited as the origin of the norm, nothing is fetched or reproduced";
 const OPERATOR =
   "the operator’s own published tariff or vehicle classification, which the camper-rental page retells in its own words; cited as the origin of the rule, no figures are fetched or reproduced";
-const CONTEXT =
-  "the national body the camper-rental page names beside a general statement about the country made in our own words (not a rule, not a dataset); a link to where to read further, nothing is fetched";
 const cited = (why: string, ...hosts: string[]): Record<string, Exception> =>
   Object.fromEntries(hosts.map((h) => [h, because(why, ...RENTAL)]));
 
@@ -360,46 +360,15 @@ const NOT_A_SOURCE: Readonly<Record<string, Exception>> = {
     "apps/web/src/lib/affiliate.ts",
   ),
 
-  // ── сторінки оренди: першоджерело норми, яку сторінка переказує ──
-  ...cited(
-    LAW,
-    "eur-lex.europa.eu",
-    "boe.es",
-    "normattiva.it",
-    "diariodarepublica.pt",
-    "gesetze-im-internet.de",
-  ),
-  ...cited(
-    AUTHORITY,
-    "umweltbundesamt.de",
-    "certificat-air.gouv.fr",
-    "mit.gov.it",
-    "dgt.es",
-    "mitma.gob.es",
-    "rijksoverheid.nl",
-    "milieuzones.nl",
-    "oesterreich.gv.at",
-    "policija.si",
-    "transportstyrelsen.se",
-    "fstyr.dk",
-    "rsa.ie",
-    "naturvardsverket.se",
-    "economy-finance.ec.europa.eu",
-  ),
-  ...cited(
-    OPERATOR,
-    "toll-collect.de",
-    "autoroutes.fr",
-    "autostrade.it",
-    "asfinag.at",
-    "hac.hr",
-    "evinjeta.dars.si",
-    "infraestruturasdeportugal.pt",
-    "storebaelt.dk",
-    "tii.ie",
-  ),
-  ...cited(CONTEXT, "croatia.hr", "turismodeportugal.pt", "naturstyrelsen.dk"),
-
+  // ── сторінки оренди: ті, що ще трапляються в коді ──
+  //
+  // 🔴 CAMP-479: решту перенесено в `tests/e2e/rental-library.spec.ts`.
+  // Факти країн переїхали в базу, тож цей обхід КОДУ їх більше не
+  // бачить — і виняток тут став би мертвим, а сторож мертвих
+  // винятків не терпить навмисно: мертвий виняток ховає те, що
+  // джерело зникло зі сторінки разом із твердженням.
+  ...cited(LAW, "eur-lex.europa.eu"),
+  ...cited(OPERATOR, "autoroutes.fr", "storebaelt.dk"),
   // ── перехід #398 завершено ──
   //
   // 🔴 ЩО ТУТ БУЛО. Доки #398 не злито, `gisco-services.ec.europa.eu` і
@@ -649,7 +618,8 @@ const REFERENCE_HOSTS: Readonly<Record<string, string>> = {
   "cartes.gouv.fr":
     "IGN France’s conditions of use, which its service points to",
   "openfontlicense.org": "SIL Open Font License text",
-  "opensource.org": "MIT License text, under which the flag-icons files are released",
+  "opensource.org":
+    "MIT License text, under which the flag-icons files are released",
   "flagicons.lipis.dev":
     "the flag-icons project (MIT): 27 SVG files vendored into apps/web/public/flags, an asset rather than a data source",
   "maplibre.org":
