@@ -4,7 +4,6 @@ import { notFound } from 'next/navigation';
 import {
   AMENITY_KEYS,
   AMENITY_LABEL,
-  AmenityValue,
   countryName,
   getSpot,
   getSpotIndex,
@@ -26,6 +25,7 @@ import { alternatesFor } from '@/lib/i18n';
 import { RAILWAY_STOP, RAILWAY_STOP_TITLE } from '@/lib/railway-stop';
 import TravelNotice from '@/components/travel-notice';
 import Faq from '@/components/faq';
+import AmenityList from '@/components/amenity-list';
 import OvernightStay from '@/components/overnight-stay';
 import RecordEdited from '@/components/record-edited';
 import SourceNote from '@/components/source-note';
@@ -570,15 +570,20 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
             is a gap in the data, not a statement that it has none.
           </Block>
         ) : null}
-        <ul className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {AMENITY_KEYS.map((key) => (
-            <Amenity
-              key={key}
-              label={AMENITY_LABEL[key]}
-              value={spot.amenities[key]}
-            />
-          ))}
-        </ul>
+        {/* 🔴 ЗНАЧКИ ЗАМІСТЬ СІТКИ YES / NO / NOT RECORDED (CAMP-453,
+            знімок 441/66). Три стани лишаються трьома — «не записано» це
+            не «немає», і на цьому стоять наші ж умови й кожен фільтр,
+            що друкує, скільки кемпінгів він відкинув за браком даних.
+            Порядок ключів не чіпаємо: він названий у `AMENITY_KEYS` і
+            ставить санітарні поруч навмисно. */}
+        <div className="mt-1">
+          <AmenityList
+            testId="spot-amenities"
+            keys={AMENITY_KEYS}
+            labels={AMENITY_LABEL}
+            values={spot.amenities}
+          />
+        </div>
         {/* 🔴 CAMP-256: when a mapper last touched the entry these
             facilities come from, under the list they describe. Always
             rendered — "Not known" is an answer, and a line that appears
@@ -1065,31 +1070,6 @@ function MissingNotice({ since }: { since: string }) {
       . It may have closed, or the entry may have been removed by mistake — we
       keep the page until several weekly imports agree it is gone.
     </p>
-  );
-}
-
-function Amenity({ label, value }: { label: string; value: AmenityValue }) {
-  const style: Record<AmenityValue, string> = {
-    yes: 'border-ok/50 bg-ok/10 text-heading',
-    no: 'border-line-2 bg-surface-2 text-ink-2',
-    unknown: 'border-dashed border-line bg-transparent text-ink-2',
-  };
-  const mark: Record<AmenityValue, string> = {
-    yes: 'Yes',
-    no: 'No',
-    // 🔴 Never blank and never a crossed-out icon: an unrecorded amenity
-    // must not read as an absent one.
-    unknown: 'Not recorded',
-  };
-  return (
-    <li
-      className={`flex items-center justify-between gap-3 rounded border px-3 py-2 text-sm ${style[value]}`}
-    >
-      <span>{label}</span>
-      <span className="text-xs font-semibold uppercase tracking-wide">
-        {mark[value]}
-      </span>
-    </li>
   );
 }
 
