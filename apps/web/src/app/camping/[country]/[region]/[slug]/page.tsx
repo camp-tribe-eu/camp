@@ -949,7 +949,10 @@ function Around({ spot }: { spot: Spot }) {
           Обидва джерела названі навмисно: висота походить із Copernicus,
           а доходить до нас через Open-Meteo, і їхня ж сторінка ліцензії
           вказує обох. */}
-      <p className="mt-3 text-xs text-ink-2">
+      <p
+        className="mt-3 text-xs text-ink-2"
+        data-testid="surroundings-credit"
+      >
         Calculated by us from OpenStreetMap geometry
         {usedElevation ? (
           <>
