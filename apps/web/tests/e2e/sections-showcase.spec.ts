@@ -20,6 +20,7 @@ const SHELVES = [
   { n: 4, name: "Image with text, alternating" },
   { n: 5, name: "Icon, title, text in a row" },
   { n: 8, name: "FAQ accordion" },
+  { n: 9, name: "Review cards (sample text — we have no reviews)" },
   { n: 10, name: "Post cards (sample)" },
   { n: 11, name: "Box banner" },
 ];

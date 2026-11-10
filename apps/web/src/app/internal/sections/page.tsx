@@ -9,6 +9,7 @@ import { GridBanner } from "@/components/grid-banner";
 import { ImageWithText } from "@/components/image-with-text";
 import { LayeredBanner } from "@/components/layered-banner";
 import PostCards from "@/components/post-cards";
+import ReviewCards from "@/components/review-cards";
 
 /**
  * Вітрина каталогу секцій — CAMP-449, «Спосіб перевірки», пункт 1:
@@ -76,6 +77,28 @@ const SAMPLE_FAQ = [
     question: "Why does a price sometimes carry a note?",
     answer:
       "Because the source gave no validity period for it. The note says so instead of hiding the figure.",
+  },
+];
+
+const SAMPLE_REVIEWS = [
+  {
+    key: "one",
+    quote: "Sample quote. The distance to water was right to the metre.",
+    author: "Sample author",
+    role: "Sample role",
+    rating: 5,
+  },
+  {
+    key: "two",
+    quote: "Sample quote. Found a quiet site two hours from the ferry.",
+    author: "Second sample author",
+    role: "Sample role",
+    rating: 4,
+  },
+  {
+    key: "three",
+    quote: "Sample quote without a rating, to show the card without stars.",
+    author: "Third sample author",
   },
 ];
 
@@ -171,6 +194,15 @@ export default function SectionCatalogue() {
 
       <Shelf n={8} name="FAQ accordion">
         <Faq items={SAMPLE_FAQ} />
+      </Shelf>
+
+      {/* 🔴 ЗРАЗКОВІ ЦИТАТИ, І ВОНИ НАЗВАНІ ЗРАЗКОВИМИ. Відгуків у нас
+          немає жодного; картка просить секцію «не вигадувати, тримати в
+          каталозі». Тут вона стоїть саме в каталозі — на сторінці,
+          закритій `noindex` і `Disallow: /internal/`, — а імена в ній
+          так і написані: Sample. */}
+      <Shelf n={9} name="Review cards (sample text — we have no reviews)">
+        <ReviewCards items={SAMPLE_REVIEWS} />
       </Shelf>
 
       {/* 🔴 ЗРАЗКОВІ МАТЕРІАЛИ, І ВОНИ НАЗВАНІ ЗРАЗКОВИМИ. Секція на
