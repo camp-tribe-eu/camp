@@ -1,3 +1,4 @@
+import FeatureRow from '@/components/feature-row';
 import { ButtonLink, buttonClasses } from "./button";
 import { RichText } from "./rich-text";
 import { PAGE_VALUES, type SectionView } from "@/lib/page-content";
@@ -418,17 +419,28 @@ function Steps({ section, values }: RenderProps) {
       {section.heading && (
         <h2 className="text-xl md:text-[25px]">{section.heading}</h2>
       )}
-      <ol className="mt-5 grid grid-cols-1 gap-5 md:grid-cols-3">
-        {items.map((s, i) => (
-          <li key={s.term}>
-            <span className="text-xs font-semibold uppercase tracking-widest text-ink-2">
-              Step {i + 1}
-            </span>
-            <h3 className="mt-1 text-base">{s.term}</h3>
-            <Block as="p" measure="read" className="mt-1 text-sm text-ink-2">{s.text}</Block>
-          </li>
-        ))}
-      </ol>
+      {/* 🔴 CAMP-449, пункт 5: секція каталогу замість голого `<ol>`.
+          Було три стовпчики тексту без рамки й без значка — рівно те,
+          що власник назвав «скучний, сухий». Дані НЕ змінились: ті самі
+          `items`, той самий порядок, та сама нумерація. */}
+      <div className="mt-5">
+        <FeatureRow
+          testId="steps"
+          ordered
+          titleAs="h3"
+          items={items.map((s, i) => ({
+            key: s.term,
+            // Номер чують і оком, і читачем екрана — див. 🔴 у
+            // `feature-row.tsx` про `srLabel`.
+            srLabel: `Step ${i + 1}`,
+            // Номер кроку в кружечку — той самий прийом, що в теми, де
+            // в заголовку картки стоїть велике число.
+            icon: <span className="ct-feat__step">{i + 1}</span>,
+            title: s.term,
+            text: s.text,
+          }))}
+        />
+      </div>
     </section>
   );
 }
