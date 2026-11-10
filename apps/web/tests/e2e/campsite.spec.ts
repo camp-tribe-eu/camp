@@ -21,6 +21,39 @@ interface Fixtures {
 
 let fx: Fixtures;
 
+/**
+ * 🔴 ВІДПОВІДЬ ПЕРЕВІРЯЄТЬСЯ, А НЕ РОЗБИРАЄТЬСЯ НАОСЛІП.
+ *
+ * Обидва запити нижче стояли як `(await res.json()).markers` і
+ * `(await res.json()) as […]`. Коли API віддавав не те, що очікувалось —
+ * 429 від нашого ж обмежувача частоти, 500 на півдорозі міграції, —
+ * падіння приходило не з адреси й не зі статусу, а рядків на тридцять
+ * далі: «(intermediate value).filter is not a function» і
+ * «Cannot read properties of undefined». І падав ВЕСЬ файл: 24 тести
+ * «did not run». Заміряно локально 10.11.2026.
+ *
+ * Тепер помилка називає адресу, статус і те, чого саме бракує.
+ */
+async function readJson<T>(
+  request: APIRequestContext,
+  url: string,
+  pick: (body: unknown) => unknown,
+  what: string,
+): Promise<T[]> {
+  const res = await request.get(url);
+  if (!res.ok()) {
+    throw new Error(`${what}: GET ${url} → ${res.status()} ${res.statusText()}`);
+  }
+  const picked = pick(await res.json());
+  if (!Array.isArray(picked)) {
+    throw new Error(
+      `${what}: GET ${url} віддав ${typeof picked}, а не масив — ` +
+        'розбирати його далі означало б падати через тридцять рядків.',
+    );
+  }
+  return picked as T[];
+}
+
 async function resolveFixtures(request: APIRequestContext): Promise<Fixtures> {
   let rich: Fixtures['rich'] | null = null;
   let richWater: Fixtures['richWater'] | null = null;
@@ -59,25 +92,23 @@ async function resolveFixtures(request: APIRequestContext): Promise<Fixtures> {
      * function the pages use; there is no reason for a second one.
      */
     path: string;
-  }[] = (
-    await (
-      await request.get(
-        `${API_BASE}/spots/map/points?bbox=-180,-85,180,85&limit=20000`,
-      )
-    ).json()
-  ).markers;
+  }[] = await readJson(
+    request,
+    `${API_BASE}/spots/map/points?bbox=-180,-85,180,85&limit=20000`,
+    (body) => (body as { markers?: unknown[] }).markers,
+    'перелік міток',
+  );
 
   // Campsites that have surroundings recorded — `near` is built from the
   // same context the page renders.
+  const index = await readJson<{ slug: string; near: unknown[] }>(
+    request,
+    `${API_BASE}/spots/search-index`,
+    (body) => body,
+    'пошуковий індекс',
+  );
   const withNear = new Set<string>(
-    (
-      (await (await request.get(`${API_BASE}/spots/search-index`)).json()) as {
-        slug: string;
-        near: unknown[];
-      }[]
-    )
-      .filter((r) => r.near?.length)
-      .map((r) => r.slug),
+    index.filter((r) => r.near?.length).map((r) => r.slug),
   );
 
   const known = (a: Record<string, string>) =>
@@ -117,15 +148,41 @@ async function resolveFixtures(request: APIRequestContext): Promise<Fixtures> {
   // with a name, surroundings, two known amenities, electricity and a
   // NAMED body of water.
   for (const candidate of richCandidates) {
-    const { spot } = await (
-      await request.get(
-        `${API_BASE}/spots/${candidate.country}/${candidate.region}/${candidate.slug}?nearby=0`,
-      )
-    ).json();
+    // 🔴 ВІДПОВІДЬ ПЕРЕВІРЯЄТЬСЯ, А НЕ РОЗБИРАЄТЬСЯ НАОСЛІП.
+    //
+    // Тут стояло `const { spot } = await res.json()`. Коли API віддавав
+    // на одного кандидата не кемпінг — 404 на запис, що зник між
+    // переліком і запитом, або 429 від нашого ж обмежувача частоти —
+    // `spot` ставав `undefined`, і весь ФАЙЛ падав на `spot.context`
+    // ще до першого твердження: 24 тести «did not run». Заміряно
+    // локально 10.11.2026.
+    //
+    // Кандидат, якого не вдалось прочитати, — це не поломка пошуку:
+    // перелік має ще двадцять. Пропускаємо його й шукаємо далі.
+    const res = await request.get(
+      `${API_BASE}/spots/${candidate.country}/${candidate.region}/${candidate.slug}?nearby=0`,
+    );
+    if (!res.ok()) continue;
+    const body = (await res.json()) as {
+      spot?: {
+        context?: { elevation?: number; water?: { m: number; name?: string } };
+      };
+    };
+    const spot = body.spot;
+    if (!spot) continue;
     // Confirmed on the record the page actually renders, not inferred
     // from the list: `near` says something is close, the page needs a
     // named body of water.
-    if (spot.context?.water?.name) {
+    // 🔴 ВИСОТА — ТЕЖ ЧАСТИНА ПОШУКУ, А НЕ ПРИПУЩЕННЯ ПРО ЗНАЙДЕНЕ.
+    //
+    // Нижче стверджується «sits at N m above sea level». Доки цикл
+    // падав на першому ж нечитабельному кандидаті, фікстура щоразу
+    // виявлялась однією й тією самою — і висота в неї була. Щойно
+    // пошук став пропускати такі записи, він дійшов до кемпінга в
+    // Нідерландах, де висоти немає, і твердження про речення впало на
+    // даних, а не на коді. Той самий урок, що в коментарі вище про
+    // названу воду: вимога має стояти В ПОШУКУ.
+    if (spot.context?.water?.name && spot.context?.elevation !== undefined) {
       rich = candidate.path;
       richWater = spot.context.water;
       break;
@@ -646,5 +703,74 @@ test.describe('structured data (CAMP-37)', () => {
     expect(collection.mainEntity['@type']).toBe('ItemList');
     expect(collection.mainEntity.itemListElement).toHaveLength(regions.length);
     expect(collection.mainEntity.numberOfItems).toBe(regions.length);
+  });
+});
+
+/**
+ * CAMP-453, пункт 2 — «важливе вгору, загальне вниз».
+ *
+ * 🔴 ЦЕ ТЕСТ ПРО ПОРЯДОК, І ПОРЯДОК ТУТ — ЗМІСТ. Власник: «Не вивів ні
+ * погоду, ні тривоги, ні камери, а це наші фічі!» Дані на сторінці були
+ * — але на третій тисячі пікселів, під координатами, тарифами й описом
+ * під'їзду. Людина, яка вирішує, чи їхати, питає «що тут зараз» раніше,
+ * ніж «чи є душ».
+ *
+ * Без цього тесту наступна правка поверне їх униз мовчки: кожна секція
+ * окремо лишиться на місці, і жоден інший тест не помітить.
+ */
+test.describe('🔴 CAMP-453 — порядок блоків на сторінці кемпінгу', () => {
+  test('умови стоять вище за зручності й за «як дістатися»', async ({
+    page,
+    request,
+  }, testInfo) => {
+    // Кемпінг беремо з живого переліку регіону, а не з назви в тесті:
+    // назва в тесті — це твердження про сьогоднішній імпорт.
+    const regions: { slug: string; spots: number }[] = await (
+      await request.get(`${API_BASE}/spots/fr/regions`)
+    ).json();
+    const region = regions.find((r) => r.spots > 0);
+    expect(region, 'у Франції немає жодного регіону з кемпінгами').toBeTruthy();
+
+    await page.goto(`/camping/fr/${region!.slug}`);
+    const first = page.locator('main a.ct-card__link').first();
+    await expect(first, 'на сторінці регіону немає карток').toHaveCount(1);
+    const href = await first.getAttribute('href');
+    expect(href, 'картка без адреси').toBeTruthy();
+
+    await page.goto(href!);
+    const tops = await page.evaluate(() =>
+      [...document.querySelectorAll('main h2')].map((h) => ({
+        text: (h as HTMLElement).innerText.trim(),
+        y: Math.round(h.getBoundingClientRect().top + window.scrollY),
+      })),
+    );
+    const at = (needle: string) =>
+      tops.find((t) => t.text.toLowerCase().includes(needle.toLowerCase()))?.y ??
+      null;
+
+    const facilities = at('Facilities');
+    const gettingThere = at('Getting there');
+    expect(facilities, 'немає секції Facilities').not.toBeNull();
+    expect(gettingThere, 'немає секції Getting there').not.toBeNull();
+
+    // 🔴 ЗНАМЕННИК: беремо ті умови, що справді є на ЦЬОМУ кемпінгу.
+    // Вимагати всі чотири означало б тестувати дані, а не порядок.
+    const conditions = ['Bathing water', 'Air quality', 'Drought', 'weather warnings']
+      .map((n) => ({ n, y: at(n) }))
+      .filter((c): c is { n: string; y: number } => c.y !== null);
+    const summary = `умов на сторінці ${conditions.length}: ${conditions
+      .map((c) => `${c.n}@${c.y}`)
+      .join(', ')}; Facilities@${facilities}, Getting there@${gettingThere}`;
+    testInfo.annotations.push({ type: 'замір', description: summary });
+    expect(conditions.length, `жодної умови не знайдено — ${summary}`).toBeGreaterThan(0);
+
+    for (const c of conditions) {
+      expect(c.y, `«${c.n}» нижче за Facilities — ${summary}`).toBeLessThan(
+        facilities!,
+      );
+      expect(c.y, `«${c.n}» нижче за «Getting there» — ${summary}`).toBeLessThan(
+        gettingThere!,
+      );
+    }
   });
 });
