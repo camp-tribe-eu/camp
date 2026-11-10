@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageContent } from '@/lib/page-content';
 import Link from "next/link";
 import RentalChecklist from "@/components/rental-checklist";
 import RentalDisclosure from "@/components/rental-disclosure";
@@ -118,7 +119,11 @@ export const metadata: Metadata = {
 };
 
 export default async function CamperRentalHub() {
-  const countries = await publishableCountries();
+  const [countries, page] = await Promise.all([
+    publishableCountries(),
+    pageContent('camper-rental').catch(() => null),
+  ]);
+  const intro = page?.sections.find((s) => s.slot === 'intro')?.body ?? null;
   const offers = rentalOffers("hub");
   const questions = faq();
 
@@ -155,14 +160,16 @@ export default async function CamperRentalHub() {
         Renting a camper in the EU
       </h1>
 
-      <Block as="p" measure="read" className="mt-4 text-ink-2">
-        This page is about the things that are decided before you drive away:
-        which licence covers the vehicle, what it is allowed to weigh once
-        loaded, what it costs to take on a motorway, and what the contract has
-        quietly made your problem. Those answers differ across the twenty-seven
-        member states and they are not collected anywhere in one piece, which is
-        the only reason this page exists.
-      </Block>
+      {/* 🔴 ВСТУП ІЗ CMS (CAMP-478) — власник правит його сам.
+          `.catch(() => null)` навмисно: збій CMS прибирає ОДИН абзац, а
+          не сторінку, бо все нижче будується з даних і живе без нього.
+          Абзац нижче лишився в коді, бо рахує наші записи — речення, що
+          рахує згенероване, мусить жити з генератором. */}
+      {intro && (
+        <Block as="p" measure="read" className="mt-4 text-ink-2">
+          {intro}
+        </Block>
+      )}
 
       <Block as="p" measure="read" className="mt-4 text-ink-2">
         <strong className="text-ink">
