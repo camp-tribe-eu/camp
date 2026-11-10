@@ -415,3 +415,115 @@ test.describe("🔴 CAMP-458 — переходи зі сторінки паль
     expect(withCountryCard, "жодна сторінка не показала картку країни").toBeGreaterThan(0);
   });
 });
+
+/**
+ * CAMP-458 — «шер-лінк має працювати завжди».
+ *
+ * 🔴 ПРАЦЮВАВ ВІН І ДО ТОГО — рівно доти, доки буфер обміну не казав
+ * «ні». Тоді посилання мовчки їхало в адресний рядок, а кнопка далі
+ * писала «Copy a link to this»: для людини це «натиснув — нічого не
+ * сталось». Тому тут перевіряються ОБИДВА шляхи, і другий — з буфером,
+ * якого немає, бо саме він і був зламаний.
+ */
+test.describe("🔴 CAMP-458 — посилання на розрахунок", () => {
+  const fill = async (page: import("@playwright/test").Page) => {
+    await page.goto("/tools/camper-trip-cost");
+    // Форма оживає після гідратації; до того введене затирається.
+    await expect(page.getByTestId("calculator-loading")).toHaveCount(0);
+    await page.selectOption("#tc-country", "FR");
+    await page.fill("#tc-km", "800");
+    await page.fill("#tc-nights", "5");
+  };
+
+  test("посилання веде на ті самі числа в чистому вікні", async ({
+    page,
+    browser,
+  }) => {
+    await fill(page);
+    await page.getByTestId("share-button").click();
+
+    // Адресний рядок оновлюється завжди — це єдиний шлях без дозволів.
+    const url = page.url();
+    expect(url, "адреса не несе розрахунку").toContain("c=FR");
+
+    const fresh = await browser.newContext();
+    const other = await fresh.newPage();
+    await other.goto(url);
+    await expect(other.getByTestId("calculator-loading")).toHaveCount(0);
+    await expect(other.locator("#tc-country")).toHaveValue("FR");
+    await expect(other.locator("#tc-km")).toHaveValue("800");
+    await expect(other.locator("#tc-nights")).toHaveValue("5");
+    await fresh.close();
+  });
+
+  test("🔴 без буфера обміну посилання показується, а не зникає", async ({
+    page,
+  }) => {
+    // Буфер обміну не існує зовсім — так буває на http:// і в старих
+    // WebView. До CAMP-458 цей шлях мовчав.
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "clipboard", {
+        value: undefined,
+        configurable: true,
+      });
+    });
+
+    await fill(page);
+    await page.getByTestId("share-button").click();
+
+    const manual = page.getByTestId("share-manual");
+    await expect(manual, "посилання не показалось").toHaveCount(1);
+    const shown = await manual.locator("input").inputValue();
+    expect(shown, "показане посилання не несе розрахунку").toContain("c=FR");
+    expect(shown, "показане посилання розійшлось з адресним рядком").toBe(
+      page.url(),
+    );
+
+    // І кнопка не бреше, що скопіювала.
+    await expect(page.getByTestId("share-button")).not.toHaveText(
+      "Link copied",
+    );
+  });
+});
+
+/**
+ * CAMP-458 — «FAQ не за дизайном». Тепер це секція каталогу (CAMP-449),
+ * тобто нативний `<details>`.
+ *
+ * 🔴 ЗВІРЯЄМО РОЗМІТКУ ЗІ СТОРІНКОЮ, А НЕ ПРОСТО НАЯВНІСТЬ АКОРДЕОНА.
+ * FAQPage у JSON-LD — це твердження для машини, що відповіді є НА
+ * сторінці. Акордеон тримає їх у відданому HTML закритими, і саме цю
+ * рівність — скільки питань у розмітці, стільки й на сторінці — легше
+ * за все загубити, міняючи вигляд.
+ */
+test.describe("🔴 CAMP-458 — FAQ калькулятора", () => {
+  test("питань на сторінці стільки ж, скільки в розмітці FAQPage", async ({
+    page,
+  }) => {
+    await page.goto("/tools/camper-trip-cost");
+
+    const blocks = await page
+      .locator('script[type="application/ld+json"]')
+      .allTextContents();
+    const faqPage = blocks
+      .map((b) => JSON.parse(b) as Record<string, unknown>)
+      .find((b) => b["@type"] === "FAQPage");
+    expect(faqPage, "FAQPage у розмітці немає").toBeTruthy();
+    const inMarkup = (faqPage!.mainEntity as unknown[]).length;
+    expect(inMarkup, "питань у розмітці замало").toBeGreaterThan(2);
+
+    const items = page.getByTestId("trip-cost-faq").locator("details");
+    await expect(items, "акордеон і розмітка розійшлись").toHaveCount(
+      inMarkup,
+    );
+
+    // І відповідь лежить у ВІДДАНОМУ HTML, а не домальовується кліком.
+    const first = items.first();
+    await expect(first).not.toHaveAttribute("open", "");
+    const text = await first.evaluate((el) => el.textContent ?? "");
+    expect(
+      text.length,
+      "у закритому пункті немає тексту відповіді",
+    ).toBeGreaterThan(60);
+  });
+});

@@ -163,7 +163,16 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
     [country],
   );
   const [s, setS] = useState<State>(initial);
-  const [copied, setCopied] = useState(false);
+  /**
+   * 🔴 ТРИ СТАНИ, А НЕ ДВА (CAMP-458). Власник: «шер-лінк має працювати
+   * завжди». Працював він і до того — але коли буфер обміну відмовляв,
+   * посилання мовчки їхало в адресний рядок, а кнопка далі писала «Copy
+   * a link to this». Для людини це «натиснув — і нічого не сталось»,
+   * тобто рівно «не працює». Тепер відмова буфера має власний стан і
+   * показує саме посилання, яке можна виділити й скопіювати руками.
+   */
+  const [shared, setShared] = useState<'idle' | 'copied' | 'manual'>('idle');
+  const [shareUrl, setShareUrl] = useState('');
   // 🔴 Nothing is totalled until the query string has been read.
   //
   // This page is prerendered, so without JavaScript — and for the split
@@ -189,7 +198,10 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
   }, []);
 
   const set = <K extends keyof State>(key: K, value: State[K]) => {
-    setCopied(false);
+    // 🔴 Будь-яка правка знецінює попереднє посилання: воно вело на
+    // інші числа. Тож стан скидається — і «Link copied», і показане
+    // посилання зникають разом.
+    setShared('idle');
     setS((prev) => ({ ...prev, [key]: value }));
   };
 
@@ -219,18 +231,27 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
 
   const share = async () => {
     const url = `${window.location.origin}${window.location.pathname}${toSearch(s, initial)}`;
+    setShareUrl(url);
+    // 🔴 АДРЕСНИЙ РЯДОК ОНОВЛЮЄТЬСЯ ЗАВЖДИ, а не лише при відмові.
+    // Це єдиний спосіб поділитись, який працює без дозволів: людина
+    // копіює з адресного рядка. Буфер обміну — зручність поверх нього.
+    window.history.replaceState(
+      null,
+      '',
+      toSearch(s, initial) || window.location.pathname,
+    );
     try {
+      // 🔴 `navigator.clipboard` може не існувати ЗОВСІМ (http:// без
+      // localhost, старий WebView) — тоді `await` на `undefined` кинув
+      // би TypeError і далі пішов у той самий `catch`. Питаємо прямо,
+      // щоб стан був рішенням, а не наслідком винятку.
+      if (!navigator.clipboard?.writeText) throw new Error('no clipboard');
       await navigator.clipboard.writeText(url);
-      setCopied(true);
+      setShared('copied');
     } catch {
-      // Clipboard is permissioned and can simply say no. Put the link in
-      // the address bar instead of claiming a copy that did not happen.
-      window.history.replaceState(
-        null,
-        '',
-        toSearch(s, initial) || window.location.pathname,
-      );
-      setCopied(false);
+      // Буфер обміну — дозволений ресурс і може просто сказати «ні».
+      // Показуємо посилання замість того, щоб обіцяти копію, якої не було.
+      setShared('manual');
     }
   };
 
@@ -302,7 +323,7 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
               value={s.vehicleId}
               onChange={(e) => {
                 const v = vehicle(e.target.value);
-                setCopied(false);
+                setShared('idle');
                 setS((prev) => ({
                   ...prev,
                   vehicleId: v.id,
@@ -511,10 +532,30 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
         <button
           type="button"
           onClick={share}
+          data-testid="share-button"
           className="mt-4 w-full rounded bg-btn px-4 py-2 font-medium text-btn-ink hover:bg-btn-hover"
         >
-          {copied ? 'Link copied' : 'Copy a link to this'}
+          {shared === 'copied' ? 'Link copied' : 'Copy a link to this'}
         </button>
+
+        {/* 🔴 ВИДИМЕ ПОСИЛАННЯ — НЕ ЗАПАСНИЙ ВАРІАНТ, А ДОКАЗ.
+            Поле readonly, бо правити його нема чого, і `onFocus`
+            виділяє весь текст: копіювання руками має бути одним рухом,
+            а не прицілюванням по символах. */}
+        {shared === 'manual' && (
+          <div className="mt-2" data-testid="share-manual">
+            <label className="block text-sm text-ink-2" htmlFor="tc-share">
+              Your browser did not let us copy it. Here it is:
+            </label>
+            <input
+              id="tc-share"
+              readOnly
+              value={shareUrl}
+              onFocus={(e) => e.currentTarget.select()}
+              className="mt-1 w-full rounded border border-line-2 bg-surface px-3 py-2 text-sm text-ink"
+            />
+          </div>
+        )}
         </>
         )}
       </aside>
