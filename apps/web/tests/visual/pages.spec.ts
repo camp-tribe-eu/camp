@@ -1,5 +1,9 @@
 import { readFileSync } from 'node:fs';
-import { waitForMapState, waitForWildfireNote } from '../map-ready';
+import {
+  waitForMapPainted,
+  waitForMapState,
+  waitForWildfireNote,
+} from '../map-ready';
 import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
@@ -189,6 +193,11 @@ async function settle(page: Page, subject?: string) {
   // тобто падіння приходить із назвою стану, а не з «бюджет вичерпано».
   if (subject === 'map') {
     await waitForMapState(page);
+    // 🔴 CAMP-486: «дані прийшли» — це ще не «полотно домалювалось».
+    // Тайли проявляються вже після того, як мережа затихла, і знімок
+    // через це не стабілізується: падіння приходило як таймаут знімка
+    // без жодного рядка про пікселі.
+    await waitForMapPainted(page);
     // 🔴 І НОТАТКА ПРО ПОЖЕЖІ ТЕЖ. `data-map-state` описує лише
     // `/data/spots/*`, а нотатка живиться `/data/wildfires.json`, лежить
     // у повносторінковому знімку й НЕ замаскована. `networkidle`, який

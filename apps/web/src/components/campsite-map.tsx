@@ -894,6 +894,19 @@ export default function CampsiteMap() {
     // The camera has not moved yet. Written here so the attribute is never
     // simply absent — see `data-camera` below for what it promises.
     container.current.dataset.camera = "still";
+    // 🔴 CAMP-486. «МАПА ЩЕ МАЛЮЄ» — ОКРЕМИЙ СИГНАЛ ВІД «КАМЕРА СТОЇТЬ»
+    // І ВІД «ДАНІ ПРИЙШЛИ».
+    //
+    // Знімок `/map` падав за ТАЙМАУТОМ ЗНІМКА, а не за різницею:
+    // Playwright робить кадри, доки два поспіль не збігаються, а
+    // WebGL-полотно з плавним проявленням тайлів не збігається ніколи в
+    // межах бюджету. У журналі це «Timeout 5000ms exceeded» без жодного
+    // рядка про пікселі — порівняння навіть не починалось.
+    //
+    // `data-camera` про камеру, `data-map-state` про мережу. Жоден не
+    // каже, чи полотно домалювалось. Тому третій: `render` вмикає,
+    // `idle` вимикає — в MapLibre `idle` і означає «більше не малюю».
+    container.current.dataset.painting = "yes";
 
     m.addControl(new NavigationControl({ showCompass: false }));
     // 🔴 No customAttribution here. OpenFreeMap's styles already declare
@@ -1310,6 +1323,16 @@ export default function CampsiteMap() {
     m.on("idle", () => {
       publishDrawn();
       publishRendered();
+      // CAMP-486: полотно домалювалось — знімок можна робити.
+      if (container.current) container.current.dataset.painting = "no";
+    });
+
+    // 🔴 ЗАПИС ЛИШЕ НА ЗМІНУ, А НЕ НА КОЖЕН КАДР. `render` спрацьовує
+    // десятки разів на секунду; писати в DOM щоразу означало б додати
+    // роботи саме там, де ми її міряємо.
+    m.on("render", () => {
+      const el = container.current;
+      if (el && el.dataset.painting !== "yes") el.dataset.painting = "yes";
     });
 
     // 🔴 AND AGAIN WHEN A SOURCE HAS FINISHED CHANGING, because `idle`
