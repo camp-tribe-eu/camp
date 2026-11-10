@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import Breadcrumbs from "@/components/breadcrumbs";
+import { LayeredBanner } from "@/components/layered-banner";
 import { breadcrumbList, collectionGraph, jsonLdProps } from "@/lib/jsonld";
 import { alternatesFor } from "@/lib/i18n";
 import { pageContent } from "@/lib/page-content";
@@ -76,9 +77,24 @@ export default async function ToolsIndex() {
 
       <Breadcrumbs crumbs={crumbs} />
 
-      <h1 className="mt-4 text-3xl leading-tight md:text-[42px]">
-        {page.title}
-      </h1>
+      {/* 🔴 БАНЕР НЕСЕ `h1` СТОРІНКИ (CAMP-458). Власник назвав /tools
+          «скучною» і попросив банер угорі. Заголовок переїхав усередину
+          банера, а не продублювався під ним: два `h1` на сторінці — це
+          зламаний обрис, а не двічі красиво.
+
+          Висота менша, ніж у демо теми (95svh): під банером картки
+          інструментів і перелік 27 країн, і банер на весь екран ховав би
+          їх за згином — та сама причина, що на /camping. */}
+      <LayeredBanner
+        headingLevel={1}
+        background={{ src: "/banners/eu-dawn.svg" }}
+        tickerText="PLANNING"
+        heading={page.title}
+        description="Free planning tools for camper trips in the EU, built on published data."
+        minHeight="min(52svh, 420px)"
+        textSize={{ desktop: "160px", mobile: "56px" }}
+        className="mt-4"
+      />
 
       <div className="mt-4">
         <PageSections sections={page.sections} />
