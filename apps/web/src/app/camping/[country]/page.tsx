@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { countryName, getCountries, getHubStats, getRegions, mapRegions } from '@/lib/api';
-import { countedAsOf, countryTiles, hubStatsReadAt } from '@/lib/hub-stats';
+import { countedAsOf, countryFaq, countryTiles, hubStatsReadAt } from '@/lib/hub-stats';
+import Faq from '@/components/faq';
 import { HubStatTiles } from '@/components/hub-stats';
 import { ButtonLink } from '@/components/button';
 import { breadcrumbList, collectionGraph, jsonLdProps } from '@/lib/jsonld';
@@ -106,6 +107,7 @@ export default async function CountryHub(props: { params: Promise<Params> }) {
   const name = countryName(params.country);
   const spots = countedSpots(regions);
   const tiles = countryTiles(stats);
+  const faq = countryFaq(stats, name);
   // Рядки індексу цієї країни. Код у індексі — ISO у верхньому регістрі,
   // у шляху сторінки — у нижньому; порівнюємо зведеними.
   const mapRows = allMapRegions.filter(
@@ -213,7 +215,33 @@ export default async function CountryHub(props: { params: Promise<Params> }) {
         <RegionTiles country={params.country} regions={regions} className="mt-4" />
       </section>
 
-      {/* 6. Two banners: the other things this site does for a trip here. */}
+      {/* 6. Питання, на які сторінка вже має відповідь у своїх числах
+          (CAMP-451, пункт 6). Стоїть ВНИЗУ, під картками регіонів: це не
+          вступ, а довідка для того, хто дочитав — і для ШІ-асистента,
+          який цитує те, що має джерело й дату.
+
+          🔴 ТЕКСТ НЕ ПИШЕТЬСЯ ТУТ. Відповіді будує `countryFaq` із тих
+          самих рядків, із яких зроблені плитки вгорі, і тими самими
+          формулюваннями, що на сторінці регіону. Країна без жодного
+          кемпінга не дістає секції зовсім: перелік порожній, а `Faq` на
+          порожньому не малює нічого — ні заголовка, ні рамки. */}
+      {faq.length > 0 && (
+        <section className="mt-12" aria-labelledby="country-faq-heading">
+          <h2 id="country-faq-heading" className="text-xl md:text-[25px]">
+            Questions about camping in {name}
+          </h2>
+          <Faq
+            testId="country-faq"
+            items={faq.map((f) => ({
+              key: f.key,
+              question: f.question,
+              answer: f.answer,
+            }))}
+          />
+        </section>
+      )}
+
+      {/* 7. Two banners: the other things this site does for a trip here. */}
       <GridBanner
         className="mt-10"
         items={[
@@ -232,7 +260,7 @@ export default async function CountryHub(props: { params: Promise<Params> }) {
         ]}
       />
 
-      {/* 7. The box banner about us. */}
+      {/* 8. The box banner about us. */}
       <BoxBanner
         className="mt-10"
         image={{ src: '/banners/about.svg' }}
