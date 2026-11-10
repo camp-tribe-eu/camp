@@ -1097,7 +1097,31 @@ function NearbyCard({ spot }: { spot: NearbySpot }) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
   return (
-    <li className="rounded-card border border-line-2 bg-surface p-4 shadow-card">
+    <li className="flex gap-3 rounded-card border border-line-2 bg-surface p-4 shadow-card">
+      {/* 🔴 ЗОБРАЖЕННЯ ЗЛІВА, А ЗА ВІДСУТНОСТІ ФОТО — НАШЕ ЛОГО
+          (CAMP-453, пункт 6; знімок 441/71).
+
+          Фотографій кемпінгів у нас НЕМАЄ жодної — ні в цій відповіді
+          API, ні в репозиторії (CAMP-469). Тож плейсхолдер тут не
+          «поки що», а поточний стан справ, і він свідомо той самий
+          файл для всіх карток: `public/logo.svg`. Підміна одного файлу
+          міняє його скрізь — рівно те, чого просить картка.
+
+          `alt` порожній: поруч стоїть назва кемпінгу, і диктор, який
+          прочитав би «CampTribe logo Le Clarys Plage», сказав би зайве. */}
+      <span className="size-12 shrink-0 overflow-hidden rounded-sm">
+        {/* eslint-disable-next-line @next/next/no-img-element -- `images.unoptimized: true` у next.config. */}
+        <img
+          src="/logo.svg"
+          alt=""
+          width={64}
+          height={64}
+          loading="lazy"
+          className="size-full object-cover"
+          data-testid="nearby-placeholder"
+        />
+      </span>
+      <span className="min-w-0">
       <Link
         href={`/camping/${spot.country.toLowerCase()}/${region}/${spot.slug}`}
         className="font-semibold text-heading hover:underline"
@@ -1113,6 +1137,7 @@ function NearbyCard({ spot }: { spot: NearbySpot }) {
         </span>{' '}
         away
       </p>
+      </span>
     </li>
   );
 }

@@ -1,6 +1,8 @@
 import { expect, test, type APIRequestContext } from './api-request';
 import { axeViolations } from './axe';
 import { API_BASE } from '@/lib/api';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 // CAMP-34. Two fixtures on purpose: a campsite where OSM knows plenty,
 // and one where it knows almost nothing. The second is the page that
@@ -772,5 +774,69 @@ test.describe('🔴 CAMP-453 — порядок блоків на сторінц
         gettingThere!,
       );
     }
+  });
+});
+
+/**
+ * CAMP-453, пункт 6 — міні-картка сусіда з зображенням.
+ *
+ * 🔴 ЩО САМЕ ДОВОДИТЬСЯ. Картка просить: «за відсутності фото — наше
+ * лого як плейсхолдер, щоб заміна лого підтягнулась скрізь», і окремо —
+ * «підміна файлу лого змінює його на всіх сторінках (довести однією
+ * заміною)». Довести це можна не словами: усі плейсхолдери мусять
+ * вказувати на ОДНУ адресу, і за тією адресою мусить лежати САМЕ той
+ * файл, що в репозиторії. Тоді «заміна одного файлу міняє все» — не
+ * обіцянка, а побудова.
+ *
+ * 🔴 Фотографій кемпінгів у нас немає жодної (CAMP-469), тож плейсхолдер
+ * тут — поточний стан справ, а не «поки що».
+ */
+test.describe('🔴 CAMP-453 — плейсхолдер у картках сусідів', () => {
+  test('усі плейсхолдери — один файл, і це файл із репозиторію', async ({
+    page,
+    request,
+  }, testInfo) => {
+    await page.goto(fx.rich);
+
+    const nearby = page
+      .locator('section')
+      .filter({ has: page.getByRole('heading', { name: /campsites nearby/i }) });
+    const cards = nearby.locator('li');
+    const n = await cards.count();
+    test.skip(n === 0, 'у цього кемпінга немає сусідів у даних');
+
+    const imgs = nearby.locator('[data-testid="nearby-placeholder"]');
+    await expect(imgs, 'не в кожної картки сусіда є зображення').toHaveCount(n);
+
+    const srcs = new Set(
+      await imgs.evaluateAll((els) =>
+        els.map((e) => (e as HTMLImageElement).getAttribute('src') ?? ''),
+      ),
+    );
+    expect(
+      [...srcs],
+      'плейсхолдери вказують на різні файли — заміна одного не змінить усіх',
+    ).toHaveLength(1);
+
+    const src = [...srcs][0];
+    const res = await request.get(src);
+    expect(res.status(), `${src} → ${res.status()}`).toBe(200);
+
+    // 🔴 І ЦЕ САМЕ ТОЙ ФАЙЛ, ЩО В РЕПОЗИТОРІЇ. Без цієї звірки «одна
+    // адреса» лишалась би твердженням про розмітку, а не про те, що
+    // підміна файлу щось змінить.
+    const onDisk = readFileSync(
+      join(process.cwd(), 'public', src.replace(/^\//, '')),
+    );
+    const served = await res.body();
+    expect(
+      served.equals(onDisk),
+      `${src} віддає не той файл, що лежить у public/`,
+    ).toBe(true);
+
+    testInfo.annotations.push({
+      type: 'замір',
+      description: `карток сусідів ${n}, плейсхолдер один: ${src} (${onDisk.length} байт)`,
+    });
   });
 });
