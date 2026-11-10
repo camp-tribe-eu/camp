@@ -117,6 +117,75 @@ def verify(limit: int) -> int:
     return 0 if abs(statistics.median(diffs)) <= 2 else 1
 
 
+def fill(limit: int, batch: int = 200) -> int:
+    """Порахувати висоту й рельєф для кемпінгів, у яких їх немає.
+
+    🔴 ПИШЕМО ЛИШЕ ТЕ, ЧОГО НЕМАЄ. Наявні значення не чіпаємо: вони
+    прийшли з того самого Copernicus через API, і переписати їх нашим
+    округленням означало б зробити рух, якого ніхто не просив, на
+    даних, які вже на сайті.
+
+    🔴 ПЛИТКИ ВІДКРИВАЮТЬСЯ ОДИН РАЗ НА СМУГУ, тому вибірка йде
+    ВПОРЯДКОВАНО за широтою. Випадковий порядок відкривав би ту саму
+    плитку сотні разів — це та сама робота, помножена на мережу.
+    """
+    import numpy as np
+    done = 0
+    with db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, ST_Y(location::geometry), ST_X(location::geometry)
+                  FROM camping_spots
+                 WHERE NOT (context ? 'elevation')
+                   AND location IS NOT NULL
+                 ORDER BY ST_Y(location::geometry)
+                 LIMIT %s""", (limit,))
+            rows = cur.fetchall()
+
+        if not rows:
+            print('порожніх кемпінгів немає — заповнювати нічого')
+            return 0
+
+        for start in range(0, len(rows), batch):
+            chunk = rows[start:start + batch]
+            updates = []
+            for spot_id, lat, lon in chunk:
+                try:
+                    centre = elevation(lat, lon)
+                    ring_vals = [elevation(a, b) for a, b in ring(lat, lon)]
+                except Exception as err:          # noqa: BLE001
+                    # 🔴 ОДИН КЕМПІНГ, ЩО НЕ ПРОЧИТАВСЯ, НЕ ВАЛИТЬ ПРОГІН,
+                    # але й не стає тихим нулем: його просто не чіпаємо,
+                    # і наступний прогін спробує знову.
+                    print(f'  🔴 {spot_id}: {str(err)[:60]}', file=sys.stderr)
+                    continue
+                vals = [centre] + ring_vals
+                relief = max(vals) - min(vals)
+                updates.append((
+                    json.dumps({
+                        'elevation': round(centre),
+                        'terrain': {'relief': round(relief), 'type': terrain(relief)},
+                    }),
+                    spot_id,
+                ))
+
+            with conn.cursor() as cur:
+                cur.executemany(
+                    "UPDATE camping_spots "
+                    "SET context = coalesce(context, '{}'::jsonb) || %s::jsonb "
+                    "WHERE id = %s",
+                    updates,
+                )
+            conn.commit()
+            done += len(updates)
+            print(f'  записано {done} із {len(rows)}', flush=True)
+
+    # 🔴 ЗНАМЕННИК: скільки взяли й скільки справді записали. Розрив між
+    # ними — це кемпінги, що не прочитались, і він мусить бути видимим.
+    print(f'узято {len(rows)}, записано {done}')
+    return 0 if done == len(rows) else 1
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument('--verify', action='store_true')
@@ -126,8 +195,14 @@ def main() -> int:
     if a.verify:
         return verify(a.limit)
     if a.fill:
-        print('🔴 --fill ще не реалізовано: спершу --verify має бути зеленим')
-        return 2
+        # 🔴 ЗАПОВНЕННЯ НЕ ПОЧИНАЄТЬСЯ, ПОКИ ЗВІРКА НЕ ЗЕЛЕНА. Писати в
+        # базу з розкладки, яку щойно не перевірили, означає розсіяти
+        # правдоподібні чужі числа по 62 тисячах сторінок.
+        code = verify(40)
+        if code != 0:
+            print('🔴 звірка не зелена — нічого не пишу', file=sys.stderr)
+            return code
+        return fill(a.limit)
     ap.print_help()
     return 2
 
