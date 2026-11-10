@@ -98,7 +98,15 @@ function shownCrumbs(html: string): { text: string; links: Crumb[] } | null {
 }
 
 const render = {
-  routes: () => renderComponent(RoutesIndex, {}),
+  /**
+   * 🔴 АСИНХРОННО, БО СТОРІНКА СТАЛА АСИНХРОННОЮ. З переїздом /routes у
+   * CMS (вказівка власника 10.11.2026 — «все має бути динамічним»)
+   * компонент читає `pageContent` і чекає на нього. Синхронний рендер
+   * на такому компоненті падає не твердженням, а React-винятком
+   * «a component suspended while responding to synchronous input» — і
+   * з нього не видно, що саме змінилось.
+   */
+  routes: () => renderAsyncComponent(RoutesIndex, {}),
 };
 
 /** The countries as the API emitted them, captured 15.10.2026. */
@@ -161,8 +169,8 @@ async function renderSearch(): Promise<string> {
 // each assertion below that says "there is no X" would pass over a page
 // that has one.
 test.describe("the readers are not blind", () => {
-  test("jsonLd finds the blocks on a page that has them", () => {
-    const blocks = jsonLd(render.routes());
+  test("jsonLd finds the blocks on a page that has them", async () => {
+    const blocks = jsonLd(await render.routes());
     expect(blocks.map((b) => b["@type"]).sort()).toEqual(
       ["BreadcrumbList", "CollectionPage"].sort(),
     );
@@ -285,7 +293,10 @@ const NUMBER_WORDS = [
 ];
 
 test.describe("/routes", () => {
-  const html = render.routes();
+  let html = '';
+  test.beforeAll(async () => {
+    html = await render.routes();
+  });
 
   /** One route's card, as a reader reads it. */
   const card = (slug: string): string => {
