@@ -563,6 +563,104 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
           answer to the specific question. */}
       <OvernightStay overnight={spot.overnight} />
 
+      {/* 🔴 УМОВИ — ВИЩЕ ЗА ЗАГАЛЬНІ ТЕКСТИ (CAMP-453, пункт 2).
+          Власник: «Не вивів ні погоду, ні тривоги, ні камери, а це наші
+          фічі!» Дані були на сторінці — але на третій тисячі пікселів,
+          під координатами, тарифами й описом під'їзду. Тепер вони
+          стоять одразу після «чи можна тут ночувати»: це питання того
+          самого роду — що буде зі мною, якщо я сюди приїду, — і
+          відповідати на нього треба раніше, ніж на «чи є душ».
+
+          🔴 НІЧОГО НЕ СХОВАНО В ТАБИ. Картка пропонує таби, але кожна з
+          цих панелей несе ВЛАСНЕ твердження про відсутність: «жодної
+          купальної води в межах 2 км» — це відповідь, а не порожнеча, і
+          так на 42 953 кемпінгах із 61 558. Таб ховає такі відповіді за
+          кліком, а e2e на них (26 тверджень) вимагає видимості. Порядок
+          дає те саме, що й таби, і нічого не коштує. */}
+      {/* 🔴 CAMP-168: the official bathing water classification.
+
+          Directly under the price list and above the weather, because
+          it belongs with the surroundings block further up — the
+          campsite's distance to water is already printed there, and this
+          is the official classification of that water, for a stated
+          season.
+
+          🔴 UNCONDITIONAL, unlike TariffTable above. The component
+          decides what to say, and one of the three things it can say is
+          that no designated bathing water lies within 2 km — which is
+          the case on 42 953 of 61 558 campsites. Rendering nothing there
+          would let an absence read as reassurance, and would make a
+          campsite whose bathing water failed to import indistinguishable
+          from one that genuinely has none. */}
+      <BathingWaterNote bathingWater={spot.bathingWater} />
+
+      {/* 🔴 CAMP-164: what the EEA's air quality index says here.
+
+          Between the bathing water and the weather, because it is the
+          same kind of statement — an official index, dated, about the
+          surroundings — and sits where a reader deciding whether to
+          make camp is already looking at conditions.
+
+          🔴 UNCONDITIONAL, like the bathing water. The component decides
+          what to say, and one of the things it says is "no fresh data":
+          one station in five is silent in any given hour, and a section
+          that vanished for those would read as clean air.
+
+          🔴 `renderedAt` is the clock of the first render — the build,
+          on the server; the browser replaces it with its own on mount,
+          and a reading that has aged past four hours turns into "no
+          fresh data" on a page nobody has rebuilt. */}
+      <AirQualityNote
+        airQuality={spot.airQuality}
+        renderedAt={new Date().toISOString()}
+      />
+
+      {/* 🔴 CAMP-163: what the Copernicus drought indicator measured here.
+
+          Beside the weather, because it is the slow half of the same
+          question — the forecast says what the sky will do this week,
+          this says what the ground has been doing for a month.
+
+          The reading is sampled HERE, at build time, out of a 1 280 × 889
+          grid that never reaches the browser. And it is printed even when
+          the answer is "no drought": that is a measurement about this
+          campsite in this ten-day period, and leaving the space blank
+          would turn it into "nobody knows". */}
+      <DroughtPanel state={droughtAtBuild()} lat={spot.lat} lon={spot.lon} />
+
+      {/* 🔴 CAMP-287 крок 4: офіційні попередження про небезпеку.
+          Стоїть ПІСЛЯ посухи й перед камерами навмисно — посуха це
+          десятиденне вікно, попередження — години, і найгостріше за
+          часом має бути ближче до того, що читач перевіряє перед
+          виїздом.
+
+          🔴 Єдина панель на цій сторінці, яка приходить У БРАУЗЕР, а
+          не в збірку. Її бюджет свіжості — десять хвилин (клаузула 5.6
+          ліцензії MeteoAlarm), а сторінки збираються вночі: запечене
+          попередження показувало б «No fresh data» завжди. Доведено в
+          CAMP-302. */}
+      <WarningsForSpot country={spot.country} codes={spot.warningAreas ?? null} />
+
+      {/* 🔴 CAMP-190: what a camera near here is looking at.
+
+          Beside the drought and the weather because it answers the same
+          question from the other end — those say what the ground and
+          the sky have been doing, this shows it.
+
+          Measured (CAMP-189): 88% of campsites have a camera within
+          25 km, median 8, and the median frame is 8 minutes old. The
+          other 12% get a sentence, not a blank space.
+
+          🔴 AND TODAY IT IS NONE OF THEM, because the catalogue has not
+          been imported — `scripts/windy/fetch-webcams.mjs` has not run
+          against the real database, so the table is empty and this
+          renders nothing at all. That is deliberate: `[]` and "we have
+          not looked" are different facts, and the sentence above is a
+          claim about COVERAGE which we have not earned yet. The
+          paragraph describes the shipped behaviour once the import has
+          run; until then the honest page has no webcam section. */}
+      <WebcamNote webcams={spot.webcams} renderedAt={new Date().toISOString()} />
+
       <Section title="Facilities">
         {known === 0 ? (
           <Block as="p" measure="read" className="text-sm text-ink-2">
@@ -683,89 +781,6 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
         tariffs={spot.tariffs}
       />
 
-      {/* 🔴 CAMP-168: the official bathing water classification.
-
-          Directly under the price list and above the weather, because
-          it belongs with the surroundings block further up — the
-          campsite's distance to water is already printed there, and this
-          is the official classification of that water, for a stated
-          season.
-
-          🔴 UNCONDITIONAL, unlike TariffTable above. The component
-          decides what to say, and one of the three things it can say is
-          that no designated bathing water lies within 2 km — which is
-          the case on 42 953 of 61 558 campsites. Rendering nothing there
-          would let an absence read as reassurance, and would make a
-          campsite whose bathing water failed to import indistinguishable
-          from one that genuinely has none. */}
-      <BathingWaterNote bathingWater={spot.bathingWater} />
-
-      {/* 🔴 CAMP-164: what the EEA's air quality index says here.
-
-          Between the bathing water and the weather, because it is the
-          same kind of statement — an official index, dated, about the
-          surroundings — and sits where a reader deciding whether to
-          make camp is already looking at conditions.
-
-          🔴 UNCONDITIONAL, like the bathing water. The component decides
-          what to say, and one of the things it says is "no fresh data":
-          one station in five is silent in any given hour, and a section
-          that vanished for those would read as clean air.
-
-          🔴 `renderedAt` is the clock of the first render — the build,
-          on the server; the browser replaces it with its own on mount,
-          and a reading that has aged past four hours turns into "no
-          fresh data" on a page nobody has rebuilt. */}
-      <AirQualityNote
-        airQuality={spot.airQuality}
-        renderedAt={new Date().toISOString()}
-      />
-
-      {/* 🔴 CAMP-163: what the Copernicus drought indicator measured here.
-
-          Beside the weather, because it is the slow half of the same
-          question — the forecast says what the sky will do this week,
-          this says what the ground has been doing for a month.
-
-          The reading is sampled HERE, at build time, out of a 1 280 × 889
-          grid that never reaches the browser. And it is printed even when
-          the answer is "no drought": that is a measurement about this
-          campsite in this ten-day period, and leaving the space blank
-          would turn it into "nobody knows". */}
-      <DroughtPanel state={droughtAtBuild()} lat={spot.lat} lon={spot.lon} />
-
-      {/* 🔴 CAMP-287 крок 4: офіційні попередження про небезпеку.
-          Стоїть ПІСЛЯ посухи й перед камерами навмисно — посуха це
-          десятиденне вікно, попередження — години, і найгостріше за
-          часом має бути ближче до того, що читач перевіряє перед
-          виїздом.
-
-          🔴 Єдина панель на цій сторінці, яка приходить У БРАУЗЕР, а
-          не в збірку. Її бюджет свіжості — десять хвилин (клаузула 5.6
-          ліцензії MeteoAlarm), а сторінки збираються вночі: запечене
-          попередження показувало б «No fresh data» завжди. Доведено в
-          CAMP-302. */}
-      <WarningsForSpot country={spot.country} codes={spot.warningAreas ?? null} />
-
-      {/* 🔴 CAMP-190: what a camera near here is looking at.
-
-          Beside the drought and the weather because it answers the same
-          question from the other end — those say what the ground and
-          the sky have been doing, this shows it.
-
-          Measured (CAMP-189): 88% of campsites have a camera within
-          25 km, median 8, and the median frame is 8 minutes old. The
-          other 12% get a sentence, not a blank space.
-
-          🔴 AND TODAY IT IS NONE OF THEM, because the catalogue has not
-          been imported — `scripts/windy/fetch-webcams.mjs` has not run
-          against the real database, so the table is empty and this
-          renders nothing at all. That is deliberate: `[]` and "we have
-          not looked" are different facts, and the sentence above is a
-          claim about COVERAGE which we have not earned yet. The
-          paragraph describes the shipped behaviour once the import has
-          run; until then the honest page has no webcam section. */}
-      <WebcamNote webcams={spot.webcams} renderedAt={new Date().toISOString()} />
 
       {/* 🔴 CAMP-463: ТУТ БУЛА СЕКЦІЯ «Weather on site» З ОДНИМ РЯДКОМ
           «Forecast is not connected yet». Власник назвав її окремо
@@ -1082,7 +1097,31 @@ function NearbyCard({ spot }: { spot: NearbySpot }) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
   return (
-    <li className="rounded-card border border-line-2 bg-surface p-4 shadow-card">
+    <li className="flex gap-3 rounded-card border border-line-2 bg-surface p-4 shadow-card">
+      {/* 🔴 ЗОБРАЖЕННЯ ЗЛІВА, А ЗА ВІДСУТНОСТІ ФОТО — НАШЕ ЛОГО
+          (CAMP-453, пункт 6; знімок 441/71).
+
+          Фотографій кемпінгів у нас НЕМАЄ жодної — ні в цій відповіді
+          API, ні в репозиторії (CAMP-469). Тож плейсхолдер тут не
+          «поки що», а поточний стан справ, і він свідомо той самий
+          файл для всіх карток: `public/logo.svg`. Підміна одного файлу
+          міняє його скрізь — рівно те, чого просить картка.
+
+          `alt` порожній: поруч стоїть назва кемпінгу, і диктор, який
+          прочитав би «CampTribe logo Le Clarys Plage», сказав би зайве. */}
+      <span className="size-12 shrink-0 overflow-hidden rounded-sm">
+        {/* eslint-disable-next-line @next/next/no-img-element -- `images.unoptimized: true` у next.config. */}
+        <img
+          src="/logo.svg"
+          alt=""
+          width={64}
+          height={64}
+          loading="lazy"
+          className="size-full object-cover"
+          data-testid="nearby-placeholder"
+        />
+      </span>
+      <span className="min-w-0">
       <Link
         href={`/camping/${spot.country.toLowerCase()}/${region}/${spot.slug}`}
         className="font-semibold text-heading hover:underline"
@@ -1098,6 +1137,7 @@ function NearbyCard({ spot }: { spot: NearbySpot }) {
         </span>{' '}
         away
       </p>
+      </span>
     </li>
   );
 }

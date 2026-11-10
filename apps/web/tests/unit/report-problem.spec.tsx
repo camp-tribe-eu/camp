@@ -326,3 +326,29 @@ test('🔴 the campsite page and everything it imports read no request', () => {
   }
   expect(offenders).toEqual([]);
 });
+
+/**
+ * CAMP-453, пункт 4 — блок має бути блоком, а не самотньою кнопкою.
+ *
+ * 🔴 ЧОМУ ЦЕ ТЕСТ, А НЕ СМАК. На знімку 441/63 у рамці стояла сама лише
+ * дрібна кнопка «Report a problem»: читач не знав ні що це, ні куди піде
+ * написане, ні що станеться далі. Найдешевший спосіб повернути те саме
+ * — прибрати «зайвий» текст у наступній правці; тоді про це скаже цей
+ * тест, а не власник на наступному ревʼю.
+ */
+test('🔴 блок звернення має заголовок і каже, що буде далі', async () => {
+  const html = await pageHtml();
+  const section = /<section[^>]*data-testid="report-problem"[\s\S]*?<\/section>/.exec(
+    html,
+  );
+  expect(section, 'секції звернення немає').toBeTruthy();
+  const inner = section![0];
+
+  expect(inner, 'у блоці немає заголовка').toMatch(/<h2[^>]*>/);
+  const text = visibleText(inner);
+  expect(text.length, `тексту в блоці ${text.length} символів`).toBeGreaterThan(80);
+
+  // 🔴 І обіцянки з датою тут бути не повинно: ми не знаємо, коли саме
+  // людина подивиться. Те саме правило, що в route-figures.
+  expect(text).not.toMatch(/\b(24 hours|within a day|soon|coming)\b/i);
+});
