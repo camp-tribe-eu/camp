@@ -1,0 +1,34 @@
+# CAMP-482: щоденне питання «хто налаштував адмінку мишкою».
+#
+# 🔴 ЦЕ ПРО ТЕ, ЩО ВИГЛЯДАЄ ЗДОРОВИМ. Конфігурація адмінки — які
+# колекції зареєстровані, які сховані, яким віджетом редагується кожне
+# поле — живе ТІЛЬКИ в таблицях `directus_*` робочої бази. Зміна,
+# зроблена мишкою, не ламає нічого видимого: сайт працює, сторінки
+# віддаються. Вона просто зникне на першому ж відновленні бази, і
+# ніхто не звʼяже одне з одним.
+#
+# 🔴 ЧОМУ З МАШИНИ, А НЕ З CI. База CI має міграції, але жодного рядка
+# `directus_*`: Directus там ніколи не запускався — і не має, бо кожен
+# запуск палить активацію Open Innovation Grant (їх пʼять, згорають
+# назавжди; див. `check-cms-hardening.mjs`). Сторож у CI звіряв би
+# порожнечу з порожнечею і зеленів щоразу.
+#
+# 🔴 `--db` — ЯВНО, за взірцем `camptribe-freshness`. Таблиці читаються
+# лише за прапорцем, а не «коли є DATABASE_URL»: інакше втрата змінної
+# осліпила б сторожа мовчки. Без змінної він падає з реченням.
+[Unit]
+Description=CampTribe Directus admin configuration drift check
+After=postgresql.service
+OnFailure=camptribe-failed@%n.service
+
+[Service]
+Type=oneshot
+User=camptribe
+Group=camptribe
+WorkingDirectory=/srv/camptribe/current
+EnvironmentFile=/srv/camptribe/current/apps/api/.env
+ExecStart=/usr/bin/node scripts/ci/check-directus-config.mjs --db
+# 🔴 Слід знімається лише після УСПІШНОГО прогону: для Type=oneshot
+# ExecStartPost не біжить, якщо ExecStart повернув ненуль — тож
+# вчорашня тривога не зникає від самого лише старту юніта.
+ExecStartPost=/bin/rm -f /srv/camptribe/failed/camptribe-directus-config.service

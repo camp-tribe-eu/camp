@@ -1,0 +1,9 @@
+[Unit]
+Description=CampTribe Directus configuration drift check, daily
+[Timer]
+# Через годину після перевірки свіжості даних — щоб два листи про різні
+# речі не прийшли одночасно й не злились в один «щось зламалось».
+OnCalendar=*-*-* 07:00:00 UTC
+Persistent=true
+[Install]
+WantedBy=timers.target
