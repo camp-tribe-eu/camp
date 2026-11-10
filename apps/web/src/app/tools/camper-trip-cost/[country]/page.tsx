@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import TripCostCalculator from '@/components/trip-cost-calculator';
 import FuelPriceTable from '@/components/fuel-price-table';
+import FeatureRow from '@/components/feature-row';
 import {
   borderPrices,
   budget,
@@ -92,6 +93,30 @@ export async function generateMetadata({
         : `Diesel in ${m.c.name} is €${m.c.diesel.toFixed(3)} a litre this week. Work out what a camper trip there costs, with prices published by the European Commission.`,
     alternates: alternatesFor(path),
   };
+}
+
+/**
+ * 🔴 ЗНАЧКИ ЛЕЖАТЬ ТУТ, А НЕ В СПІЛЬНОМУ НАБОРІ, бо спільного набору в
+ * проєкті немає: кожен компонент малює свої вбудованим `<svg>`. Заводити
+ * його заради двох значків означало б вирішити це питання мимохідь.
+ */
+function TentIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+      <path d="M12 3.5 3 19.5h18L12 3.5Z" strokeLinejoin="round" />
+      <path d="M12 9.5 7.5 19.5h9L12 9.5Z" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ListIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+      <path d="M8 4.5H6.5A1.5 1.5 0 0 0 5 6v13.5A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H16" />
+      <rect x="8" y="2.5" width="8" height="4" rx="1.2" />
+      <path d="m8.5 11.5 1.6 1.6 3.2-3.2M8.5 16.5l1.6 1.6 3.2-3.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
 }
 
 export default async function CountryTripCostPage({
@@ -361,24 +386,42 @@ export default async function CountryTripCostPage({
 
       <FuelPriceTable highlight={code} />
 
-      <p className="mt-10 text-ink-2">
-        {/* 🔴 Linked only where campsites exist. These 27 pages come from
-            the fuel bulletin, which covers the whole Union; our own
-            coverage does not, and `dynamicParams = false` means a link to
-            a country we hold nothing for is a 404 in the navigation of a
-            page we asked Google to index. */}
-        {hasCampsites && (
-          <>
-            <Link className="underline" href={`/camping/${country.toLowerCase()}`}>
-              Campsites in {c.name}
-            </Link>{' '}
-            ·{' '}
-          </>
-        )}
-        <Link className="underline" href="/tools/camper-packing-list">
-          What to pack
-        </Link>
-      </p>
+      {/* 🔴 ДВА ПЕРЕХОДИ — КАРТКАМИ, А НЕ ПІДКРЕСЛЕНИМИ СЛОВАМИ (CAMP-458).
+          Власник сказав прямо: «посилання майже не видно, а вони важливі».
+          Ціль у 16 px тексту й ціль у картці — різні речі для пальця й
+          для ока, а ширину сторінки тут і так не використано.
+
+          🔴 Перехід на країну — лише там, де в нас є кемпінги. Ці 27
+          сторінок ростуть із паливного бюлетеня, що покриває весь Союз;
+          наше покриття — ні, а `dynamicParams = false` означає, що
+          посилання на країну, по якій ми нічого не тримаємо, буде 404 у
+          навігації сторінки, яку ми попросили Google індексувати. */}
+      <nav className="mt-10" aria-label="Where to go next">
+        <FeatureRow
+          iconSide="left"
+          testId="next-steps"
+          items={[
+            ...(hasCampsites
+              ? [
+                  {
+                    key: 'campsites',
+                    href: `/camping/${country.toLowerCase()}`,
+                    icon: <TentIcon />,
+                    title: `Campsites in ${c.name}`,
+                    text: `What we hold for ${c.name}, region by region, with the distance to water and to the nearest town for each site.`,
+                  },
+                ]
+              : []),
+            {
+              key: 'packing',
+              href: '/tools/camper-packing-list',
+              icon: <ListIcon />,
+              title: 'What to pack',
+              text: 'A list built from how you travel — the vehicle, the season, the nights and the people — with the ticks kept in the link you share.',
+            },
+          ]}
+        />
+      </nav>
     </main>
   );
 }

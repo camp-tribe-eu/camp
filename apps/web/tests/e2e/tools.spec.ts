@@ -332,3 +332,86 @@ test.describe("🔴 CAMP-365 — /tools", () => {
     ).toBe(`${ORIGIN}/tools`);
   });
 });
+
+/**
+ * CAMP-458 — два переходи наприкінці сторінки пального по країні стали
+ * картками. До того вони були підкресленими словами в абзаці, і власник
+ * сказав прямо: «посилання майже не видно, а вони важливі».
+ *
+ * 🔴 ПЕРЕВІРЯЄТЬСЯ ДВОЇСТІСТЬ, А НЕ ПРОСТО НАЯВНІСТЬ. Перехід на країну
+ * показується лише там, де в нас є кемпінги: ці 27 сторінок ростуть із
+ * паливного бюлетеня, що покриває весь Союз, а наше покриття — ні, і
+ * `dynamicParams = false` робить із такого посилання 404 у навігації
+ * сторінки, яку ми попросили Google індексувати.
+ */
+test.describe("🔴 CAMP-458 — переходи зі сторінки пального", () => {
+  test("обидва переходи — картки-посилання, а не слова в абзаці", async ({
+    page,
+  }) => {
+    await page.goto("/tools/camper-trip-cost/hr");
+
+    const cards = page.getByTestId("next-steps");
+    await expect(cards, "секції переходів немає").toHaveCount(1);
+
+    const links = cards.locator("a.ct-feat__link");
+    // Хорватію ми тримаємо, тож карток дві: країна і спорядження.
+    await expect(links, "карток-переходів не дві").toHaveCount(2);
+    await expect(links.nth(0)).toHaveAttribute("href", "/camping/hr");
+    await expect(links.nth(1)).toHaveAttribute(
+      "href",
+      "/tools/camper-packing-list",
+    );
+
+    // 🔴 КЛІКАБЕЛЬНА ВСЯ КАРТКА, А НЕ САМА НАЗВА. Інакше зміна
+    // лишилась би косметичною: ціль так само завширшки зі слово.
+    const box = await links.nth(0).boundingBox();
+    expect(box, "картка не має розміру").not.toBeNull();
+    expect(box!.height, "висота картки менша за рядок тексту").toBeGreaterThan(
+      48,
+    );
+  });
+
+  test("🔴 жодна картка не веде на країну, якої ми не тримаємо", async ({
+    page,
+    request,
+  }) => {
+    // Знаменник названий: обходимо ВСІ 27 сторінок, а не одну зручну.
+    // Перелік — із того самого файлу, з якого ростуть самі сторінки.
+    const codes = Object.keys(
+      (
+        JSON.parse(
+          readFileSync(
+            join(
+              process.cwd(),
+              "..",
+              "api",
+              "src",
+              "osm",
+              "eu-member-states.json",
+            ),
+            "utf8",
+          ),
+        ) as { members: Record<string, string> }
+      ).members,
+    ).sort();
+    expect(codes.length, "перелік ЄС-27 не прочитався").toBe(27);
+
+    let withCountryCard = 0;
+    for (const code of codes) {
+      await page.goto(`/tools/camper-trip-cost/${code.toLowerCase()}`);
+      const country = page
+        .getByTestId("next-steps")
+        .locator(`a.ct-feat__link[href="/camping/${code.toLowerCase()}"]`);
+      const n = await country.count();
+      if (n === 0) continue;
+      withCountryCard++;
+      const res = await request.get(`/camping/${code.toLowerCase()}`);
+      expect(
+        res.status(),
+        `картка веде на /camping/${code.toLowerCase()}, а там ${res.status()}`,
+      ).toBe(200);
+    }
+    // Щоб «жодного 404» не пройшло над порожнечею.
+    expect(withCountryCard, "жодна сторінка не показала картку країни").toBeGreaterThan(0);
+  });
+});
