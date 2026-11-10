@@ -103,7 +103,11 @@ export default async function RootLayout({
             so the privacy rules exist in one language only. */}
         <script dangerouslySetInnerHTML={{ __html: BOOTSTRAP }} />
       </head>
-      <body className="flex min-h-screen flex-col antialiased">
+      {/* 🔴 `id="top"` — ціль посилання «Back to top» у підвалі (CAMP-448).
+          Якір, а не кнопка з JS: підвал опиняється під читачем після
+          довгої сторінки, і найдешевший спосіб повернутись угору не
+          повинен залежати від того, чи доїхав скрипт. */}
+      <body id="top" className="flex min-h-screen flex-col antialiased">
         {/* Drains what the head script caught. Renders null. */}
         <ErrorReporter />
         <SiteHeader nav={nav} />

@@ -316,3 +316,55 @@ test.describe("🔴 CAMP-365 — меню з бази", () => {
     }
   });
 });
+
+/**
+ * CAMP-448, пункт 5 — підвал як витвір, а не смужка (знімки 441/25–441/26).
+ *
+ * 🔴 ТУТ ПЕРЕВІРЯЄТЬСЯ СТРУКТУРА, А НЕ ВИГЛЯД. Було три плоскі ряди
+ * посилань однакового розміру; стало чотири колонки за призначенням.
+ * Ієрархія — це те, що читач бачить першим, і те, що найлегше загубити
+ * наступною правкою.
+ */
+test.describe("🔴 CAMP-448 — підвал", () => {
+  test("чотири колонки, і кожна названа", async ({ page }) => {
+    await page.goto("/");
+
+    const grid = page.locator("footer > div > div").first();
+    const cols = await grid.evaluate(
+      (el) => getComputedStyle(el).gridTemplateColumns.split(" ").length,
+    );
+    expect(cols, `колонок ${cols}, а має бути чотири на цій ширині`).toBe(4);
+
+    // Правові сторінки лишились на місці — їх будує LEGAL_PAGES, і
+    // загубити їх підвалом означало б загубити обовʼязкове посилання.
+    const legal = page.locator('footer nav[aria-label="Legal"] a');
+    await expect(legal, "правових посилань у підвалі не лишилось").not.toHaveCount(
+      0,
+    );
+
+    // Атрибуція ODbL має бути ТАМ, ДЕ ПОКАЗАНІ ДАНІ, тобто на кожній
+    // сторінці; переїзд у колонку не привід її загубити.
+    await expect(
+      page.locator("footer", { hasText: "OpenStreetMap contributors" }),
+    ).toHaveCount(1);
+  });
+
+  test("🔴 «догори» — якір, що працює без скрипта", async ({ page }) => {
+    await page.goto("/");
+
+    const toTop = page.getByTestId("to-top");
+    await expect(toTop, "посилання «догори» немає").toHaveCount(1);
+    // Якір, а не кнопка: саме тому він працює і тоді, коли JS не доїхав.
+    await expect(toTop).toHaveAttribute("href", "#top");
+    await expect(page.locator("body#top")).toHaveCount(1);
+
+    await page.evaluate(() => window.scrollTo(0, 4000));
+    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+    await toTop.click();
+    await expect
+      .poll(() => page.evaluate(() => window.scrollY), {
+        message: "сторінка не повернулась угору",
+      })
+      .toBeLessThan(50);
+  });
+});
