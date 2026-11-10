@@ -18,7 +18,7 @@ import {
   SERVICE_LABEL,
   SERVICE_RADIUS_M,
 } from "../../src/lib/route-services";
-import { renderAsyncComponent, renderComponent } from "./render-component";
+import { renderAsyncComponent } from "./render-component";
 import { everythingSaid, visibleText } from "./rendered-text";
 
 // CAMP-240 — /routes, /tools and /search were "thin". What they now carry
