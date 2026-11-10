@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import PostCards from '@/components/post-cards';
 import { breadcrumbList, collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { pageCount, postDate, type PostSummary } from '@/lib/posts';
 import Breadcrumbs from '@/components/breadcrumbs';
@@ -79,34 +80,30 @@ export default function BlogIndexView({
           here, newest first.
         </Block>
       ) : (
-        <ul className="mt-8 grid gap-6 md:grid-cols-2">
-          {posts.map((p) => (
-            <li
-              key={p.slug}
-              className="rounded-card border border-line-2 bg-surface p-5 shadow-card"
-            >
-              <h2 className="text-base">
-                <Link
-                  href={`${BLOG_PATH}/${p.slug}`}
-                  className="text-heading hover:underline"
-                >
-                  {p.title}
-                </Link>
-              </h2>
-              {p.publishedAt && (
-                <p className="mt-1 text-xs text-ink-2">
-                  <time dateTime={p.publishedAt}>{postDate(p.publishedAt)}</time>
-                  {p.authorName ? ` · ${p.authorName}` : ''}
-                </p>
-              )}
-              {p.summary && (
-                <Block as="p" measure="read" className="mt-2 text-sm text-ink-2">
-                  {p.summary}
-                </Block>
-              )}
-            </li>
-          ))}
-        </ul>
+        <div className="mt-8">
+          {/* 🔴 СЕКЦІЯ КАТАЛОГУ, А НЕ ВЛАСНА СІТКА (CAMP-465, пункт 3;
+              CAMP-449, секція 10). Власник просив, щоб картки матеріалів
+              можна було класти на будь-яку сторінку: внизу сторінок він
+              хоче чергувати то блог-пости, то інші наші фічі. Доки
+              розмітка жила тут, «покласти її на іншу сторінку» означало
+              скопіювати — а копія розходиться з оригіналом тихо.
+
+              `h2` тут, бо на цій сторінці картки САМІ є розділом; під
+              заголовком секції на іншій сторінці буде `h3`. */}
+          <PostCards
+            testId="blog-posts"
+            titleAs="h2"
+            items={posts.map((p) => ({
+              key: p.slug,
+              href: `${BLOG_PATH}/${p.slug}`,
+              title: p.title,
+              excerpt: p.summary ?? undefined,
+              meta: p.publishedAt
+                ? `${postDate(p.publishedAt)}${p.authorName ? ` · ${p.authorName}` : ''}`
+                : undefined,
+            }))}
+          />
+        </div>
       )}
 
       {/* 🔴 Пагінація зʼявляється лише тоді, коли сторінок БІЛЬШЕ ОДНІЄЇ.

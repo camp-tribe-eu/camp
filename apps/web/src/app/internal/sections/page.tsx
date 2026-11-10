@@ -8,6 +8,7 @@ import Faq from "@/components/faq";
 import { GridBanner } from "@/components/grid-banner";
 import { ImageWithText } from "@/components/image-with-text";
 import { LayeredBanner } from "@/components/layered-banner";
+import PostCards from "@/components/post-cards";
 
 /**
  * Вітрина каталогу секцій — CAMP-449, «Спосіб перевірки», пункт 1:
@@ -170,6 +171,37 @@ export default function SectionCatalogue() {
 
       <Shelf n={8} name="FAQ accordion">
         <Faq items={SAMPLE_FAQ} />
+      </Shelf>
+
+      {/* 🔴 ЗРАЗКОВІ МАТЕРІАЛИ, І ВОНИ НАЗВАНІ ЗРАЗКОВИМИ. Секція на
+          вітрині має показати ФОРМУ, а не стан нашого блога; справжній
+          перелік стоїть на /blog і на сторінках країн. */}
+      <Shelf n={10} name="Post cards (sample)">
+        <PostCards
+          columns={3}
+          items={[
+            {
+              key: 'one',
+              href: '/blog',
+              title: 'Sample post title that runs to two lines so the clamp is visible',
+              excerpt:
+                'Sample excerpt. Two lines of it, so the card shows how a real summary sits under the title.',
+              meta: '1 October 2026 · CampTribe',
+            },
+            {
+              key: 'two',
+              href: '/blog',
+              title: 'Sample post without an excerpt',
+              meta: '20 September 2026 · CampTribe',
+            },
+            {
+              key: 'three',
+              href: '/blog',
+              title: 'Sample post without a date either',
+              excerpt: 'Sample excerpt, to show the card with no meta pill.',
+            },
+          ]}
+        />
       </Shelf>
 
       <Shelf n={11} name="Box banner">
