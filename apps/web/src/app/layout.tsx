@@ -3,51 +3,68 @@ import "./globals.css";
 import { isPublic } from "@/lib/environment";
 import { SiteFooter, SiteHeader } from "@/components/site-chrome";
 import { footerNav, headerNav } from "@/lib/navigation";
+import { siteSettings } from "@/lib/site-settings";
 import { DEFAULT_LOCALE } from "@/lib/i18n";
 import CookieConsent from "@/components/cookie-consent";
 import ErrorReporter from "@/components/error-reporter";
 import { BOOTSTRAP } from "@/lib/error-bootstrap";
 import { THEME_BOOTSTRAP } from "@/lib/theme-bootstrap";
-import { BRAND_DESCRIPTION, BRAND_TITLE } from "@/lib/brand";
+import { BRAND_TITLE } from "@/lib/brand";
 
 // Canonical domain from Facts/project-identity.md in the Camping brain.
 // Overridable via env so staging/preview deploys don't claim the production URL.
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://camptribe.eu";
 
-export const metadata: Metadata = {
-  metadataBase: new URL(siteUrl),
-  title: {
-    default: BRAND_TITLE,
-    template: "%s | CampTribe",
-  },
-  description:
-    BRAND_DESCRIPTION,
-  // CAMP-90. Site-wide, from the one flag. A page may still narrow this
-  // further (a thin hub, a campsite OSM has dropped) — it can never
-  // widen it, because Next merges child metadata over the root and the
-  // children only ever say noindex.
-  robots: isPublic
-    ? { index: true, follow: true, googleBot: { index: true, follow: true } }
-    : {
-        index: false,
-        follow: false,
-        googleBot: { index: false, follow: false },
-      },
-  openGraph: {
-    type: "website",
-    siteName: "CampTribe",
-    title: BRAND_TITLE,
-    description:
-      BRAND_DESCRIPTION,
-    url: siteUrl,
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: BRAND_TITLE,
-    description:
-      BRAND_DESCRIPTION,
-  },
-};
+/**
+ * 🔴 МЕТАДАНІ СТАЛИ АСИНХРОННИМИ — CAMP-481.
+ *
+ * Опис сайту був рядком у коді (`BRAND_DESCRIPTION`) і стояв у трьох
+ * місцях голови документа. Власник не міг його змінити. Тепер він
+ * приходить із CMS, тому статичного `metadata` замало: Next дозволяє
+ * асинхронність лише через `generateMetadata`.
+ *
+ * Ціна заміряна й невелика: один запит, кешований на ту саму витримку,
+ * що й меню, яке макет і так тягне.
+ *
+ * 🔴 НЕМАЄ ПІДПИСУ — НЕМАЄ ПОЛЯ `description`, а не порожній рядок.
+ * `<meta name="description" content="">` гірший за відсутній тег: він
+ * стверджує, що опису немає, замість промовчати.
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  const { tagline } = await siteSettings();
+  const description = tagline ?? undefined;
+  return {
+    metadataBase: new URL(siteUrl),
+    title: {
+      default: BRAND_TITLE,
+      template: "%s | CampTribe",
+    },
+    description,
+    // CAMP-90. Site-wide, from the one flag. A page may still narrow this
+    // further (a thin hub, a campsite OSM has dropped) — it can never
+    // widen it, because Next merges child metadata over the root and the
+    // children only ever say noindex.
+    robots: isPublic
+      ? { index: true, follow: true, googleBot: { index: true, follow: true } }
+      : {
+          index: false,
+          follow: false,
+          googleBot: { index: false, follow: false },
+        },
+    openGraph: {
+      type: "website",
+      siteName: "CampTribe",
+      title: BRAND_TITLE,
+      description,
+      url: siteUrl,
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: BRAND_TITLE,
+      description,
+    },
+  };
+}
 
 // 🔴 CAMP-365: МАКЕТ — ЄДИНЕ МІСЦЕ, ЯКЕ ХОДИТЬ ПО МЕНЮ.
 //
@@ -67,7 +84,14 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   // Один запис кешу на обидва: та сама адреса й ті самі параметри.
-  const [nav, footerLinks] = await Promise.all([headerNav(), footerNav()]);
+  // Один запит на налаштування поруч із двома на меню: усі троє живуть
+  // у кореневому макеті, тож ходити по них послідовно означало б додати
+  // їхні затримки одна до одної на КОЖНІЙ сторінці сайту.
+  const [nav, footerLinks, settings] = await Promise.all([
+    headerNav(),
+    footerNav(),
+    siteSettings(),
+  ]);
   // 🔴 CAMP-40: the language comes from the registry, not from a string
   // written here. This attribute and the `hreflang` on every page have to
   // agree about what language the document is in, and two hand-written
@@ -119,7 +143,7 @@ export default async function RootLayout({
         <ErrorReporter />
         <SiteHeader nav={nav} />
         <div className="flex-1">{children}</div>
-        <SiteFooter nav={footerLinks} />
+        <SiteFooter nav={footerLinks} footerNote={settings.footerNote} />
         {/* 🔴 Last in the document, and it blocks nothing above it. The
             banner must never be a gate: a reader who ignores it keeps the
             whole site, which is what makes any consent given freely

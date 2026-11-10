@@ -19,7 +19,8 @@ import { pageContent, type SectionView } from '@/lib/page-content';
 import {
   PageSections,
 } from '@/components/page-sections';
-import { BRAND_DESCRIPTION, BRAND_TITLE } from '@/lib/brand';
+import { BRAND_TITLE } from '@/lib/brand';
+import { siteSettings } from '@/lib/site-settings';
 import {
   HOME_SECTIONS,
   HOME_SLOTS,
@@ -103,7 +104,12 @@ export async function generateMetadata(): Promise<Metadata> {
   const page = await pageContent(SLUG);
   if (!page) return { title: 'Not found' };
   const title = page.metaTitle ?? BRAND_TITLE;
-  const description = page.metaDescription ?? BRAND_DESCRIPTION;
+  // 🔴 ДВА РІВНІ, А НЕ РЯДОК У КОДІ (CAMP-481). Опис головної бере
+  // верх; якщо редактор його не вписав — загальний підпис сайту з тієї
+  // самої CMS. Третього рівня (речення в коді) більше немає: саме він
+  // робив так, що власник не міг змінити опис сайту.
+  const description =
+    page.metaDescription ?? (await siteSettings()).tagline ?? undefined;
   return {
     title,
     description,
