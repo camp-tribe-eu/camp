@@ -123,3 +123,41 @@ test.describe("🔴 CAMP-365 — /about із CMS", () => {
     await expect(mail).toHaveText("Or write to us");
   });
 });
+
+/**
+ * CAMP-464 — у сторінки «про нас» зʼявився верх.
+ *
+ * 🔴 ОДИН `h1`, І ВІН УСЕРЕДИНІ БАНЕРА. Найдешевший спосіб зіпсувати це
+ * — лишити старий заголовок під банером «щоб було помітніше»: сторінка
+ * дістала б два `h1`, а з ними зламаний обрис для читача екрана й для
+ * пошуковика. Тому перевіряється і кількість, і місце.
+ */
+test.describe('🔴 CAMP-464 — верх сторінки «про нас»', () => {
+  test('заголовок один, і він у банері', async ({ page }) => {
+    await page.goto('/about');
+
+    const h1 = page.locator('main h1');
+    await expect(h1, 'заголовків не один').toHaveCount(1);
+
+    // 🔴 І ВІН НЕ ПОРОЖНІЙ. Перша редакція рахувала лише кількість — і
+    // мутація «віддати банеру порожній заголовок» лишилась зеленою:
+    // `<h1></h1>` теж один. Назва сторінки мусить бути В заголовку, і
+    // доводиться це тим, що вона ж стоїть у `<title>` вкладки.
+    const text = (await h1.innerText()).trim();
+    expect(text.length, 'заголовок порожній').toBeGreaterThan(2);
+    expect(
+      await page.title(),
+      `«${text}» немає в назві вкладки`,
+    ).toContain(text);
+    await expect(
+      page.locator('main .ct-banner h1'),
+      'заголовок лишився поза банером',
+    ).toHaveCount(1);
+
+    // Банер справді намальований, а не лише клас у розмітці.
+    const height = await page
+      .locator('main .ct-banner')
+      .evaluate((el) => Math.round(el.getBoundingClientRect().height));
+    expect(height, `висота банера ${height} px`).toBeGreaterThan(200);
+  });
+});
