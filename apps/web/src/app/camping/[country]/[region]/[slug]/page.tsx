@@ -936,11 +936,41 @@ function Around({ spot }: { spot: Spot }) {
           Open-Meteo's free tier is exhausted (CAMP-99). On those pages
           the sentence credited a source that contributed nothing.
           
-          Attribution is a factual claim like any other on this page. */}
-      <p className="mt-3 text-xs text-ink-2">
+          Attribution is a factual claim like any other on this page.
+
+          🔴 І ЦЕ МУСИТЬ БУТИ ПОСИЛАННЯ, А НЕ НАЗВА. Заміряно 10.11.2026:
+          умови Open-Meteo вимагають дослівно «You must include a link
+          next to any location Open-Meteo data are displayed». Тут речення
+          називало Copernicus словами й не мало жодного посилання, а
+          `open-meteo` не траплявся в усьому `apps/web/src` жодного разу —
+          атрибуція жила лише на сторінці джерел. Умова вимагає її поруч
+          із місцем показу, і це місце — тут.
+
+          Обидва джерела названі навмисно: висота походить із Copernicus,
+          а доходить до нас через Open-Meteo, і їхня ж сторінка ліцензії
+          вказує обох. */}
+      <p
+        className="mt-3 text-xs text-ink-2"
+        data-testid="surroundings-credit"
+      >
         Calculated by us from OpenStreetMap geometry
-        {usedElevation ? ' and the Copernicus elevation model' : ''}.
-        Straight-line distances.
+        {usedElevation ? (
+          <>
+            {' and the '}
+            <a
+              href="https://spacedata.copernicus.eu/collections/copernicus-digital-elevation-model"
+              className="underline"
+              rel="noopener"
+            >
+              Copernicus elevation model
+            </a>
+            {', reached through '}
+            <a href="https://open-meteo.com/" className="underline" rel="noopener">
+              Open-Meteo
+            </a>
+          </>
+        ) : null}
+        . Straight-line distances.
       </p>
     </Section>
   );
