@@ -527,3 +527,110 @@ test.describe("🔴 CAMP-458 — FAQ калькулятора", () => {
     ).toBeGreaterThan(60);
   });
 });
+
+/**
+ * CAMP-458 — список спорядження: «стилі не ті; розкласти колонками».
+ *
+ * 🔴 ТУТ ПЕРЕВІРЯЄТЬСЯ ОДНАКОВІСТЬ, А НЕ КРАСА. На цій сторінці вже
+ * стояли наші галочки (CAMP-459) — у блоці налаштувань. А сам список
+ * лишався на голому `<input type="checkbox">`, тобто два різні контроли
+ * на одному екрані. Саме це й читається як «стилі не ті».
+ */
+test.describe("🔴 CAMP-458 — вигляд списку спорядження", () => {
+  test("жодної галочки повз наш контрол", async ({ page }) => {
+    await page.goto("/tools/camper-packing-list");
+
+    const themed = page.locator("main .ct-cb");
+    // Знаменник: над порожньою сторінкою «жодної чужої» нічого не варте.
+    await expect(themed, "наших галочок на сторінці немає").not.toHaveCount(0);
+
+    const raw = page.locator(
+      "main input[type=checkbox]:not(.ct-cb__input)",
+    );
+    await expect(
+      raw,
+      "на сторінці лишився голий чекбокс повз наш контрол",
+    ).toHaveCount(0);
+  });
+
+  test("🔴 групи стоять колонками, а не ряд у ряд", async ({ page }) => {
+    await page.goto("/tools/camper-packing-list");
+
+    const groups = page.locator("main [data-group]");
+    await expect(groups, "груп на сторінці немає").not.toHaveCount(0);
+
+    // 🔴 ЩО САМЕ ТУТ ДОВОДИТЬСЯ, І ЧОМУ ДВІ ПОПЕРЕДНІ РЕДАКЦІЇ НЕ
+    // ДОВОДИЛИ НІЧОГО.
+    //
+    // Перша читала `columnCount` і впала на мобільному «Received: NaN»:
+    // там колонок немає, тож властивість це `auto`. Друга рахувала
+    // різні ліві краї — і мутація «поверни сітку» лишила її ЗЕЛЕНОЮ, бо
+    // сітка з двох стовпців дає рівно ті самі два краї.
+    //
+    // Скарга власника була не про кількість стовпців, а про діри: сітка
+    // вирівнює ряди по найвищій групі, тож під короткою групою зяє
+    // порожнеча до наступного ряду. Колонки пакують щільно — проміжок
+    // між сусідами в колонці завжди той самий (`mb-6`). Це й міряємо.
+    const width = page.viewportSize()?.width ?? 0;
+    expect(width, 'ширина вікна невідома — замір нічого не доводить').toBeGreaterThan(0);
+
+    const boxes = await groups.evaluateAll((els) =>
+      els.map((el) => {
+        const r = el.getBoundingClientRect();
+        return {
+          left: Math.round(r.left),
+          top: Math.round(r.top),
+          bottom: Math.round(r.bottom),
+        };
+      }),
+    );
+    expect(boxes.length, 'груп замало, щоб побачити розкладку').toBeGreaterThan(2);
+
+    const columns = new Map<number, typeof boxes>();
+    for (const b of boxes) {
+      const col = columns.get(b.left) ?? [];
+      col.push(b);
+      columns.set(b.left, col);
+    }
+    if (width >= 768) {
+      expect(
+        columns.size,
+        `на ${width} px груп у ${columns.size} колонку, а має бути більше однієї`,
+      ).toBeGreaterThan(1);
+    } else {
+      expect(
+        columns.size,
+        `на ${width} px груп у ${columns.size} колонок, а має бути рівно одна`,
+      ).toBe(1);
+    }
+
+    // 🔴 ДІРА НЕ МІЖ КАРТКАМИ, А ВСЕРЕДИНІ НИХ — І ЦЕ ТРЕТЯ РЕДАКЦІЯ
+    // ЦЬОГО ЗАМІРУ.
+    //
+    // Проміжки між картками в сітці теж однакові (`gap-6`), тож мутація
+    // «поверни сітку» лишалась зеленою і тут. Різниця ось у чому: у
+    // сітці картка РОЗТЯГУЄТЬСЯ на висоту ряду, і під останнім пунктом
+    // короткої групи зяє порожнеча до рамки. У колонках картка обіймає
+    // свій вміст, тож відстань від останнього пункту до низу картки —
+    // це завжди падінг, той самий у всіх.
+    const slack = await groups.evaluateAll((els) =>
+      els.map((el) => {
+        const items = el.querySelectorAll('li');
+        const last = items[items.length - 1].getBoundingClientRect();
+        return Math.round(el.getBoundingClientRect().bottom - last.bottom);
+      }),
+    );
+    expect(slack.length, 'груп немає — міряти нічого').toBeGreaterThan(2);
+    expect(
+      [...new Set(slack)],
+      `під останнім пунктом груп лишається різна порожнеча (${slack.join(', ')}) — ` +
+        'так виглядає картка, розтягнута на висоту ряду сітки',
+    ).toHaveLength(1);
+
+    // І група не розривається між колонками.
+    const breakInside = await groups
+      .first()
+      .evaluate((el) => getComputedStyle(el).breakInside);
+    expect(breakInside, "групу можна розірвати між колонками").toBe("avoid");
+  });
+});
