@@ -36,7 +36,14 @@ test.describe("🔴 CAMP-449 — вітрина секцій", () => {
     for (const shelf of SHELVES) {
       const block = page.locator(`[data-testid='shelf-${shelf.n}']`);
       await expect(block, `полиця ${shelf.n} зникла`).toHaveCount(1);
-      await expect(block.locator("h2")).toHaveText(
+      // 🔴 ПІДПИС ПОЛИЦІ МАЄ ВЛАСНЕ ІМʼЯ, А НЕ «ПЕРШИЙ h2».
+      //
+      // Перша редакція брала `block.locator("h2")` — і впала на полиці 1
+      // «strict mode violation: resolved to 2 elements», бо багатошаровий
+      // банер несе свій заголовок, і він теж `h2`. Шукати «перший» було б
+      // гірше: тест лишився б зеленим і тоді, коли підпис зникне, а на
+      // його місце стане заголовок секції.
+      await expect(page.getByTestId(`shelf-${shelf.n}-label`)).toHaveText(
         `${shelf.n}. ${shelf.name}`,
       );
       // Полиця без секції всередині — це порожня рамка, тобто рівно те,

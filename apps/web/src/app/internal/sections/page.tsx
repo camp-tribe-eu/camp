@@ -90,7 +90,7 @@ function Shelf({
 }) {
   return (
     <section className="mt-16" data-testid={`shelf-${n}`}>
-      <h2 className="text-sm text-ink-2">
+      <h2 className="text-sm text-ink-2" data-testid={`shelf-${n}-label`}>
         {n}. {name}
       </h2>
       <div className="mt-4">{children}</div>

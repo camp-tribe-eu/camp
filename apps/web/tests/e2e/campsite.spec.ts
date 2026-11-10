@@ -540,11 +540,29 @@ test.describe('structured data (CAMP-37)', () => {
       page.getByTestId('spot-faq'),
       'FAQPage у розмітці є, а секції на сторінці немає',
     ).toHaveCount(1);
-    const openAll = await page.locator('main details').all();
-    expect(openAll.length, 'жодного <details> у main — розкривати нічого').toBeGreaterThan(0);
-    for (const d of openAll) await d.evaluate((el: HTMLDetailsElement) => (el.open = true));
-    const stillClosed = await page.locator('main details:not([open])').count();
-    expect(stillClosed, 'частина пунктів лишилась закритою після розкриття').toBe(0);
+    expect(
+      await page.locator('main details').count(),
+      'жодного <details> у main — розкривати нічого',
+    ).toBeGreaterThan(0);
+
+    // 🔴 РОЗКРИВАЄМО В ЦИКЛІ, А НЕ ОДИН РАЗ. Перша редакція читала
+    // перелік, ставила `open` кожному й одразу рахувала закриті — і
+    // падала раз на кілька прогонів «Expected 0, Received 1» (заміряно
+    // CI 42779733632: впало, зеленіло з повтору). Між зняттям переліку
+    // й заміром сторінка встигає гідруватись і перемалювати пункт,
+    // скинувши `open`. Тож властивість, яка нам потрібна, — «усі
+    // відкриті В МОМЕНТ ЗАМІРУ», і саме її тепер і чекаємо.
+    await expect
+      .poll(
+        async () => {
+          await page.$$eval('main details', (list) => {
+            for (const d of list) (d as HTMLDetailsElement).open = true;
+          });
+          return page.locator('main details:not([open])').count();
+        },
+        { message: 'частина пунктів лишилась закритою після розкриття' },
+      )
+      .toBe(0);
     const shown = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
     for (const q of questions) {
       expect(shown, `question not on the page: ${q.name}`).toContain(
