@@ -89,6 +89,14 @@ const NOT_IN_MENU: ReadonlyArray<{ path: string; why: string }> = [
   { path: "/account/delete", why: "кабінет: підсторінка кабінету" },
   { path: "/account/listings", why: "кабінет: підсторінка кабінету" },
   { path: "/account/settings", why: "кабінет: підсторінка кабінету" },
+  {
+    path: "/internal/sections",
+    why:
+      "вітрина каталогу секцій (CAMP-449): службова сторінка, закрита " +
+      "`noindex` і `Disallow: /internal/`. У меню їй місця немає — " +
+      "читач на неї не йде, а виняток названий поіменно, бо правило " +
+      "«/internal/.*» накрило б і те, що колись мало б бути видимим.",
+  },
 ];
 
 test.describe("🔴 CAMP-365 — меню з бази", () => {

@@ -62,20 +62,36 @@ export function robotsFor(open: boolean): MetadataRoute.Robots {
     "CCBot",
   ];
 
+  /**
+   * 🔴 ОДИН ПЕРЕЛІК НА ОБИДВА ПРАВИЛА, А НЕ ДВА ОДНАКОВІ.
+   *
+   * Він стояв двічі — для `*` і для ШІ-кравлерів. Поки шляхів було два,
+   * це читалось; варто додати третій, і найімовірніша помилка — додати
+   * його в одне місце з двох, тобто закрити шлях від Google і лишити
+   * відкритим для ChatGPT. Тепер розійтись неможливо за побудовою.
+   *
+   * - `/trips/` — планування рейсу: воно залогінене й персональне,
+   *   рангувати там нічого, а обхід їв би бюджет замість каталогу.
+   * - `/api/` — машинний інтерфейс, не сторінки.
+   * - `/internal/` — наші службові адреси: гачок перебудови, штамп
+   *   вмісту і вітрина секцій (CAMP-449). Жодна з них не для читача.
+   *   🔴 Це ДРУГИЙ замок, а не єдиний: заборона тут зупиняє обхід, тож
+   *   `noindex` на самій сторінці кравлер уже не прочитає. Тому вітрина
+   *   несе `robots: { index: false }` і сама.
+   */
+  const CLOSED = ["/trips/", "/api/", "/internal/"];
+
   return {
     rules: [
       {
         userAgent: "*",
         allow: "/",
-        // Trip planning is a logged-in, per-user feature - nothing there is
-        // meant to rank, and letting it index would waste crawl budget that
-        // should go to camping-directory and route pages instead.
-        disallow: ["/trips/", "/api/"],
+        disallow: CLOSED,
       },
       ...aiCrawlers.map((userAgent) => ({
         userAgent,
         allow: "/",
-        disallow: ["/trips/", "/api/"],
+        disallow: CLOSED,
       })),
     ],
     sitemap: `${siteUrl}/sitemap.xml`,

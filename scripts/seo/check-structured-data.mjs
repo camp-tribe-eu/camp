@@ -71,6 +71,27 @@ const ROOT = flagValue(args, '--dir') ?? 'apps/web/.next/server/app';
 export const isParallelSlot = (label) =>
   label.split('/').some((seg) => seg.startsWith('@') || seg.startsWith('(.'));
 
+/**
+ * Службові адреси під `/internal/`: гачок перебудови, штамп вмісту,
+ * вітрина секцій (CAMP-449).
+ *
+ * 🔴 ЧОМУ ЇМ ТУТ МІСЦЕ. Вимога «кожна сторінка описує себе» існує заради
+ * пошуку. Ці сторінки закриті від нього двома замками — `noindex` на них
+ * самих і `Disallow: /internal/` у robots.txt, — тож розмітка там нікому
+ * не дістанеться. Вона була б не допомогою, а твердженням у машинному
+ * вигляді про сторінку, якої для машин немає.
+ *
+ * 🔴 І ЧОМУ НЕ «ПРОПУСКАТИ ВСЕ, ЩО НЕСЕ noindex». Бо CI збирає ЗАКРИТУ
+ * збірку, де `noindex` стоїть на кожній сторінці від кореневого layout:
+ * таке правило вимкнуло б перевірку цілком і лишилось би зеленим. Та
+ * сама пастка описана в `check-sitemap.mjs`. Тому — шлях, який від
+ * режиму збірки не залежить.
+ *
+ * Вузько: лише ПЕРШИЙ сегмент. `guides/internal-combustion` і
+ * `camping/fr/internal` перевіряються як усі.
+ */
+export const isInternalPath = (label) => label.split('/')[0] === 'internal';
+
 
 const INDEX = JSON.parse(
   readFileSync(new URL('./schema-index.json', import.meta.url), 'utf8'),
@@ -842,6 +863,27 @@ if (invokedDirectly && SELF_TEST) {
     );
   }
 
+  // 🔴 РЕПЕТИЦІЯ ПРАВИЛА ПРО СЛУЖБОВІ АДРЕСИ. Воно теж вимикає вимогу
+  // для цілого класу файлів, тож перевіряється і те, чого воно НЕ
+  // накриває: сторінка, у назві якої просто трапилось те саме слово.
+  for (const [label, want] of [
+    ['internal/sections', true],
+    ['internal/revalidate', true],
+    ['internal', true],
+    ['guides/internal-combustion', false],
+    ['camping/fr/internal', false],
+    ['internals/x', false],
+    ['my-internal/x', false],
+  ]) {
+    ran++;
+    const got = isInternalPath(label);
+    const good = got === want;
+    if (!good) failures++;
+    console.log(
+      `${good ? '✓' : '✗'} службова «${label}»: ${got ? 'пропущено' : 'перевіряється'}`,
+    );
+  }
+
   // Broken JSON, which cannot be expressed as an object literal.
   const broken = validateHtml(
     '<script type="application/ld+json">{"@type": Campground}</script>',
@@ -855,7 +897,7 @@ if (invokedDirectly && SELF_TEST) {
   // 🔴 CAMP-286: counted and asserted, and the line names this file —
   // a grep for "the validator rejects every broken case" is prose any
   // script could print.
-  const EXPECTED_CASES = 44;
+  const EXPECTED_CASES = 51;
   if (ran !== EXPECTED_CASES) {
     failures++;
     console.log(`✗ ${ran} cases ran, expected ${EXPECTED_CASES}`);
@@ -955,6 +997,7 @@ const missing = files
     (label) =>
       !ERROR_PAGES.has(label) &&
       !isParallelSlot(label) &&
+      !isInternalPath(label) &&
       !readFileSync(path.join(ROOT, `${label}.html`), 'utf8').includes(
         'application/ld+json',
       ),
