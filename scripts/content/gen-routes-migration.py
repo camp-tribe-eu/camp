@@ -1,4 +1,10 @@
 import json, sys
+# 🔴 ПІСЛЯ ГЕНЕРАЦІЇ ФАЙЛ ТРЕБА ПРОГНАТИ ЧЕРЕЗ PRETTIER ПРОЄКТУ:
+#   npx prettier --write apps/api/src/migrations/1795600000000-SeedRoutesContent.ts
+# JSON вживає подвійні лапки й іншу розкладку, ніж лінтер репозиторію,
+# і прогін `api` падає на форматуванні — заміряно 10.11.2026.
+# Форматування згенерованого файла безпечне: це механічне перетворення
+# того, що ми ж і створили, а не правка чужого коду.
 src = json.load(open('/private/tmp/claude-501/-Users-george-Documents-UTD-Claude------Camping/4c5eb47a-c753-4472-9de1-950e5f95976a/scratchpad/routes.json'))
 
 payload = []

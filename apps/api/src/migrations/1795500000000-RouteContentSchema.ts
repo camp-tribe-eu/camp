@@ -53,7 +53,9 @@ export class RouteContentSchema1795500000000 implements MigrationInterface {
          CHECK (type <> 'post' OR status <> 'published' OR published_at IS NOT NULL)`,
     );
 
-    await queryRunner.query(`ALTER TABLE routes ALTER COLUMN name DROP NOT NULL`);
+    await queryRunner.query(
+      `ALTER TABLE routes ALTER COLUMN name DROP NOT NULL`,
+    );
     await queryRunner.query(
       `ALTER TABLE routes ALTER COLUMN country DROP NOT NULL`,
     );
@@ -98,8 +100,16 @@ export class RouteContentSchema1795500000000 implements MigrationInterface {
     await queryRunner.query(
       `ALTER TABLE route_points DROP COLUMN IF EXISTS nights`,
     );
-    for (const col of ['countries', 'months', 'suits', 'curated_at', 'region']) {
-      await queryRunner.query(`ALTER TABLE routes DROP COLUMN IF EXISTS ${col}`);
+    for (const col of [
+      'countries',
+      'months',
+      'suits',
+      'curated_at',
+      'region',
+    ]) {
+      await queryRunner.query(
+        `ALTER TABLE routes DROP COLUMN IF EXISTS ${col}`,
+      );
     }
   }
 }
