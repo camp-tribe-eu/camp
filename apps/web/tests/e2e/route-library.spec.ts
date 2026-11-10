@@ -46,6 +46,17 @@ let ROUTES: CuratedRoute[] = [];
 
 /** Один маршрут із API; `null` на 404, виняток на будь-що інше. */
 async function getRoute(slug: string): Promise<CuratedRoute | null> {
+  // 🔴 ТА САМА ПЕРЕВІРКА, ЩО В `lib/routes.ts`, І ЦЕ НЕ ДУБЛЮВАННЯ.
+  //
+  // `/routes/content/` без слага — це ІНША адреса: перелік усіх
+  // маршрутів, 200 і масив. Помічник без цієї перевірки питав сервер
+  // про порожнечу й читав відповідь як «маршрут знайдено».
+  //
+  // Помічник у тесті мусить поводитись як бібліотека, інакше він
+  // перевіряє власну вигадку. Заміряно падінням: `getRoute('')` давав
+  // обʼєкт.
+  if (!slug.trim()) return null;
+
   const res = await fetch(`${API}/routes/content/${encodeURIComponent(slug)}`);
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`GET /routes/content/${slug} → ${res.status}`);
