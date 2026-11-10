@@ -15,9 +15,30 @@ test.describe("🔴 CAMP-364 — перелік дописів", () => {
   test("показує опублікований допис із датою й автором", async ({ page }) => {
     await page.goto("/blog");
 
-    const card = page.locator(`main a[href="/blog/${LIVE}"]`);
+    // 🔴 ПОСИЛАННЯ БЕРЕТЬСЯ ЗА ДОСТУПНИМ ІМЕНЕМ, А НЕ ЗА `href`.
+    //
+    // CAMP-465 зробив картку матеріалу секцією каталогу, і в ній ДВА
+    // посилання з одним `href`: на картинці й на заголовку. Картинка
+    // навмисно `aria-hidden` з `tabIndex={-1}`, щоб диктор не прочитав
+    // той самий допис двічі, — тож у дереві доступності лишається рівно
+    // одне. Вимога «рівно одне посилання» правильна саме там: вона про
+    // те, що чує читач екрана, а не про те, скільки тегів у розмітці.
+    //
+    // Рахувати `a[href=…]` означало б прив'язати тест до верстки: будь-яка
+    // картка з клікабельною картинкою ламала б його, нічого не зламавши
+    // для читача.
+    const card = page
+      .locator("main")
+      .getByRole("link", { name: "What the data does not say", exact: true });
     await expect(card, "допису немає в переліку").toHaveCount(1);
-    await expect(card).toHaveText("What the data does not say");
+
+    // 🔴 І АДРЕСА ТЕЖ. Без цього рядка тест довів би лише те, що на
+    // сторінці є посилання з потрібним написом — воно могло б вести
+    // куди завгодно, і перелік лишився б зеленим.
+    await expect(card, "посилання веде не на той допис").toHaveAttribute(
+      "href",
+      `/blog/${LIVE}`,
+    );
 
     const text = await page.locator("main").innerText();
     expect(text, "немає дати допису").toContain("1 October 2026");
@@ -34,7 +55,12 @@ test.describe("🔴 CAMP-364 — перелік дописів", () => {
       "допис із датою 2099 року вже видно",
     ).toHaveCount(0);
     // Пара: перелік не порожній, інакше заборона вище нічого не варта.
-    await expect(page.locator(`main a[href="/blog/${LIVE}"]`)).toHaveCount(1);
+    await expect(
+      page
+        .locator("main")
+        .getByRole("link", { name: "What the data does not say", exact: true }),
+      "перелік порожній — тоді заборона вище істинна ні про що",
+    ).toHaveCount(1);
   });
 
   test("порожнього стану немає, коли дописи є", async ({ page }) => {

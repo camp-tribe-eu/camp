@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { alternatesFor } from '@/lib/i18n';
 import { blogPostingGraph, breadcrumbList, jsonLdProps } from '@/lib/jsonld';
@@ -11,6 +10,7 @@ import {
   readingMinutes,
 } from '@/lib/posts';
 import { PageSections } from '@/components/page-sections';
+import PostCards from '@/components/post-cards';
 import Breadcrumbs from '@/components/breadcrumbs';
 
 // CAMP-364 — сторінка допису.
@@ -166,28 +166,25 @@ export default async function BlogPost({
           <h2 id="read-next" className="text-base">
             Read next
           </h2>
-          <ul className="mt-4 grid gap-4 md:grid-cols-2">
-            {neighbours.map((p) => (
-              <li
-                key={p.slug}
-                className="rounded-card border border-line-2 bg-surface p-4 shadow-card"
-              >
-                <Link
-                  href={`/blog/${p.slug}`}
-                  className="text-sm font-semibold text-heading hover:underline"
-                >
-                  {p.title}
-                </Link>
-                {p.publishedAt && (
-                  <p className="mt-1 text-xs text-ink-2">
-                    <time dateTime={p.publishedAt}>
-                      {postDate(p.publishedAt)}
-                    </time>
-                  </p>
-                )}
-              </li>
-            ))}
-          </ul>
+          {/* 🔴 ТА САМА СЕКЦІЯ, ЩО НА /blog І НА СТОРІНЦІ КРАЇНИ
+              (CAMP-465, пункт 3). Тут була власна сітка з власною
+              карткою — четверта копія однієї й тієї самої розмітки.
+              Копія розходиться з оригіналом тихо: обидві сторінки
+              лишаються «нормальними», доки хтось не покладе їх поруч.
+
+              `h3`, бо заголовок розділу «Read next» уже є `h2`. */}
+          <div className="mt-4">
+            <PostCards
+              testId="read-next-cards"
+              items={neighbours.map((p) => ({
+                key: p.slug,
+                href: `/blog/${p.slug}`,
+                title: p.title,
+                excerpt: p.summary ?? undefined,
+                meta: p.publishedAt ? postDate(p.publishedAt) : undefined,
+              }))}
+            />
+          </div>
         </nav>
       )}
     </main>

@@ -10,6 +10,9 @@ import { breadcrumbList, collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
 import OvernightCoverage from '@/components/overnight-coverage';
 import { Block, PageShell } from '@/components/layout';
+import PostCards from '@/components/post-cards';
+import { postDate, postList } from '@/lib/posts';
+import { BLOG_PATH } from '@/components/blog-index';
 import { LayeredBanner } from '@/components/layered-banner';
 import { RegionTicker } from '@/components/region-ticker';
 import { readRegionCard, readRegionCards, RegionTiles } from '@/components/region-tiles';
@@ -81,7 +84,7 @@ export async function generateMetadata(
 
 export default async function CountryHub(props: { params: Promise<Params> }) {
   const params = await props.params;
-  const [rows, stats, allMapRegions] = await Promise.all([
+  const [rows, stats, allMapRegions, posts] = await Promise.all([
     getRegions(params.country),
     getHubStats(params.country),
     // 🔴 CAMP-474. Той самий індекс, що й у великої мапи, прочитаний на
@@ -91,6 +94,10 @@ export default async function CountryHub(props: { params: Promise<Params> }) {
     // Збій індексу не має класти сторінку країни: без рядків мапа себе
     // не малює, а решта сторінки лишається цілою.
     mapRegions().catch(() => []),
+    // 🔴 СПИСОК МАТЕРІАЛІВ НЕ СМІЄ КЛАСТИ СТОРІНКУ КРАЇНИ. Він тут
+    // прикраса внизу, а не зміст: збій CMS має прибрати секцію, а не
+    // сторінку. Той самий `.catch(() => [])`, що вже стоїть над мапою.
+    postList().catch(() => []),
   ]);
   const regions = readRegionCards(rows);
   if (regions.length === 0) notFound();
@@ -238,6 +245,36 @@ export default async function CountryHub(props: { params: Promise<Params> }) {
               answer: f.answer,
             }))}
           />
+        </section>
+      )}
+
+      {/* 🔴 СЕКЦІЯ МАТЕРІАЛІВ — ТА САМА, ЩО НА /blog (CAMP-465, пункт 3).
+          Власник просив, щоб картки матеріалів можна було класти на
+          будь-яку сторінку, бо внизу сторінок він хоче чергувати то
+          блог-пости, то інші наші фічі.
+
+          🔴 ПОРОЖНІЙ БЛОГ НЕ ЛАМАЄ СТОРІНКУ: `PostCards` на порожньому
+          переліку не малює нічого, тож і заголовок секції стоїть під
+          тією самою умовою — заголовок над порожнечею читається як
+          поломка. Беремо три найсвіжіші: більше тут нема куди. */}
+      {posts.length > 0 && (
+        <section className="mt-12" aria-labelledby="from-the-blog">
+          <h2 id="from-the-blog" className="text-xl md:text-[25px]">
+            From the blog
+          </h2>
+          <div className="mt-4">
+            <PostCards
+              testId="country-posts"
+              columns={3}
+              items={posts.slice(0, 3).map((p) => ({
+                key: p.slug,
+                href: `${BLOG_PATH}/${p.slug}`,
+                title: p.title,
+                excerpt: p.summary ?? undefined,
+                meta: p.publishedAt ? postDate(p.publishedAt) : undefined,
+              }))}
+            />
+          </div>
         </section>
       )}
 
