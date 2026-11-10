@@ -290,7 +290,7 @@ export function SiteFooter({ nav = [] }: { nav?: NavItem[] }) {
                заголовок над порожнечею читається як поломка. */}
           {more.length > 0 && (
             <nav aria-label="More">
-              <h2 className="text-xs font-semibold text-heading">More</h2>
+              <h2 className="text-xs text-heading">More</h2>
               <ul className="mt-3">
                 {more.map((item) => (
                   <li key={item.href}>
@@ -310,7 +310,7 @@ export function SiteFooter({ nav = [] }: { nav?: NavItem[] }) {
                а не з CMS: обовʼязкове посилання не можна випадково
                видалити з бази. */}
           <nav aria-label="Legal">
-            <h2 className="text-xs font-semibold text-heading">Legal</h2>
+            <h2 className="text-xs text-heading">Legal</h2>
             <ul className="mt-3">
               {LEGAL_PAGES.map((p) => (
                 <li key={p.slug}>
@@ -331,7 +331,7 @@ export function SiteFooter({ nav = [] }: { nav?: NavItem[] }) {
           {/* 4. Звідки дані. ODbL вимагає атрибуції там, де дані
                показують, тож вона в підвалі кожної сторінки. */}
           <div>
-            <h2 className="text-xs font-semibold text-heading">
+            <h2 className="text-xs text-heading">
               Where the data comes from
             </h2>
             <Block as="p" measure="read" className="mt-3">
