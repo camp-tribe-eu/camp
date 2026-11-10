@@ -34,13 +34,32 @@ def literal_words(src: str) -> int:
     return total
 
 
-def jsx_words(src: str) -> int:
+# 🔴 ЩО ВІДСІЮЄТЬСЯ Й ЧОМУ. Друга редакція цього заміру рахувала
+# узагальнення TypeScript як прозу: `useState<Foo>(…)` для регулярки
+# «текст між `>` і `<`» виглядає точнісінько як абзац. Вона показала
+# 4 270 слів там, де їх 2 799 — тобто я виправив число вниз і тим же
+# рухом завищив його на півтори тисячі.
+#
+# Урок дорожчий за саме число: замір, виправлений поспіхом, хибний так
+# само, як той, що його виправляли. Тому тут стоїть явний перелік
+# ознак коду, а внизу друкуються ЗРАЗКИ знайденого — щоб наступну таку
+# помилку було видно очима, а не через місяць.
+CODE_SHAPED = re.compile(r'[;=(){}\[\]|&]|=>|\bconst\b|\breturn\b|\buseState\b')
+
+
+def jsx_words(src: str) -> tuple[int, list[str]]:
     total = 0
+    samples: list[str] = []
     for m in re.finditer(r'>([^<>{}]{30,})<', src):
-        words = re.findall(r'[A-Za-z]{2,}', m.group(1))
+        text = ' '.join(m.group(1).split())
+        if CODE_SHAPED.search(text):
+            continue
+        words = re.findall(r'[A-Za-z]{2,}', text)
         if len(words) >= 5:
             total += len(words)
-    return total
+            if len(samples) < 2:
+                samples.append(text)
+    return total, samples
 
 
 def main() -> int:
@@ -49,6 +68,7 @@ def main() -> int:
         top = int(sys.argv[sys.argv.index('--top') + 1])
 
     per_file = collections.Counter()
+    samples: list[str] = []
     lit = jsx = files = 0
     for root, dirs, names in os.walk(ROOT):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
@@ -58,7 +78,9 @@ def main() -> int:
             files += 1
             path = os.path.join(root, fn)
             src = strip_comments(open(path, encoding='utf-8').read())
-            a, b = literal_words(src), jsx_words(src)
+            a, (b, found) = literal_words(src), jsx_words(src)
+            if found and len(samples) < 5:
+                samples.extend(found[:1])
             lit += a
             jsx += b
             if a + b:
@@ -76,6 +98,14 @@ def main() -> int:
     print()
     for f, n in per_file.most_common(top):
         print(f'{n:6,}  {f}')
+
+    # 🔴 ЗРАЗКИ ДРУКУЮТЬСЯ ЗАВЖДИ. Число без прикладів того, що воно
+    # порахувало, неможливо спростувати — а саме так ця перевірка двічі
+    # за день показувала неправду, лишаючись переконливою.
+    if samples:
+        print('\nщо саме порахувало як текст у JSX:')
+        for s in samples:
+            print(f'  • {s[:90]}')
     return 0
 
 
