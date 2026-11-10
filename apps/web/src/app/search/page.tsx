@@ -44,7 +44,7 @@ export default async function SearchPage() {
     getCountries(),
   ]);
 
-  const routeCount = getRoutes().length;
+  const routeCount = (await getRoutes()).length;
 
   return (
     <main className="mx-auto max-w-wrap px-4 py-8 xl:px-6">

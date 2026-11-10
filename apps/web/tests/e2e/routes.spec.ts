@@ -1,6 +1,30 @@
-import { expect, test } from './api-request';
-import { CURATED_ROUTES } from '../../src/data/routes';
-import { SERVICE_KINDS } from '../../src/lib/route-services';
+import { expect, test } from "./api-request";
+import type { CuratedRoute } from "../../src/lib/route-types";
+
+const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+
+/**
+ * Бібліотека маршрутів із того самого API, з якого її будує сторінка.
+ *
+ * 🔴 НЕ З КОДУ. Після CAMP-479 маршрути живуть у базі; перелік, узятий
+ * із файла, стеріг би копію, а не те, що бачить читач.
+ */
+let cached: CuratedRoute[] | null = null;
+async function library(): Promise<CuratedRoute[]> {
+  if (cached) return cached;
+  const res = await fetch(`${API}/routes/content`);
+  if (!res.ok) throw new Error(`GET ${API}/routes/content → ${res.status}`);
+  const body = (await res.json()) as { routes?: CuratedRoute[] };
+  const routes = body.routes ?? [];
+  if (routes.length === 0) {
+    throw new Error(
+      "бібліотека порожня — перевірки нижче були б істинні ні про що",
+    );
+  }
+  cached = routes;
+  return routes;
+}
+import { SERVICE_KINDS } from "../../src/lib/route-services";
 
 // CAMP-3 / CAMP-45 — the route library, on real pages.
 //
@@ -17,69 +41,87 @@ import { SERVICE_KINDS } from '../../src/lib/route-services';
 // has to actually mount, and the console has to be clean.
 
 /** Everything the console said, so a test can assert it said nothing. */
-function collectConsoleErrors(page: import('@playwright/test').Page) {
+function collectConsoleErrors(page: import("@playwright/test").Page) {
   const errors: string[] = [];
-  page.on('console', (m) => {
-    if (m.type() === 'error') errors.push(m.text());
+  page.on("console", (m) => {
+    if (m.type() === "error") errors.push(m.text());
   });
-  page.on('pageerror', (e) => errors.push(`uncaught: ${e.message}`));
+  page.on("pageerror", (e) => errors.push(`uncaught: ${e.message}`));
   return errors;
 }
 
-test.describe('the library index', () => {
-  test('lists every curated route, and says how many there are', async ({ page }) => {
-    await page.goto('/routes');
-    await expect(page.getByRole('heading', { level: 1 })).toContainText(
-      'Camping routes',
+test.describe("the library index", () => {
+  test("lists every curated route, and says how many there are", async ({
+    page,
+  }) => {
+    await page.goto("/routes");
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(
+      "Camping routes",
     );
 
-    for (const r of CURATED_ROUTES) {
+    for (const r of await library()) {
       await expect(
-        page.getByRole('link', { name: new RegExp(escapeRe(r.name)) }),
+        page.getByRole("link", { name: new RegExp(escapeRe(r.name)) }),
         `${r.slug} is missing from the index`,
       ).toBeVisible();
     }
 
-    await expect(page.getByTestId('route-count')).toContainText(
-      `All ${CURATED_ROUTES.length} routes`,
+    await expect(page.getByTestId("route-count")).toContainText(
+      `All ${(await library()).length} routes`,
     );
   });
 
   // 🔴 The hub must say what it cannot tell you, not only the route
   // pages. This is where somebody comparing routes looks for a distance.
-  test('the hub says the road figures are missing', async ({ page }) => {
-    await page.goto('/routes');
-    await expect(page.locator('main')).toContainText('road distances and driving times');
-    await expect(page.locator('main')).toContainText('straight-line distance');
+  test("the hub says the road figures are missing", async ({ page }) => {
+    await page.goto("/routes");
+    await expect(page.locator("main")).toContainText(
+      "road distances and driving times",
+    );
+    await expect(page.locator("main")).toContainText("straight-line distance");
   });
 
-  test('filtering narrows the list without a reload', async ({ page }) => {
-    await page.goto('/routes');
-    await page.getByRole('button', { name: 'Winter' }).click();
-    await expect(page.getByTestId('route-count')).toContainText(/Showing \d+ of/);
+  test("filtering narrows the list without a reload", async ({ page }) => {
+    await page.goto("/routes");
+    await page.getByRole("button", { name: "Winter" }).click();
+    await expect(page.getByTestId("route-count")).toContainText(
+      /Showing \d+ of/,
+    );
     // Andalusia is the only winter route, and its months wrap the year
     // end — "Nov–Mar", not "Jan–Mar, Nov–Dec".
-    await expect(page.locator('main')).toContainText('Nov–Mar');
+    await expect(page.locator("main")).toContainText("Nov–Mar");
   });
 });
 
-test.describe('a route page', () => {
-  for (const route of CURATED_ROUTES) {
-    test(`${route.slug} renders its stages and states no road figures`, async ({
-      page,
-    }) => {
+test.describe("a route page", () => {
+  // 🔴 ОДИН ТЕСТ НА ВСЮ БІБЛІОТЕКУ, А НЕ ТЕСТ НА МАРШРУТ (CAMP-479).
+  //
+  // Раніше цикл ПОРОДЖУВАВ по тесту на кожен маршрут — це можливо лише
+  // тоді, коли перелік відомий у момент збирання тестів, тобто коли він
+  // лежить у коді. Після переїзду в базу перелік приходить мережею, а
+  // Playwright збирає тести синхронно.
+  //
+  // Ціна названа, а не схована: перше падіння зупиняє решту маршрутів.
+  // Тому кожне твердження всередині називає слаг — інакше звіт сказав
+  // би «впало на сторінці маршруту», не кажучи, на якій саме.
+  test("кожна сторінка маршруту малює етапи й не обіцяє дорожніх цифр", async ({
+    page,
+  }) => {
+    for (const route of await library()) {
       const errors = collectConsoleErrors(page);
       await page.goto(`/routes/${route.slug}`);
 
-      await expect(page.getByRole('heading', { level: 1 })).toContainText(route.name);
+      await expect(page.getByRole("heading", { level: 1 })).toContainText(
+        route.name,
+      );
 
       // The duration we curated, and the straight-line distance, labelled.
-      await expect(page.getByTestId('figure-duration')).toContainText(
+      await expect(page.getByTestId("figure-duration")).toContainText(
         `${route.days} days`,
       );
-      const straight = page.getByTestId('figure-straight-line');
+      const straight = page.getByTestId("figure-straight-line");
       await expect(straight).toContainText(/\d+ km/);
-      await expect(straight).toContainText('straight line');
+      await expect(straight).toContainText("straight line");
 
       // 🔴 THE CORE ASSERTION OF THIS CARD.
       //
@@ -87,32 +129,36 @@ test.describe('a route page', () => {
       // engine is ever wired in, these fail — which is correct: road
       // figures appearing on the site is a change that should be
       // announced by a failing test, not discovered later.
-      await expect(page.getByTestId('figure-road-distance-missing')).toBeVisible();
-      await expect(page.getByTestId('figure-driving-time-missing')).toBeVisible();
-      await expect(page.getByTestId('figure-road-distance')).toHaveCount(0);
-      await expect(page.getByTestId('figure-driving-time')).toHaveCount(0);
+      await expect(
+        page.getByTestId("figure-road-distance-missing"),
+      ).toBeVisible();
+      await expect(
+        page.getByTestId("figure-driving-time-missing"),
+      ).toBeVisible();
+      await expect(page.getByTestId("figure-road-distance")).toHaveCount(0);
+      await expect(page.getByTestId("figure-driving-time")).toHaveCount(0);
 
       // And nowhere on the page does a number claim to be a drive.
-      const main = (await page.locator('main').textContent()) ?? '';
-      expect(main, 'the page states a driving time').not.toMatch(
+      const main = (await page.locator("main").textContent()) ?? "";
+      expect(main, "the page states a driving time").not.toMatch(
         /\b\d+\s*(h|hours|hrs)\s+(of\s+)?driv/i,
       );
-      expect(main, 'the page states a road distance').not.toMatch(
+      expect(main, "the page states a road distance").not.toMatch(
         /\b\d+\s*km\s+by road/i,
       );
 
       // Every stage is on the page, in order, with its reason.
       for (const stage of route.stages) {
         await expect(
-          page.getByRole('heading', { name: stage.name, exact: true }),
+          page.getByRole("heading", { name: stage.name, exact: true }),
           `stage ${stage.name} is missing`,
         ).toBeVisible();
       }
 
       // Attribution is a licence condition, not a nicety.
-      await expect(page.getByTestId('route-sources')).toBeVisible();
-      await expect(page.getByTestId('route-sources')).toContainText(
-        'OpenStreetMap',
+      await expect(page.getByTestId("route-sources")).toBeVisible();
+      await expect(page.getByTestId("route-sources")).toContainText(
+        "OpenStreetMap",
       );
 
       // 🔴 CAMP-113's narrowing, on EVERY route including the ones where
@@ -128,8 +174,8 @@ test.describe('a route page', () => {
       // the retry, and `check-flaky.mjs` failed the build for it —
       // correctly. This test already visits every route page, so the
       // coverage is identical and costs nothing.
-      await expect(page.getByTestId('route-sources')).toContainText(
-        'come from OpenStreetMap alone',
+      await expect(page.getByTestId("route-sources")).toContainText(
+        "come from OpenStreetMap alone",
       );
 
       // 🔴 CAMP-113 — the services block, on every stage, with every
@@ -143,7 +189,7 @@ test.describe('a route page', () => {
       // how much data happens to be loaded fails on the honest path
       // working correctly. What is invariant is that every stage asks
       // about every kind and answers in words either way.
-      const blocks = page.getByTestId('stage-services');
+      const blocks = page.getByTestId("stage-services");
       await expect(blocks).toHaveCount(route.stages.length);
       for (let i = 0; i < route.stages.length; i++) {
         const block = blocks.nth(i);
@@ -155,7 +201,7 @@ test.describe('a route page', () => {
         // `found + absent === 1` per kind, which all-absent satisfies
         // perfectly, so it was green on exactly that bug.
         const unavailable = await block
-          .getByTestId('stage-services-unavailable')
+          .getByTestId("stage-services-unavailable")
           .count();
         if (unavailable > 0) {
           for (const kind of SERVICE_KINDS) {
@@ -177,39 +223,39 @@ test.describe('a route page', () => {
       }
 
       expect(errors, `console errors on /routes/${route.slug}`).toEqual([]);
-    });
-  }
+    }
+  });
 
   // 🔴 CAMP-113's own acceptance, read off the rendered page rather than
   // asserted about the code: a missing field says "unknown", and nothing
   // on the page is a rating or somebody else's photograph.
-  test('a missing field says unknown, and no rating or photo appears', async ({
+  test("a missing field says unknown, and no rating or photo appears", async ({
     page,
   }) => {
-    await page.goto('/routes/france-atlantic-coast');
+    await page.goto("/routes/france-atlantic-coast");
 
-    const services = page.getByTestId('stage-services').first();
+    const services = page.getByTestId("stage-services").first();
     // The fixture's La Rochelle rows are chosen so that at least one of
     // each of these is true; see ci-seed-route-poi.sql.
-    await expect(services).toContainText('unknown');
-    await expect(services).toContainText('straight line');
+    await expect(services).toContainText("unknown");
+    await expect(services).toContainText("straight line");
     // 🔴 A typographic apostrophe, because that is what the page
     // renders (&rsquo;). Asserting the ASCII one passes nowhere and
     // looks like a missing paragraph rather than a missing character.
     await expect(services).toContainText(
-      'OpenStreetMap’s own syntax, unchanged',
+      "OpenStreetMap’s own syntax, unchanged",
     );
 
     // 🔴 No invented rating. Nothing in this block may look like one —
     // no stars, no "4.5", no "out of 5".
-    const text = (await services.textContent()) ?? '';
-    expect(text, 'a star crept into the services block').not.toMatch(/[★☆]/);
-    expect(text, 'a rating crept into the services block').not.toMatch(
+    const text = (await services.textContent()) ?? "";
+    expect(text, "a star crept into the services block").not.toMatch(/[★☆]/);
+    expect(text, "a rating crept into the services block").not.toMatch(
       /\b\d(\.\d)?\s*\/\s*5\b|\bout of 5\b|\bstars?\b/i,
     );
     // 🔴 No third-party photograph. There is no <img> in this block and
     // there is not supposed to be one until CAMP-52.
-    await expect(services.locator('img')).toHaveCount(0);
+    await expect(services.locator("img")).toHaveCount(0);
 
     // 🔴 AND THE FUEL FIGURE IS A NATIONAL WEEKLY AVERAGE, SAID SO TWICE.
     //
@@ -232,18 +278,18 @@ test.describe('a route page', () => {
     // can never be read as the price on a forecourt, and these two
     // assertions are what a reader would have to lose for that to
     // become possible.
-    const fuel = page.getByTestId('route-fuel-prices');
+    const fuel = page.getByTestId("route-fuel-prices");
     await expect(fuel).toBeVisible();
-    await expect(fuel).toContainText('European Commission');
-    await expect(fuel).toContainText('Country average');
+    await expect(fuel).toContainText("European Commission");
+    await expect(fuel).toContainText("Country average");
     await expect(fuel).toContainText(
-      'not the price at any single filling station',
+      "not the price at any single filling station",
     );
     // 🔴 And no directional word at all, which is what went wrong: both
     // "above" and "below" have to track the order of two JSX siblings
     // in another file, so neither belongs in the prose.
-    const fuelText = (await fuel.textContent()) ?? '';
-    expect(fuelText, 'a directional word came back').not.toMatch(
+    const fuelText = (await fuel.textContent()) ?? "";
+    expect(fuelText, "a directional word came back").not.toMatch(
       /listed (above|below)/,
     );
   });
@@ -258,24 +304,32 @@ test.describe('a route page', () => {
   // ones in ci-seed-route-poi.sql, which are real OpenStreetMap objects
   // chosen next to this route's stages, and every assertion is about what
   // the page SAYS about them.
-  test('🔴 a rest area is listed with its distance, and its facilities say yes, no or not known', async ({
+  test("🔴 a rest area is listed with its distance, and its facilities say yes, no or not known", async ({
     page,
   }) => {
-    await page.goto('/routes/france-atlantic-coast');
-    const blocks = page.getByTestId('stage-services');
+    await page.goto("/routes/france-atlantic-coast");
+    const blocks = page.getByTestId("stage-services");
 
-    const row = (stage: number, kind: 'rest_area' | 'service_area') =>
+    const row = (stage: number, kind: "rest_area" | "service_area") =>
       blocks.nth(stage).getByTestId(`service-${kind}`);
-    const facilities = (stage: number, kind: 'rest_area' | 'service_area') =>
-      row(stage, kind).getByTestId('service-facilities');
+    const facilities = (stage: number, kind: "rest_area" | "service_area") =>
+      row(stage, kind).getByTestId("service-facilities");
 
     // Stage 1: OSM says nothing about this rest area. Five "Not known",
     // and — the whole point — not one "No".
-    await expect(row(0, 'rest_area')).toContainText('Aire de repos des Bossioux');
-    await expect(row(0, 'rest_area')).toContainText('km away in a straight line');
-    await expect(facilities(0, 'rest_area')).toContainText('Toilets: Not known');
-    await expect(facilities(0, 'rest_area')).toContainText('Fee: Not known');
-    await expect(facilities(0, 'rest_area')).not.toContainText(/: (?:No(?!t)|Yes)\b/);
+    await expect(row(0, "rest_area")).toContainText(
+      "Aire de repos des Bossioux",
+    );
+    await expect(row(0, "rest_area")).toContainText(
+      "km away in a straight line",
+    );
+    await expect(facilities(0, "rest_area")).toContainText(
+      "Toilets: Not known",
+    );
+    await expect(facilities(0, "rest_area")).toContainText("Fee: Not known");
+    await expect(facilities(0, "rest_area")).not.toContainText(
+      /: (?:No(?!t)|Yes)\b/,
+    );
 
     // 🔴 THE FIVE WORDS OF EACH ROW, IN ORDER, WRITTEN OUT HERE.
     //
@@ -289,60 +343,67 @@ test.describe('a route page', () => {
     // renamed key, a swapped pair and a dropped item are each a different
     // list. The expected words are typed, not read from the fixture or from
     // FACILITY_KEYS.
-    const listOf = (stage: number, kind: 'rest_area' | 'service_area') =>
-      facilities(stage, kind).getByRole('listitem');
+    const listOf = (stage: number, kind: "rest_area" | "service_area") =>
+      facilities(stage, kind).getByRole("listitem");
 
     // Stage 2: a written yes for toilets, and yes or no for the rest.
-    await expect(row(1, 'rest_area')).toContainText('Houmée');
-    await expect(listOf(1, 'rest_area')).toHaveText([
-      'Toilets: Yes',
-      'Shower: No',
-      'Drinking water: Yes',
-      'Chemical toilet disposal: No',
-      'Fee: Yes',
+    await expect(row(1, "rest_area")).toContainText("Houmée");
+    await expect(listOf(1, "rest_area")).toHaveText([
+      "Toilets: Yes",
+      "Shower: No",
+      "Drinking water: Yes",
+      "Chemical toilet disposal: No",
+      "Fee: Yes",
     ]);
 
     // Stage 3: a written NO — a different word from the gap above it.
-    await expect(row(2, 'rest_area')).toContainText('La Rivière');
-    await expect(listOf(2, 'rest_area')).toHaveText([
-      'Toilets: No',
-      'Shower: Yes',
-      'Drinking water: Yes',
-      'Chemical toilet disposal: No',
-      'Fee: No',
+    await expect(row(2, "rest_area")).toContainText("La Rivière");
+    await expect(listOf(2, "rest_area")).toHaveText([
+      "Toilets: No",
+      "Shower: Yes",
+      "Drinking water: Yes",
+      "Chemical toilet disposal: No",
+      "Fee: No",
     ]);
 
     // Stage 6: a service area, with the contact fields it has — and one
     // facility nobody wrote down, among four that somebody did.
-    await expect(row(5, 'service_area')).toContainText('Aire de Labenne');
-    await expect(row(5, 'service_area')).toContainText('km away in a straight line');
-    await expect(listOf(5, 'service_area')).toHaveText([
-      'Toilets: Yes',
-      'Shower: Not known',
-      'Drinking water: No',
-      'Chemical toilet disposal: Yes',
-      'Fee: No',
+    await expect(row(5, "service_area")).toContainText("Aire de Labenne");
+    await expect(row(5, "service_area")).toContainText(
+      "km away in a straight line",
+    );
+    await expect(listOf(5, "service_area")).toHaveText([
+      "Toilets: Yes",
+      "Shower: Not known",
+      "Drinking water: No",
+      "Chemical toilet disposal: Yes",
+      "Fee: No",
     ]);
 
     // And where the fixture holds none, the page says so about the
     // ground it examined — not a blank, and not a facilities block.
-    await expect(blocks.nth(1).getByTestId('service-service_area-absent')).toContainText(
-      'Our database holds no service area within 25 km of this stop.',
+    await expect(
+      blocks.nth(1).getByTestId("service-service_area-absent"),
+    ).toContainText(
+      "Our database holds no service area within 25 km of this stop.",
     );
-    await expect(blocks.nth(3).getByTestId('service-rest_area-absent')).toBeVisible();
+    await expect(
+      blocks.nth(3).getByTestId("service-rest_area-absent"),
+    ).toBeVisible();
 
     // Not a minute anywhere on a stopping-place row: there is no routing
     // engine, and the distance is a straight line.
     for (const [stage, kind] of [
-      [0, 'rest_area'],
-      [1, 'rest_area'],
-      [2, 'rest_area'],
-      [5, 'service_area'],
+      [0, "rest_area"],
+      [1, "rest_area"],
+      [2, "rest_area"],
+      [5, "service_area"],
     ] as const) {
-      const text = (await row(stage, kind).textContent()) ?? '';
-      expect(text, `${kind} at stage ${stage + 1} promised a travel time`).not.toMatch(
-        /\bmin(?:ute)?s?\b|\bdriv(?:e|ing)\b|\bby road\b/i,
-      );
+      const text = (await row(stage, kind).textContent()) ?? "";
+      expect(
+        text,
+        `${kind} at stage ${stage + 1} promised a travel time`,
+      ).not.toMatch(/\bmin(?:ute)?s?\b|\bdriv(?:e|ing)\b|\bby road\b/i);
     }
   });
 
@@ -350,24 +411,24 @@ test.describe('a route page', () => {
   // and CAMP-111 is not done, so this ships OSM alone — and a reader has
   // to be able to tell that from the page, or an absent charging point
   // reads as "there is no charging point".
-  test('the page says the services come from OpenStreetMap alone', async ({
+  test("the page says the services come from OpenStreetMap alone", async ({
     page,
   }) => {
-    await page.goto('/routes/france-atlantic-coast');
-    await expect(page.getByTestId('route-sources')).toContainText(
-      'come from OpenStreetMap alone',
+    await page.goto("/routes/france-atlantic-coast");
+    await expect(page.getByTestId("route-sources")).toContainText(
+      "come from OpenStreetMap alone",
     );
-    await expect(page.getByTestId('route-sources')).toContainText(
-      'no ratings and no photographs',
+    await expect(page.getByTestId("route-sources")).toContainText(
+      "no ratings and no photographs",
     );
   });
 
   // 🔴 The map has to actually mount. Tests on this project once went
   // green while the map was dead, which is why this is asserted rather
   // than assumed from "the page rendered".
-  test('the map mounts, and says its line is not a road', async ({ page }) => {
+  test("the map mounts, and says its line is not a road", async ({ page }) => {
     const errors = collectConsoleErrors(page);
-    await page.goto('/routes/france-atlantic-coast');
+    await page.goto("/routes/france-atlantic-coast");
 
     // 🔴 EITHER a drawn map OR the explanatory notice — and neither is
     // asserted before the other, which is the bug CI found.
@@ -382,33 +443,33 @@ test.describe('a route page', () => {
     // A blank box is still a failure; that is what this race checks.
     const drew = await Promise.race([
       page
-        .getByTestId('route-map')
-        .locator('canvas')
+        .getByTestId("route-map")
+        .locator("canvas")
         .first()
-        .waitFor({ state: 'attached', timeout: 20_000 })
-        .then(() => 'canvas' as const)
+        .waitFor({ state: "attached", timeout: 20_000 })
+        .then(() => "canvas" as const)
         .catch(() => null),
       page
-        .getByTestId('route-map-unsupported')
-        .waitFor({ state: 'visible', timeout: 20_000 })
-        .then(() => 'notice' as const)
+        .getByTestId("route-map-unsupported")
+        .waitFor({ state: "visible", timeout: 20_000 })
+        .then(() => "notice" as const)
         .catch(() => null),
     ]);
-    expect(drew, 'the map neither drew nor explained itself').not.toBeNull();
+    expect(drew, "the map neither drew nor explained itself").not.toBeNull();
 
     // The legend that stops the dashed line reading as a road — which
     // only exists where there IS a line. On the no-WebGL path the
     // component renders its notice instead, and that notice has its own
     // job: to say the stages are listed in full below.
-    if (drew === 'canvas') {
-      await expect(page.locator('main')).toContainText('It is not the road');
+    if (drew === "canvas") {
+      await expect(page.locator("main")).toContainText("It is not the road");
     } else {
-      await expect(page.getByTestId('route-map-unsupported')).toContainText(
-        'listed in full below',
+      await expect(page.getByTestId("route-map-unsupported")).toContainText(
+        "listed in full below",
       );
     }
 
-    expect(errors, 'console errors on the map page').toEqual([]);
+    expect(errors, "console errors on the map page").toEqual([]);
   });
 
   // 🔴 Every campsite link on every route page has to be a real page.
@@ -453,16 +514,16 @@ test.describe('a route page', () => {
   // Nothing here needs a rendered page. The question is "does this URL
   // resolve to a real campsite page", which an HTTP fetch answers
   // completely and in a fraction of the time.
-  test('campsite links resolve, and empty stages say so', async ({
+  test("campsite links resolve, and empty stages say so", async ({
     page,
     request,
   }) => {
     // Croatia and Latvia are on this list on purpose: their region names
     // carry the accents the slug rule has to strip.
     const slugs = [
-      'dalmatian-coast-and-islands',
-      'baltic-coast-and-capitals',
-      'france-atlantic-coast',
+      "dalmatian-coast-and-islands",
+      "baltic-coast-and-capitals",
+      "france-atlantic-coast",
     ];
 
     let checked = 0;
@@ -487,41 +548,41 @@ test.describe('a route page', () => {
       // swapped. Here each stop is counted on its own, so a stop that
       // says nothing, or says two things, or says "could not look" and
       // "holds none" at once, fails.
-      const route = CURATED_ROUTES.find((r) => r.slug === slug)!;
-      const blocks = page.getByTestId('stage-campsites');
+      const route = (await library()).find((r) => r.slug === slug)!;
+      const blocks = page.getByTestId("stage-campsites");
       await expect(blocks, `${slug}: a stop has no campsite block`).toHaveCount(
         route.stages.length,
       );
       for (let i = 0; i < route.stages.length; i++) {
         const block = blocks.nth(i);
-        const listed = await block.locator('ul > li').count();
-        const empty = await block.getByTestId('stage-no-campsites').count();
+        const listed = await block.locator("ul > li").count();
+        const empty = await block.getByTestId("stage-no-campsites").count();
         const unavailable = await block
-          .getByTestId('stage-campsites-unavailable')
+          .getByTestId("stage-campsites-unavailable")
           .count();
         expect(
           (listed > 0 ? 1 : 0) + empty + unavailable,
           `${slug} stop ${i + 1}: must list campsites, say our database holds none, or say we could not look — exactly one`,
         ).toBe(1);
-        const said = (await block.textContent()) ?? '';
+        const said = (await block.textContent()) ?? "";
         if (unavailable > 0) {
           expect(
             said,
             `${slug} stop ${i + 1} could not look yet claims an absence`,
-          ).not.toContain('holds no campsite');
+          ).not.toContain("holds no campsite");
         }
       }
       const links = await page
         .locator('main a[href^="/camping/"]')
         .evaluateAll((els) =>
-          els.map((e) => (e as HTMLAnchorElement).getAttribute('href') ?? ''),
+          els.map((e) => (e as HTMLAnchorElement).getAttribute("href") ?? ""),
         );
 
       // The shape of EVERY link is checked — it costs nothing and it is
       // where the accent bug would show. Only the first two per route
       // are fetched.
       for (const href of links) {
-        expect(href, 'a campsite link has no href').toBeTruthy();
+        expect(href, "a campsite link has no href").toBeTruthy();
         // 🔴 No empty segment. `/camping/cy//arazi` is the shape a
         // region-less campsite produced before canonicalPath returned
         // null for it — a double slash and a guaranteed 404.
@@ -534,7 +595,9 @@ test.describe('a route page', () => {
 
       for (const href of links.slice(0, 2)) {
         const res = await request.get(href);
-        expect(res.status(), `${href} answered ${res.status()}`).toBeLessThan(400);
+        expect(res.status(), `${href} answered ${res.status()}`).toBeLessThan(
+          400,
+        );
 
         // 🔴 Assert what must be PRESENT, never sanitise what must be
         // absent — and CodeQL was right to fail the first version.
@@ -567,8 +630,9 @@ test.describe('a route page', () => {
     // Said out loud rather than left implicit: against a fixture database
     // with no campsites near these stages, this test verified the empty
     // state and nothing else.
-    if (checked === 0) console.log('no campsite links on these routes in this dataset');
+    if (checked === 0)
+      console.log("no campsite links on these routes in this dataset");
   });
 });
 
-const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

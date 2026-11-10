@@ -209,7 +209,7 @@ export async function hubUrls(): Promise<SitemapUrl[]> {
   // 🔴 Read from the data file, not from a list kept here. The routes
   // are a typed source file, so the sitemap and the pages cannot
   // disagree about which ones exist.
-  for (const route of getRoutes()) {
+  for (const route of await getRoutes()) {
     urls.push({
       loc: `${SITE}/routes/${route.slug}`,
       changefreq: 'monthly',

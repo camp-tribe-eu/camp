@@ -11,7 +11,23 @@ import SearchPage from "@/app/search/page";
 import MapEmbed from "@/components/map-embed";
 import RouteMapEmbed from "@/components/route-map-embed";
 import { memberState, memberStateCount } from "@/lib/campsite-count";
-import { CURATED_ROUTES } from "../../src/data/routes";
+import { ROUTE_FIXTURE } from "../fixtures/route";
+
+/**
+ * 🔴 БІБЛІОТЕКА МАРШРУТІВ ДЛЯ ЦЬОГО ФАЙЛА — ФІКСТУРА, А НЕ ПРОД
+ * (CAMP-479). Маршрути переїхали в базу, тож юніт більше не може їх
+ * імпортувати — і не повинен: тест, що рахує рядки продакшн-контенту,
+ * падає щоразу, коли редактор додає маршрут. Таке падіння означає
+ * «хтось написав текст», а не «код зламався», і його перестають читати.
+ *
+ * Три маршрути, не один: перевірки нижче рахують картки й звіряють
+ * перелік, а над однією карткою «усі картки на місці» істинне ні про що.
+ */
+const CURATED_ROUTES = [
+  ROUTE_FIXTURE,
+  { ...ROUTE_FIXTURE, slug: "fixture-two", name: "Fixture Two" },
+  { ...ROUTE_FIXTURE, slug: "fixture-three", name: "Fixture Three" },
+];
 import { CAMPSITES_PER_STAGE, STAGE_RADIUS_M } from "../../src/lib/routes";
 import {
   SERVICE_KINDS,
@@ -155,6 +171,17 @@ async function renderSearch(): Promise<string> {
       // CAMP-364: llms.txt і карта сайту питають дописи. Порожній
       // перелік — це «блог порожній», і саме так тут і є.
       if (url.includes("/posts")) return json({ posts: [] });
+      // 🔴 CAMP-479: сторінки маршрутів ходять в API за власним текстом.
+      // Юніт мережі не має — віддаємо ту саму фікстуру, з якої він
+      // будує очікування. Інакше тест падає на запиті, якого раніше не
+      // було, і це читається як поломка рендера.
+      if (url.includes("/routes/content")) {
+        return json(
+          /\/routes\/content\/.+/.test(url)
+            ? CURATED_ROUTES[0]
+            : { routes: CURATED_ROUTES },
+        );
+      }
       throw new Error(`unexpected request in a unit test: ${url}`);
     },
     async () => {
@@ -293,9 +320,33 @@ const NUMBER_WORDS = [
 ];
 
 test.describe("/routes", () => {
-  let html = '';
+  let html = "";
   test.beforeAll(async () => {
-    html = await render.routes();
+    // 🔴 РЕНДЕР ПІД ПІДМІНОЮ, А НЕ ПОРУЧ ІЗ НЕЮ (CAMP-479).
+    //
+    // Доки маршрути були файлом, сторінка малювалась без мережі й
+    // `beforeAll` обходився без підміни. Тепер вона ходить в API — і без
+    // обгортки юніт тихо сходив у СПРАВЖНІЙ локальний сервер: прогін
+    // повернув дванадцять продакшн-слагів там, де фікстура дає три.
+    // Тест, що зеленіє від того, що в розробника піднята база, нічого
+    // не стереже на чужій машині й у CI.
+    await withFetch(
+      (url) => {
+        if (url.includes("/routes/content")) {
+          return json(
+            /\/routes\/content\/.+/.test(url)
+              ? CURATED_ROUTES[0]
+              : { routes: CURATED_ROUTES },
+          );
+        }
+        if (url.includes("/pages/")) return json({ sections: [] });
+        if (url.includes("/posts")) return json({ posts: [] });
+        return json({});
+      },
+      async () => {
+        html = await render.routes();
+      },
+    );
   });
 
   /** One route's card, as a reader reads it. */
@@ -407,7 +458,15 @@ test.describe("/routes", () => {
     const word = NUMBER_WORDS[CURATED_ROUTES.length];
     expect(word, "more routes than the word list has words for").toBeDefined();
     const text = visibleText(html).toLowerCase();
-    expect(text).toContain(`${word} routes through the european union`);
+    // 🔴 ПЕРЕВІРЯЄТЬСЯ ЛИШЕ РЕЧЕННЯ, ЯКЕ ГЕНЕРУЄ КОД (CAMP-479).
+    //
+    // Друге речення з числом — вступ сторінки — переїхало в CMS і стало
+    // текстом ВЛАСНИКА. Стерегти його формулювання юнітом означало б
+    // червоніти щоразу, коли він перепише вступ: падіння казало б
+    // «хтось відредагував текст», а не «код збрехав».
+    //
+    // Число у вступі лишається ризиком — його прибрано з посіяного
+    // тексту окремою міграцією, щоб там не було чому старіти.
     expect(text).toContain(`${word} rather than fifty`);
   });
 
@@ -453,6 +512,17 @@ test.describe("/routes", () => {
         // CAMP-364: llms.txt і карта сайту питають дописи. Порожній
         // перелік — це «блог порожній», і саме так тут і є.
         if (url.includes("/posts")) return json({ posts: [] });
+        // 🔴 CAMP-479: сторінки маршрутів ходять в API за власним текстом.
+        // Юніт мережі не має — віддаємо ту саму фікстуру, з якої він
+        // будує очікування. Інакше тест падає на запиті, якого раніше не
+        // було, і це читається як поломка рендера.
+        if (url.includes("/routes/content")) {
+          return json(
+            /\/routes\/content\/.+/.test(url)
+              ? CURATED_ROUTES[0]
+              : { routes: CURATED_ROUTES },
+          );
+        }
         throw new Error(`unexpected request in a unit test: ${url}`);
       },
       async () => {
@@ -641,6 +711,17 @@ async function renderCamping(): Promise<string> {
       // CAMP-364: llms.txt і карта сайту питають дописи. Порожній
       // перелік — це «блог порожній», і саме так тут і є.
       if (url.includes("/posts")) return json({ posts: [] });
+      // 🔴 CAMP-479: сторінки маршрутів ходять в API за власним текстом.
+      // Юніт мережі не має — віддаємо ту саму фікстуру, з якої він
+      // будує очікування. Інакше тест падає на запиті, якого раніше не
+      // було, і це читається як поломка рендера.
+      if (url.includes("/routes/content")) {
+        return json(
+          /\/routes\/content\/.+/.test(url)
+            ? CURATED_ROUTES[0]
+            : { routes: CURATED_ROUTES },
+        );
+      }
       throw new Error(`unexpected request in a unit test: ${url}`);
     },
     async () => {
@@ -664,6 +745,17 @@ async function renderMap(): Promise<string> {
       // CAMP-364: llms.txt і карта сайту питають дописи. Порожній
       // перелік — це «блог порожній», і саме так тут і є.
       if (url.includes("/posts")) return json({ posts: [] });
+      // 🔴 CAMP-479: сторінки маршрутів ходять в API за власним текстом.
+      // Юніт мережі не має — віддаємо ту саму фікстуру, з якої він
+      // будує очікування. Інакше тест падає на запиті, якого раніше не
+      // було, і це читається як поломка рендера.
+      if (url.includes("/routes/content")) {
+        return json(
+          /\/routes\/content\/.+/.test(url)
+            ? CURATED_ROUTES[0]
+            : { routes: CURATED_ROUTES },
+        );
+      }
       throw new Error(`unexpected request in a unit test: ${url}`);
     },
     async () => {
@@ -694,6 +786,17 @@ async function renderLlmsTxt(): Promise<string> {
       // CAMP-364: llms.txt і карта сайту питають дописи. Порожній
       // перелік — це «блог порожній», і саме так тут і є.
       if (url.includes("/posts")) return json({ posts: [] });
+      // 🔴 CAMP-479: сторінки маршрутів ходять в API за власним текстом.
+      // Юніт мережі не має — віддаємо ту саму фікстуру, з якої він
+      // будує очікування. Інакше тест падає на запиті, якого раніше не
+      // було, і це читається як поломка рендера.
+      if (url.includes("/routes/content")) {
+        return json(
+          /\/routes\/content\/.+/.test(url)
+            ? CURATED_ROUTES[0]
+            : { routes: CURATED_ROUTES },
+        );
+      }
       throw new Error(`unexpected request in a unit test: ${url}`);
     },
     async () => {

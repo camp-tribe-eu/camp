@@ -30,6 +30,14 @@ export interface RouteStageView {
 }
 
 export interface RouteView {
+  /**
+   * 🔴 ЦЕ ВЖЕ НЕ РУКОПИСНИЙ ІДЕНТИФІКАТОР, А КЛЮЧ РЯДКА. У файлах стояв
+   * людський рядок на кшталт `it-tuscany-hill-towns`; після переїзду
+   * роль «стабільного, ніколи не перевикористаного» бере первинний ключ
+   * таблиці. Він потрібен назовні, бо перевірка бібліотеки вимагає
+   * ідентифікатор і його унікальність.
+   */
+  id: string;
   slug: string;
   name: string;
   region: string | null;
@@ -54,6 +62,7 @@ interface SectionRow {
 }
 
 interface RouteRow {
+  id: string;
   slug: string;
   region: string | null;
   countries: string[] | null;
@@ -79,7 +88,8 @@ interface RouteRow {
  * мілісекунд, а хвилин збірки.
  */
 const SQL = `
-  SELECT r.slug,
+  SELECT r.id,
+         r.slug,
          r.region,
          r.countries,
          r.duration_days,
@@ -142,6 +152,7 @@ function toView(r: RouteRow): RouteView {
   const intro = bySlot(sections, 'intro')?.body ?? '';
 
   return {
+    id: r.id,
     slug: r.slug,
     name: r.title ?? r.slug,
     region: r.region,

@@ -212,7 +212,7 @@ export async function GET() {
   // 🔴 Усе нижче — з тих самих джерел, що й мапа сайту (`getRoutes`,
   // `getGuides`, `FUEL_COUNTRIES`), а не список, який ведуть поруч.
   // Інакше два переліки розійдуться, і цей збреше першим.
-  const routes = getRoutes();
+  const routes = await getRoutes();
   lines.push("## Routes");
   lines.push("");
   lines.push(
