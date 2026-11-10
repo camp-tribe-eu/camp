@@ -422,6 +422,123 @@ async function setFieldConditions(collection, fields, field, hiddenFor, note) {
 }
 
 
+/**
+ * CAMP-480 — віджет, підпис і підказка для кожного поля, яке редагує людина.
+ *
+ * 🔴 НАВІЩО. Заміряно 10.11.2026: у всьому інстансі було налаштовано
+ * ЧОТИРИ поля. Решта показувалась редактору як назва колонки з базовим
+ * текстовим вводом — `meta_description` замість «Опис для пошуковика»,
+ * логічне поле як текст «true/false», тип секції як вільний рядок.
+ *
+ * 🔴 ОСОБЛИВО `page_sections.type`. Це варчар без CHECK, і код малює
+ * лише ті типи, які є в `RENDERERS`. Вільний рядок означає, що редактор
+ * може вписати тип, якого рендерер не знає, — і секція мовчки зникне зі
+ * сторінки. Випадний список робить цей клас помилки неможливим у
+ * джерелі, а не ловить його потім сторожем.
+ *
+ * 🔴 ЧОГО ТУТ НЕМАЄ: ПІДБІРНИКА ФАЙЛІВ. `image_url` — текстова колонка,
+ * а справжній підбірник вимагає звʼязку з `directus_files`, тобто зміни
+ * СХЕМИ. Схема живе в міграціях `apps/api` і не робиться звідси (CAMP-89).
+ * Тому поки — поле з підказкою, а не обман виглядом.
+ */
+const FIELD_META = {
+  pages: {
+    slug: { interface: 'input', note: '🔴 Адреса сторінки. Зміниш — усі посилання на неї обірвуться.' },
+    // 🔴 ВАРІАНТИ ЗАДАНІ ЯВНО. `select-dropdown` без `choices` дає
+    // редактору ПОРОЖНІЙ список: поле виглядає налаштованим і не дає
+    // вписати нічого. Значення взяті з бази, не з памʼяті — `pages.type`
+    // має `page` і `post`, а `pages_status_enum` — чотири стани.
+    type: {
+      interface: 'select-dropdown',
+      note: 'Сторінка чи допис. Верстка та сама, різниця в переліках.',
+      options: {
+        choices: [
+          { text: 'Сторінка', value: 'page' },
+          { text: 'Допис блогу', value: 'post' },
+        ],
+      },
+    },
+    status: {
+      interface: 'select-dropdown',
+      note: '🔴 Лише `published` видно читачеві. Решта прибирає сторінку з сайту.',
+      options: {
+        choices: [
+          { text: 'Опубліковано', value: 'published' },
+          { text: 'Чернетка', value: 'draft' },
+          { text: 'На перевірці', value: 'review' },
+          { text: 'В архіві', value: 'archived' },
+        ],
+      },
+    },
+    published_at: { interface: 'datetime', note: 'Допис із майбутньою датою читачеві не видно.' },
+    noindex: { interface: 'boolean', note: 'Заборонити пошуковикам індексувати цю сторінку.' },
+    sort: { interface: 'input', note: 'Порядок у переліках.' },
+    author_name: { interface: 'input', note: 'Підпис під дописом. Порожньо — підпису немає.' },
+  },
+  page_translations: {
+    title: { interface: 'input', note: 'Заголовок, який читач бачить угорі сторінки.' },
+    meta_title: { interface: 'input', note: 'Заголовок у вкладці браузера й у видачі пошуку.' },
+    meta_description: { interface: 'input-multiline', note: 'Опис під посиланням у видачі пошуку.' },
+  },
+  page_sections: {
+    type: {
+      interface: 'select-dropdown',
+      note: '🔴 Лише ці типи вміє малювати код. Інший — секція зникне зі сторінки.',
+      options: {
+        choices: [
+          { text: 'Текст (prose)', value: 'prose' },
+          { text: 'Заклик до дії (cta)', value: 'cta' },
+          { text: 'Картки (cards)', value: 'cards' },
+          { text: 'Банер (hero)', value: 'hero' },
+          { text: 'Кроки (steps)', value: 'steps' },
+          { text: 'Країни з паливом (fuel-countries)', value: 'fuel-countries' },
+        ],
+      },
+    },
+    visible: { interface: 'boolean', note: 'Зняти — секція зникне зі сторінки, але лишиться тут.' },
+    sort: { interface: 'input', note: 'Порядок секцій на сторінці.' },
+    image_url: {
+      interface: 'input',
+      note: '🔴 Поки адреса картинки рядком, не вибір файла: підбірник вимагає зміни схеми (CAMP-480).',
+    },
+    cta_href: { interface: 'input', note: 'Куди веде кнопка. Відносний шлях, напр. /guides.' },
+    variant: { interface: 'input', note: 'Різновид оформлення секції. Порожньо — звичайний.' },
+    slot: { interface: 'input', note: 'Де секція стоїть на сторінці. Порожньо — за типом.' },
+  },
+  page_section_translations: {
+    heading: { interface: 'input', note: 'Заголовок секції.' },
+    subheading: { interface: 'input', note: 'Підзаголовок під ним.' },
+    body: { interface: 'input-rich-text-md', note: 'Основний текст. Markdown.' },
+    image_alt: { interface: 'input', note: '🔴 Опис картинки для тих, хто її не бачить. Не підпис.' },
+    cta_label: { interface: 'input', note: 'Напис на кнопці.' },
+    items: { interface: 'input-code', note: '🔴 JSON. Форму задає тип секції; помилка тут прибирає секцію.' },
+  },
+  site_settings_translations: {
+    tagline: { interface: 'input', note: 'Опис сайту за замовчуванням: вкладка браузера й видача пошуку.' },
+    footer_note: { interface: 'input-multiline', note: 'Речення під назвою в підвалі.' },
+  },
+};
+
+/**
+ * Записує віджет і підказку полю, яке ТОЧНО має колонку в базі.
+ *
+ * 🔴 `PATCH` ЗЛИВАЄ `meta`, А НЕ ЗАМІНЮЄ ЙОГО — заміряно 10.11.2026.
+ * Крок 3 ставить `conditions`, цей крок біжить ПІСЛЯ нього й пише лише
+ * `interface`/`note`. Після прогону `cta_href` і `image_url` зберегли
+ * свої умови, тобто попередній вміст не стерся. Якби замінював —
+ * умовні поля тихо перестали б ховатись, і жоден тест цього не ловить.
+ */
+async function setFieldMeta(collection, fields, field, meta) {
+  if (!fields.has(field)) {
+    conditionsSkipped.push(`${collection}.${field} (віджет: колонки немає)`);
+    console.error(`   🔴 ${collection}.${field}: такої колонки немає`);
+    return false;
+  }
+  await api('PATCH', `/fields/${collection}/${field}`, { meta });
+  return true;
+}
+
+
 const READ_WRITE = ['read', 'create', 'update'];
 
 async function main() {
@@ -496,6 +613,25 @@ async function main() {
       }
     }
   }
+
+
+  // 🔴 КРОК 3b — ВІДЖЕТИ. Окремо від умов вище: умова ховає поле за
+  // типом секції, віджет каже, ЯК його редагувати. Пропущене тут
+  // потрапляє в той самий перелік і так само червонить прогін.
+  console.log('\n3b. Field widgets, labels and notes (CAMP-480)');
+  let widgets = 0;
+  let widgetsWanted = 0;
+  for (const [collection, spec] of Object.entries(FIELD_META)) {
+    const have = await realFields(collection);
+    if (!have) continue;
+    for (const [field, meta] of Object.entries(spec)) {
+      widgetsWanted += 1;
+      if (await setFieldMeta(collection, have, field, meta)) widgets += 1;
+    }
+  }
+  // 🔴 ЗНАМЕННИК ДРУКУЄТЬСЯ. «Виставлено 40» без «із 40» не відрізнити
+  // від «виставлено 40 із 60».
+  console.log(`   виставлено ${widgets} віджетів із ${widgetsWanted}`);
 
   // 🔴 ПРИБИРАЄМО УМОВИ, ЯКІ РАНІШЕ ПОСТАВИВ ЦЕЙ-ТАКИ СКРИПТ.
   //
