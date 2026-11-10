@@ -368,3 +368,79 @@ test.describe("🔴 CAMP-448 — підвал", () => {
       .toBeLessThan(50);
   });
 });
+
+/**
+ * CAMP-448, пункт 3 — перемикач день/ніч.
+ *
+ * 🔴 ТЕМНА ТЕМА БУЛА В НАС ІЗ ПЕРШОГО ДНЯ, І ЧИТАЧ ДО НЕЇ НЕ ДОТЯГУВАВСЯ.
+ * Усі токени описані двічі — `@media (prefers-color-scheme: dark)` і
+ * `:root[data-theme="dark"]`, — тож людина зі світлою системою не могла
+ * обрати темну НІКОЛИ.
+ */
+test.describe("🔴 CAMP-448 — перемикач теми", () => {
+  test("три стани по колу, і фон справді міняється", async ({ page }) => {
+    await page.goto("/");
+    const button = page.getByTestId("theme-toggle");
+    await expect(button, "перемикача немає").toHaveCount(1);
+
+    const theme = () =>
+      page.evaluate(() => document.documentElement.dataset.theme ?? null);
+    const bg = () =>
+      page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+
+    // Поки вибору немає — атрибута немає, і сайт іде за системою.
+    expect(await theme(), "на старті вже стоїть вибір").toBeNull();
+
+    await button.click();
+    expect(await theme()).toBe("light");
+    const light = await bg();
+
+    await button.click();
+    expect(await theme()).toBe("dark");
+    const dark = await bg();
+    // 🔴 Не просто «атрибут змінився»: фон мусить справді стати іншим,
+    // інакше перемикач пересував би лише рядок у розмітці.
+    expect(dark, `фон не змінився: ${light} → ${dark}`).not.toBe(light);
+
+    await button.click();
+    expect(await theme(), "третій клік не повернув вибір системі").toBeNull();
+  });
+
+  test("🔴 вибір переживає перезавантаження і ставиться до першого малювання", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    const button = page.getByTestId("theme-toggle");
+    await button.click();
+    await button.click();
+    expect(
+      await page.evaluate(() => document.documentElement.dataset.theme),
+    ).toBe("dark");
+
+    await page.reload();
+    // 🔴 Без скрипта в `<head>` тут був би спалах білого: React ставить
+    // атрибут після гідратації. Тому перевіряємо і сам атрибут, і те,
+    // що інструкція приїхала у ВІДДАНОМУ HTML.
+    expect(
+      await page.evaluate(() => document.documentElement.dataset.theme),
+      "вибір не пережив перезавантаження",
+    ).toBe("dark");
+
+    const html = await page.content();
+    expect(html, "у сторінці немає скрипта, що ставить тему до рендера").toContain(
+      "ct-theme",
+    );
+  });
+
+  test("🔴 сміття в сховищі ігнорується, а не ставиться атрибутом", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.evaluate(() => localStorage.setItem("ct-theme", "chartreuse"));
+    await page.reload();
+    expect(
+      await page.evaluate(() => document.documentElement.dataset.theme ?? null),
+      "невідоме значення доїхало до атрибута",
+    ).toBeNull();
+  });
+});

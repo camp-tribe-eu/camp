@@ -3,6 +3,7 @@ import { COMPANY, LEGAL_PAGES, legalPath } from "@/lib/legal";
 import { CookieSettingsLink } from "./cookie-consent";
 import { CurrentYear } from "./current-year";
 import { SiteNavDrawer } from "./site-nav-drawer";
+import ThemeToggle from "./theme-toggle";
 import { NavDropdown } from "./site-nav-dropdown";
 import { SiteHeaderFrame } from "./site-header-frame";
 import type { NavItem } from "@/lib/navigation";
@@ -230,6 +231,13 @@ export function SiteHeader({ nav }: { nav: NavItem[] }) {
             )}
           </ul>
         </nav>
+
+        {/* 🔴 ПЕРЕМИКАЧ ТЕМИ — ПОРУЧ ІЗ БУРГЕРОМ, НА ВСІХ ШИРИНАХ
+            (CAMP-448, пункт 3). Темна тема в нас описана з першого дня,
+            але дотягнутись до неї міг лише той, у кого вона стоїть у
+            системі. Кнопка віддає цей вибір читачеві й уміє повернути
+            його системі назад. */}
+        <ThemeToggle />
 
         <SiteNavDrawer items={nav} />
     </SiteHeaderFrame>

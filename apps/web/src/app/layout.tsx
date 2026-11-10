@@ -7,6 +7,7 @@ import { DEFAULT_LOCALE } from "@/lib/i18n";
 import CookieConsent from "@/components/cookie-consent";
 import ErrorReporter from "@/components/error-reporter";
 import { BOOTSTRAP } from "@/lib/error-bootstrap";
+import { THEME_BOOTSTRAP } from "@/lib/theme-bootstrap";
 import { BRAND_DESCRIPTION, BRAND_TITLE } from "@/lib/brand";
 
 // Canonical domain from Facts/project-identity.md in the Camping brain.
@@ -102,6 +103,12 @@ export default async function RootLayout({
             This queues; components/error-reporter.tsx decides and sends,
             so the privacy rules exist in one language only. */}
         <script dangerouslySetInnerHTML={{ __html: BOOTSTRAP }} />
+        {/* 🔴 ВИБІР ТЕМИ СТАВИТЬСЯ ДО ПЕРШОГО МАЛЮВАННЯ (CAMP-448).
+            React поставив би атрибут після гідратації — тобто читач,
+            який обрав темну тему, встиг би побачити білу сторінку.
+            Скрипт синхронний і крихітний; він нічого не вирішує сам,
+            лише переносить збережений вибір на `<html>`. */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
       </head>
       {/* 🔴 `id="top"` — ціль посилання «Back to top» у підвалі (CAMP-448).
           Якір, а не кнопка з JS: підвал опиняється під читачем після
