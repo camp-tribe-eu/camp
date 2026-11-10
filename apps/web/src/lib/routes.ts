@@ -119,6 +119,14 @@ export async function getRoutes(): Promise<CuratedRoute[]> {
  * сторінка дізнається, що треба віддати 404 замість порожнечі.
  */
 export async function getRoute(slug: string): Promise<CuratedRoute | null> {
+  // 🔴 ПОРОЖНІЙ СЛАГ НЕ ЙДЕ В МЕРЕЖУ, І ЦЕ НЕ ОПТИМІЗАЦІЯ.
+  //
+  // `/routes/content/` — це ІНША адреса: перелік усіх маршрутів. Запит
+  // із порожнім слагом повернув би 200 і масив, який тут прочитався б
+  // як «маршрут знайдено». Заміряно падінням e2e: `getRoute('')` мав
+  // дати `null`, а давав об'єкт.
+  if (!slug.trim()) return null;
+
   const res = await apiFetch(`/routes/content/${encodeURIComponent(slug)}`, {
     next: { revalidate: ROUTE_REVALIDATE_SECONDS },
   });
