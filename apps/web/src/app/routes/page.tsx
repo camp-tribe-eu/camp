@@ -17,6 +17,9 @@ import {
 import Breadcrumbs from '@/components/breadcrumbs';
 import RouteLibrary, { type RouteCard } from '@/components/route-library';
 import { Block } from '@/components/layout';
+import { LayeredBanner } from '@/components/layered-banner';
+import { PageSections } from '@/components/page-sections';
+import { pageContent } from '@/lib/page-content';
 
 // CAMP-3 / CAMP-45 — the route library index.
 //
@@ -44,8 +47,11 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-export default function RoutesIndex() {
+export default async function RoutesIndex() {
   const routes = getRoutes();
+  // 🔴 КАТАЛОГ МАРШРУТІВ — НАШІ ВЛАСНІ ЗАПИСИ, вступ — CMS. Відмова
+  // бази прибирає лише вступ, а не сторінку.
+  const page = await pageContent('routes').catch(() => null);
 
   const cards: RouteCard[] = routes.map((r) => ({
     slug: r.slug,
@@ -87,16 +93,37 @@ export default function RoutesIndex() {
 
       <Breadcrumbs crumbs={crumbs} />
 
-      <h1 className="mt-4 text-3xl leading-tight md:text-[42px]">
-        Camping routes
-      </h1>
+      {/* 🔴 БАНЕР НЕСЕ `h1` (CAMP-459). Той самий хід, що на /tools,
+          /about, /contact і /guides: заголовок усередині банера, а не
+          продубльований під ним.
 
-      <Block as="p" measure="read" className="mt-4 text-ink-2">
-        Twelve routes through the European Union, each one an ordered set of
-        stops with the campsites our database actually holds near every stage.
-        They are written to be argued with: each says what it is for, when it
-        works, what the driving is like, and who it does not suit.
-      </Block>
+          🔴 ЧИСЛО «TWELVE» НЕ ПЕРЕЇХАЛО В БАНЕР. Воно стоїть у реченні
+          нижче й рахується там же; переписати його сюди означало б
+          завести другу копію числа, яке колись зміниться. Банер каже
+          те, що правда завжди. */}
+      <LayeredBanner
+        headingLevel={1}
+        background={{ src: '/banners/eu-dawn.svg' }}
+        tickerText="ROUTES"
+        heading={page?.title ?? 'Camping routes'}
+        description={page?.metaDescription ?? undefined}
+        minHeight="min(42svh, 340px)"
+        textSize={{ desktop: '140px', mobile: '48px' }}
+        className="mt-4"
+      />
+
+      {/* 🔴 ВСТУП ІЗ CMS, А НЕ З КОДУ (вказівка власника 10.11.2026).
+          Текст перенесено ДОСЛІВНО міграцією SeedGuidesRoutesPages —
+          переїзд, який заразом «трохи покращує формулювання»,
+          неможливо перевірити.
+
+          🔴 ВІДМОВА БАЗИ НЕ КЛАДЕ СТОРІНКУ: каталог маршрутів — наші
+          власні записи, і без CMS зникає лише вступ. */}
+      {page && (
+        <div className="mt-6">
+          <PageSections sections={page.sections} />
+        </div>
+      )}
 
       <RouteLibrary routes={cards} />
 

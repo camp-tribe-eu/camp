@@ -6,6 +6,9 @@ import { getGuides } from '@/lib/guides';
 import { collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
 import { Block } from '@/components/layout';
+import { LayeredBanner } from '@/components/layered-banner';
+import { PageSections } from '@/components/page-sections';
+import { pageContent } from '@/lib/page-content';
 
 // CAMP-66 — the guides index. CAMP-210 — the catalogue it had to become.
 //
@@ -36,7 +39,13 @@ export const metadata: Metadata = {
 };
 
 export default async function GuidesIndex() {
-  const guides = await getGuides();
+  // 🔴 ДВА ДЖЕРЕЛА, І ПАДІННЯ ОДНОГО НЕ КЛАДЕ СТОРІНКУ. Каталог гідів —
+  // наші власні записи; вступ і заголовок — CMS. Без CMS зникає лише
+  // вступ.
+  const [guides, page] = await Promise.all([
+    getGuides(),
+    pageContent('guides').catch(() => null),
+  ]);
   const countries = byCountry(guides);
   const topics = byTopic(guides);
 
@@ -62,13 +71,38 @@ export default async function GuidesIndex() {
         )}
       />
 
-      <h1 className="text-3xl leading-tight md:text-[42px]">Guides</h1>
-      <Block as="p" measure="read" className="mt-4 text-ink-2">
-        Each of these answers one question about one region, using counts from
-        our own records. They say how many campsites have something recorded —
-        and how many have nothing, which is usually the larger number and the
-        reason to trust the rest.
-      </Block>
+      {/* 🔴 БАНЕР НЕСЕ `h1` (CAMP-460). Той самий хід, що на /tools,
+          /about і /contact: заголовок переїхав УСЕРЕДИНУ банера, а не
+          продублювався під ним — два `h1` це зламаний обрис.
+
+          Опис у банері — те саме речення, що стояло під заголовком, а
+          не нове твердження: воно просто піднялось туди, де його
+          читають першим. */}
+      <LayeredBanner
+        headingLevel={1}
+        background={{ src: '/banners/eu-dawn.svg' }}
+        tickerText="GUIDES"
+        heading={page?.title ?? 'Guides'}
+        description={page?.metaDescription ?? undefined}
+        minHeight="min(42svh, 340px)"
+        textSize={{ desktop: '140px', mobile: '48px' }}
+      />
+
+      {/* 🔴 ВСТУП ІЗ CMS, А НЕ З КОДУ. Вказівка власника 10.11.2026:
+          «все має бути динамічним щоб я міг міняти контент на бойовий».
+          Заміряно того ж дня: /tools, /about і /contact читали базу, а
+          ця сторінка — ні, тож змінити тут бодай слово він не міг.
+
+          🔴 ВІДМОВА БАЗИ НЕ КЛАДЕ СТОРІНКУ. Каталог гідів будується з
+          наших власних записів і лишається цілим; без CMS зникає лише
+          вступ, а заголовок має запасне значення. Це та сама межа, що
+          в мапи на сторінці країни: збій одного джерела прибирає свій
+          блок, а не сторінку. */}
+      {page && (
+        <div className="mt-6">
+          <PageSections sections={page.sections} />
+        </div>
+      )}
 
       {guides.length === 0 ? (
         // An empty section is worse than no section: it advertises our
