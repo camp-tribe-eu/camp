@@ -45,7 +45,13 @@ export default function FuelPriceTable({
         this table is here rather than a single European average.
       </Block>
 
-      <div className="mt-4 overflow-x-auto">
+      {/* 🔴 ТАБЛИЦЯ ВУЖЧА ЗА СТОРІНКУ, І ЦЕ ЧИСЛО ДРАБИНИ, А НЕ З ОКА
+          (CAMP-458). Власник: «таблицю зробити вужчою». На всю ширину
+          контейнера (1704) у трьох колонках назва країни й її ціна
+          роз'їжджаються так далеко, що око губить рядок — а підпис під
+          таблицею той самий текст читає на 840. Тож таблиця стає на ту
+          саму читальну ширину, що й абзац над нею: 840 → `measure="read"`. */}
+      <Block as="div" measure="read" className="mt-4 overflow-x-auto">
         <table className="w-full min-w-[420px] border-collapse text-sm">
           <caption className="sr-only">
             Diesel and petrol prices per litre in the 27 EU member states
@@ -100,7 +106,7 @@ export default function FuelPriceTable({
             })}
           </tbody>
         </table>
-      </div>
+      </Block>
 
       <p className="mt-4 text-sm text-ink-2">
         Source: {FUEL.attribution}.{' '}

@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import TripCostCalculator from '@/components/trip-cost-calculator';
 import FuelPriceTable from '@/components/fuel-price-table';
+import Faq from '@/components/faq';
 import { FUEL, isStale, longDate, ranked } from '@/lib/fuel';
 import { abs, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
@@ -142,18 +143,27 @@ export default function TripCostPage() {
 
       <FuelPriceTable />
 
+      {/* 🔴 FAQ ЗА ДИЗАЙНОМ ТЕМИ, А НЕ `dl` (CAMP-458). Власник назвав це
+          прямо: «FAQ не за дизайном». Секція каталогу вже є (CAMP-449),
+          тож тут вона й стоїть — замість власної копії розмітки.
+
+          🔴 ВІДПОВІДІ ЛИШАЮТЬСЯ В ВІДДАНОМУ HTML. Акордеон теми — це
+          нативний `<details>`, а не JS-розкривач: текст відповіді є в
+          розмітці й закритим. Саме цього вимагає політика Google для
+          FAQPage — відповідь має бути НА СТОРІНЦІ, — і саме тому ми не
+          беремо розкривач, який домальовує текст після кліку. */}
       <section className="mt-12" aria-labelledby="faq-heading">
         <h2 id="faq-heading" className="text-2xl text-heading">
           Questions we can actually answer
         </h2>
-        <Block as="dl" measure="read" className="mt-4 space-y-5">
-          {questions.map((f) => (
-            <div key={f.q}>
-              <dt className="font-semibold text-heading">{f.q}</dt>
-              <dd className="mt-1 text-ink-2">{f.a}</dd>
-            </div>
-          ))}
-        </Block>
+        <Faq
+          testId="trip-cost-faq"
+          items={questions.map((f) => ({
+            key: f.q,
+            question: f.q,
+            answer: f.a,
+          }))}
+        />
       </section>
 
       <p className="mt-10 text-ink-2">
