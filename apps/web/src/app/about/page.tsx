@@ -5,6 +5,7 @@ import { alternatesFor } from "@/lib/i18n";
 import { breadcrumbList, jsonLdProps } from "@/lib/jsonld";
 import { pageContent } from "@/lib/page-content";
 import { PageSections } from "@/components/page-sections";
+import { LayeredBanner } from "@/components/layered-banner";
 
 // CAMP-209 завела цю сторінку, CAMP-365 забрала з неї текст.
 //
@@ -50,9 +51,27 @@ export default async function About() {
     <main className="mx-auto max-w-wrap px-4 py-10 xl:px-6">
       <script {...jsonLdProps(breadcrumbList(crumbs))} />
 
-      <h1 className="text-3xl leading-tight md:text-[42px]">
-        {page.title}
-      </h1>
+      {/* 🔴 БАНЕР НЕСЕ `h1` СТОРІНКИ (CAMP-464). Власник просив повторити
+          структуру сторінки «про нас» демо-стору, і перше, чим вона
+          відрізняється від нашої, — у неї є верх. У нас був заголовок на
+          білому й одразу стіна тексту.
+
+          Заголовок переїхав УСЕРЕДИНУ банера, а не продублювався під
+          ним: два `h1` — це зламаний обрис, а не двічі красиво. Той
+          самий хід, що вже зроблено на /tools (CAMP-458).
+
+          Опис — `metaDescription` сторінки, якщо він є: це той самий
+          рядок, яким сторінка вже представляється в пошуку, тож нового
+          твердження тут не зʼявляється. Немає — немає й рядка. */}
+      <LayeredBanner
+        headingLevel={1}
+        background={{ src: "/banners/about.svg" }}
+        tickerText="CAMPTRIBE"
+        heading={page.title}
+        description={page.metaDescription ?? undefined}
+        minHeight="min(52svh, 420px)"
+        textSize={{ desktop: "160px", mobile: "56px" }}
+      />
 
       <div className="mt-6">
         <PageSections sections={page.sections} />
