@@ -1,0 +1,218 @@
+{
+  "collections": [
+    {
+      "collection": "camper_type_translations",
+      "hidden": false,
+      "singleton": false,
+      "icon": "translate"
+    },
+    {
+      "collection": "camper_types",
+      "hidden": false,
+      "singleton": false,
+      "icon": "rv_hookup"
+    },
+    {
+      "collection": "camping_spots",
+      "hidden": false,
+      "singleton": false,
+      "icon": "camping"
+    },
+    {
+      "collection": "featured_blocks",
+      "hidden": false,
+      "singleton": false,
+      "icon": "push_pin"
+    },
+    {
+      "collection": "guide_translations",
+      "hidden": false,
+      "singleton": false,
+      "icon": "translate"
+    },
+    {
+      "collection": "guides",
+      "hidden": false,
+      "singleton": false,
+      "icon": "article"
+    },
+    {
+      "collection": "languages",
+      "hidden": false,
+      "singleton": false,
+      "icon": "language"
+    },
+    {
+      "collection": "legal_page_translations",
+      "hidden": false,
+      "singleton": false,
+      "icon": "translate"
+    },
+    {
+      "collection": "legal_pages",
+      "hidden": false,
+      "singleton": false,
+      "icon": "gavel"
+    },
+    {
+      "collection": "migrations",
+      "hidden": true,
+      "singleton": false,
+      "icon": ""
+    },
+    {
+      "collection": "navigation",
+      "hidden": false,
+      "singleton": false,
+      "icon": "menu"
+    },
+    {
+      "collection": "navigation_translations",
+      "hidden": false,
+      "singleton": false,
+      "icon": "translate"
+    },
+    {
+      "collection": "osm_camping_staging",
+      "hidden": true,
+      "singleton": false,
+      "icon": ""
+    },
+    {
+      "collection": "page_section_translations",
+      "hidden": false,
+      "singleton": false,
+      "icon": "translate"
+    },
+    {
+      "collection": "page_sections",
+      "hidden": false,
+      "singleton": false,
+      "icon": "view_agenda"
+    },
+    {
+      "collection": "page_translations",
+      "hidden": false,
+      "singleton": false,
+      "icon": "translate"
+    },
+    {
+      "collection": "pages",
+      "hidden": false,
+      "singleton": false,
+      "icon": "web"
+    },
+    {
+      "collection": "photo_submissions",
+      "hidden": false,
+      "singleton": false,
+      "icon": "photo_camera"
+    },
+    {
+      "collection": "problem_reports",
+      "hidden": false,
+      "singleton": false,
+      "icon": "flag"
+    },
+    {
+      "collection": "rental_cities",
+      "hidden": false,
+      "singleton": false,
+      "icon": "location_city"
+    },
+    {
+      "collection": "rental_city_translations",
+      "hidden": false,
+      "singleton": false,
+      "icon": "translate"
+    },
+    {
+      "collection": "reviews",
+      "hidden": false,
+      "singleton": false,
+      "icon": "reviews"
+    },
+    {
+      "collection": "route_points",
+      "hidden": false,
+      "singleton": false,
+      "icon": "pin_drop"
+    },
+    {
+      "collection": "routes",
+      "hidden": false,
+      "singleton": false,
+      "icon": "route"
+    },
+    {
+      "collection": "site_settings",
+      "hidden": false,
+      "singleton": true,
+      "icon": "settings"
+    },
+    {
+      "collection": "site_settings_translations",
+      "hidden": false,
+      "singleton": false,
+      "icon": "translate"
+    },
+    {
+      "collection": "spatial_ref_sys",
+      "hidden": true,
+      "singleton": false,
+      "icon": ""
+    },
+    {
+      "collection": "trip_stops",
+      "hidden": true,
+      "singleton": false,
+      "icon": ""
+    },
+    {
+      "collection": "trips",
+      "hidden": true,
+      "singleton": false,
+      "icon": ""
+    },
+    {
+      "collection": "users",
+      "hidden": true,
+      "singleton": false,
+      "icon": ""
+    }
+  ],
+  "fields": [
+    {
+      "collection": "page_section_translations",
+      "field": "cta_label",
+      "interface": "",
+      "special": "",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "page_section_translations",
+      "field": "items",
+      "interface": "",
+      "special": "",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "page_sections",
+      "field": "cta_href",
+      "interface": "",
+      "special": "",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "page_sections",
+      "field": "image_url",
+      "interface": "",
+      "special": "",
+      "readonly": false,
+      "required": false
+    }
+  ]
+}
