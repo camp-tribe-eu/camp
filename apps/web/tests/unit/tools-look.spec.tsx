@@ -4,6 +4,8 @@ import { PageSections } from "@/components/page-sections";
 import type { SectionView } from "@/lib/page-content";
 import { FUEL_COUNTRIES } from "@/lib/fuel";
 import { renderComponent } from "./render-component";
+import { CountryChip } from "@/components/country-chip";
+import { visibleText } from "./rendered-text";
 
 /**
  * CAMP-458 — вигляд /tools: значки на картках і прапори біля 27 країн.
@@ -85,7 +87,7 @@ test("🔴 прапор стоїть біля КОЖНОЇ з 27 країн, а 
   expect((html.match(/class="ct-flag"/g) ?? []).length).toBe(
     FUEL_COUNTRIES.length,
   );
-  expect((html.match(/class="ct-fuel-country"/g) ?? []).length).toBe(
+  expect((html.match(/class="ct-country-chip"/g) ?? []).length).toBe(
     FUEL_COUNTRIES.length,
   );
 });
@@ -104,4 +106,37 @@ test("🔴 прапор мовчить для читача екрана — на
   expect((html.match(/class="ct-flag" src="[^"]+" alt=""/g) ?? []).length).toBe(
     FUEL_COUNTRIES.length,
   );
+});
+
+/**
+ * CAMP-455 — той самий чіп країни на /search.
+ *
+ * 🔴 ТЕСТ ПРО СПІЛЬНІСТЬ, А НЕ ПРО ДРУГУ СТОРІНКУ. Прапор біля країни
+ * попросили двічі — на /tools і на /search. Доки правила жили в
+ * `page-sections.tsx` під назвою `.ct-fuel-country`, друге вживання
+ * неминуче завело б другу копію: два однакові рядки CSS під різними
+ * іменами розходяться на першій же правці розміру, і обидві сторінки
+ * лишаються «нормальними», поки хтось не покладе їх поруч.
+ */
+test('🔴 чіп країни — один компонент, і він несе прапор', () => {
+  const html = renderComponent(CountryChip, {
+    code: 'HR',
+    href: '/camping/hr',
+    children: 'Croatia',
+  });
+  expect(html).toContain('class="ct-country-chip"');
+  expect(html).toContain('class="ct-flag"');
+  expect(html).toContain('alt=""');
+  expect(html).toContain('href="/camping/hr"');
+  expect(visibleText(html)).toContain('Croatia');
+});
+
+test('🔴 код без файлу прапора малює літери, а не 404', () => {
+  const html = renderComponent(CountryChip, {
+    code: 'ZZ',
+    href: '/camping/zz',
+    children: 'Nowhere',
+  });
+  expect(html, 'на неіснуючий код пішов <img>').not.toContain('<img');
+  expect(visibleText(html)).toContain('ZZ');
 });

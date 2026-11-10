@@ -6,7 +6,7 @@ import { isInternalHref, substitute } from "@/lib/rich-text";
 import Link from "next/link";
 import { FUEL, FUEL_COUNTRIES, longDate } from "@/lib/fuel";
 import { Block, type Measure } from "@/components/layout";
-import { Flag } from "./flag";
+import { CountryChip } from "./country-chip";
 import type { ReactNode } from "react";
 
 // CAMP-365 — рендер універсальних секцій (модель CAMP-362).
@@ -382,25 +382,18 @@ function FuelCountries({ section, values }: RenderProps) {
       </h2>
       {note && <Block as="p" measure="read" className="mt-2 text-sm text-ink-2">{note}</Block>}
       {/* 🔴 ПРАПОР — ПОРУЧ ІЗ НАЗВОЮ, А НЕ ЗАМІСТЬ НЕЇ (CAMP-458).
-          `Flag` віддає порожній `alt`: диктор, що прочитав би «Flag of
-          Croatia Croatia», чув би одне й те саме двічі. А код без файлу
-          малює літери, не 404. Розмір задає батько — тут, як у тікера. */}
-      <style href="ct-fuel-countries" precedence="ct-components">{`
-.ct-fuel-country{display:inline-flex;align-items:center;gap:.5em}
-.ct-fuel-country .ct-flag{width:1.5em;height:auto;border-radius:.12em;flex:none}
-`}</style>
+          Правила переїхали в `CountryChip`, бо та сама кнопка потрібна
+          й на /search (CAMP-455): два однакові рядки CSS під різними
+          іменами розходяться на першій же правці розміру. */}
       <ul className="mt-4 flex flex-wrap gap-x-2 gap-y-3">
         {countries.map((c) => (
           <li key={c.code}>
-            <ButtonLink
+            <CountryChip
+              code={c.code}
               href={`/tools/camper-trip-cost/${c.code.toLowerCase()}`}
-              size="sm"
             >
-              <span className="ct-fuel-country">
-                <Flag code={c.code} />
-                {c.name}
-              </span>
-            </ButtonLink>
+              {c.name}
+            </CountryChip>
           </li>
         ))}
       </ul>

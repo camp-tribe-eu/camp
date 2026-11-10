@@ -12,7 +12,7 @@ import Breadcrumbs from '@/components/breadcrumbs';
 import SearchEmbed from '@/components/search-embed';
 import { abs, breadcrumbList, jsonLdProps } from '@/lib/jsonld';
 import { getRoutes } from '@/lib/routes';
-import { ButtonLink } from '@/components/button';
+import { CountryChip } from '@/components/country-chip';
 import { Block } from '@/components/layout';
 
 // CAMP-67 — /search.
@@ -97,13 +97,15 @@ export default async function SearchPage() {
         <h2 className="text-xs uppercase tracking-wide text-ink-2">
           Or browse by country
         </h2>
+        {/* 🔴 ПРАПОР БІЛЯ КРАЇНИ (CAMP-455). Той самий компонент, що на
+            /tools: два однакові рядки CSS під різними іменами розходяться
+            на першій же правці, і ніхто цього не помітить. */}
         <ul className="mt-3 flex flex-wrap gap-x-2 gap-y-3">
           {countries.map((c) => (
             <li key={c.country}>
-              <ButtonLink
-                href={`/camping/${c.country}`} size="sm">
+              <CountryChip code={c.country} href={`/camping/${c.country}`}>
                 {countryName(c.country)} · {c.spots.toLocaleString('en-GB')}
-              </ButtonLink>
+              </CountryChip>
             </li>
           ))}
         </ul>
