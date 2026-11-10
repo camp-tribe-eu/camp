@@ -519,6 +519,32 @@ test.describe('structured data (CAMP-37)', () => {
     const questions = faq.mainEntity as { name: string; acceptedAnswer: { text: string } }[];
     expect(questions.length).toBeGreaterThan(0);
 
+    // 🔴 СПЕРШУ ВІДКРИТИ АКОРДЕОН, ПОТІМ МІРЯТИ ВИДИМЕ. CAMP-449 замінив
+    // заголовки з абзацами на `<details>` (знімок 441/72), і
+    // `innerText` перестав бачити відповіді: текст у закритому
+    // `<details>` у DOM є, а видимим не вважається.
+    //
+    // Полагодити це переходом на `textContent` було б ПОСЛАБЛЕННЯМ:
+    // він однаково прочитав би текст, схований `display:none`, тобто
+    // саме той випадок, проти якого ця перевірка й написана. Тому
+    // пункти розкриваються, і далі міряється ВИДИМЕ — сильніше, ніж
+    // було до акордеона.
+    //
+    // Вимозі Google це відповідає: політика просить, щоб відповідь була
+    // НА СТОРІНЦІ, і акордеон — канонічний для FAQ спосіб її подати.
+    // 🔴 ЯКОРІ, БО МИНУЛОГО РАЗУ Я РОБИВ ВИСНОВОК ІЗ ОБРІЗАНОГО ДАМПУ.
+    // Playwright ріже «Received string» на 4 000 символів, і відсутність
+    // слова в ньому НЕ означає відсутності на сторінці. Тож нехай тест
+    // каже сам: чи є секція й скільки пунктів він розкрив.
+    await expect(
+      page.getByTestId('spot-faq'),
+      'FAQPage у розмітці є, а секції на сторінці немає',
+    ).toHaveCount(1);
+    const openAll = await page.locator('main details').all();
+    expect(openAll.length, 'жодного <details> у main — розкривати нічого').toBeGreaterThan(0);
+    for (const d of openAll) await d.evaluate((el: HTMLDetailsElement) => (el.open = true));
+    const stillClosed = await page.locator('main details:not([open])').count();
+    expect(stillClosed, 'частина пунктів лишилась закритою після розкриття').toBe(0);
     const shown = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
     for (const q of questions) {
       expect(shown, `question not on the page: ${q.name}`).toContain(
@@ -552,6 +578,11 @@ test.describe('structured data (CAMP-37)', () => {
         'an FAQPage that promises answers and has none',
       ).toBeGreaterThan(0);
       await expect(heading).toHaveCount(1);
+      // Акордеон розкривається перед заміром — причина там само, де
+      // перший такий блок у цьому файлі.
+      for (const d of await page.locator('main details').all()) {
+        await d.evaluate((el) => el.setAttribute('open', ''));
+      }
       const shown = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
       for (const q of faq.mainEntity as { name: string }[]) {
         expect(shown).toContain(q.name.replace(/\s+/g, ' '));

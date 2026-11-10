@@ -25,6 +25,7 @@ import {
 import { alternatesFor } from '@/lib/i18n';
 import { RAILWAY_STOP, RAILWAY_STOP_TITLE } from '@/lib/railway-stop';
 import TravelNotice from '@/components/travel-notice';
+import Faq from '@/components/faq';
 import OvernightStay from '@/components/overnight-stay';
 import RecordEdited from '@/components/record-edited';
 import SourceNote from '@/components/source-note';
@@ -803,14 +804,15 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
               measured or a field somebody recorded, which is why a site
               with no computed surroundings gets no section at all rather
               than a page of empty questions. */}
-          <Block as="dl" measure="read" className="mt-1">
-            {faq.map((f) => (
-              <div key={f.q} className="border-b border-line-2 py-3 last:border-0">
-                <dt className="font-semibold text-heading">{f.q}</dt>
-                <dd className="mt-1 text-sm text-ink-2">{f.a}</dd>
-              </div>
-            ))}
-          </Block>
+          {/* 🔴 CAMP-449: акордеон, а не заголовки з абзацами. Власник
+              показав саме це місце (знімок 441/72). Вміст НЕ змінився —
+              ті самі питання й ті самі відповіді, що й у JSON-LD вище;
+              змінилась лише оболонка, і вона нативна (`<details>`), тож
+              відповіді лишаються у відданому HTML і без JS. */}
+          <Faq
+            items={faq.map((f) => ({ key: f.q, question: f.q, answer: f.a }))}
+            testId="spot-faq"
+          />
         </Section>
       )}
 
