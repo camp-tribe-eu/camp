@@ -415,39 +415,50 @@ export default function PackingListBuilder() {
         )}
       </div>
 
-      <div className="mt-6 grid gap-6 md:grid-cols-2">
+      {/* 🔴 КОЛОНКИ, А НЕ СІТКА (CAMP-458). Власник: «розкласти
+          колонками». Сітка з двох стовпців вирівнює ряди по найвищій
+          групі, тож поруч із «Кухня» на 14 пунктів «Документи» на три
+          лишали півекрана порожнім — саме те «багато повітря», яке він
+          називає окремо. CSS-колонки пакують групи щільно, а
+          `break-inside-avoid` не дає розірвати групу між колонками.
+
+          Три колонки лише з 1280 px: на 1024 третя робить рядок
+          спорядження завузьким, і назва на кшталт «Carbon monoxide
+          alarm» ламається на три рядки. */}
+      <div className="mt-6 gap-6 md:columns-2 xl:columns-3">
         {groups.map((group) => (
           <section
             key={group.id}
             data-group={group.id}
-            className="rounded-card border border-line-2 bg-surface p-5"
+            className="mb-6 break-inside-avoid rounded-card border border-line-2 bg-surface p-5"
           >
             <h2 className="text-lg text-heading">{group.title}</h2>
             <ul className="mt-3 space-y-2">
               {group.items.map((item) => (
                 <li key={item.id}>
-                  <label className="flex items-start gap-2">
-                    <input
-                      type="checkbox"
-                      className="mt-1"
-                      disabled={!ready}
-                      checked={done.has(item.id)}
-                      onChange={() => toggle(item.id)}
-                    />
-                    <span>
-                      <span
-                        className={done.has(item.id) ? 'text-ink-2 line-through' : 'text-ink'}
-                      >
-                        {item.label}
-                      </span>
-                      {item.qty && (
-                        <span className="text-ink-2"> — {item.qty}</span>
-                      )}
-                      {item.note && (
-                        <span className="block text-sm text-ink-2">{item.note}</span>
-                      )}
+                  {/* 🔴 ТОЙ САМИЙ КОНТРОЛ, ЩО Й УСЮДИ (CAMP-459). Тут
+                      лишався голий `<input type="checkbox">` — єдиний на
+                      сторінці, де решта галочок уже наші. Саме це
+                      власник і назвав «стилі не ті». */}
+                  <Checkbox
+                    align="start"
+                    weight="plain"
+                    disabled={!ready}
+                    checked={done.has(item.id)}
+                    onChange={() => toggle(item.id)}
+                  >
+                    <span
+                      className={done.has(item.id) ? 'text-ink-2 line-through' : 'text-ink'}
+                    >
+                      {item.label}
                     </span>
-                  </label>
+                    {item.qty && (
+                      <span className="text-ink-2"> — {item.qty}</span>
+                    )}
+                    {item.note && (
+                      <span className="block text-sm text-ink-2">{item.note}</span>
+                    )}
+                  </Checkbox>
                 </li>
               ))}
             </ul>

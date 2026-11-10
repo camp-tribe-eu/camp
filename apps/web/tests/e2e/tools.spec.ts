@@ -527,3 +527,54 @@ test.describe("🔴 CAMP-458 — FAQ калькулятора", () => {
     ).toBeGreaterThan(60);
   });
 });
+
+/**
+ * CAMP-458 — список спорядження: «стилі не ті; розкласти колонками».
+ *
+ * 🔴 ТУТ ПЕРЕВІРЯЄТЬСЯ ОДНАКОВІСТЬ, А НЕ КРАСА. На цій сторінці вже
+ * стояли наші галочки (CAMP-459) — у блоці налаштувань. А сам список
+ * лишався на голому `<input type="checkbox">`, тобто два різні контроли
+ * на одному екрані. Саме це й читається як «стилі не ті».
+ */
+test.describe("🔴 CAMP-458 — вигляд списку спорядження", () => {
+  test("жодної галочки повз наш контрол", async ({ page }) => {
+    await page.goto("/tools/camper-packing-list");
+
+    const themed = page.locator("main .ct-cb");
+    // Знаменник: над порожньою сторінкою «жодної чужої» нічого не варте.
+    await expect(themed, "наших галочок на сторінці немає").not.toHaveCount(0);
+
+    const raw = page.locator(
+      "main input[type=checkbox]:not(.ct-cb__input)",
+    );
+    await expect(
+      raw,
+      "на сторінці лишився голий чекбокс повз наш контрол",
+    ).toHaveCount(0);
+  });
+
+  test("🔴 групи стоять колонками, а не ряд у ряд", async ({ page }) => {
+    await page.goto("/tools/camper-packing-list");
+
+    const groups = page.locator("main [data-group]");
+    await expect(groups, "груп на сторінці немає").not.toHaveCount(0);
+
+    // Сітка вирівняла б ряди по найвищій групі й лишила б діри; колонки
+    // пакують щільно. Питаємо браузер, а не клас у розмітці.
+    const columns = await groups
+      .first()
+      .evaluate((el) =>
+        getComputedStyle(el.parentElement as HTMLElement).columnCount,
+      );
+    expect(
+      Number(columns),
+      `колонок ${columns} — на цій ширині має бути більше однієї`,
+    ).toBeGreaterThan(1);
+
+    // І група не розривається між колонками.
+    const breakInside = await groups
+      .first()
+      .evaluate((el) => getComputedStyle(el).breakInside);
+    expect(breakInside, "групу можна розірвати між колонками").toBe("avoid");
+  });
+});
