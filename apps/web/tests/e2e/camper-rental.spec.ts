@@ -242,3 +242,32 @@ test("a country without a page is a 404, not a thin page", async ({
 }) => {
   expect((await request.get("/camper-rental/cy")).status()).toBe(404);
 });
+
+/**
+ * CAMP-478 — вступ хаба приходить із CMS, а не з коду.
+ *
+ * 🔴 ЗВІРЯЄМО З ТИМ САМИМ API, З ЯКОГО СТОРІНКУ БУДУЄ СЕРВЕР. Рядок,
+ * переписаний у тест, довів би лише те, що хтось двічі набрав ті самі
+ * слова — а питання стоїть про джерело слів.
+ */
+test("вступ хаба оренди приходить із CMS", async ({ page, request }) => {
+  const url = `${RENTAL_API}/pages/camper-rental`;
+  const res = await request.get(url);
+  expect(res.ok(), `GET ${url} → ${res.status()}`).toBeTruthy();
+
+  const body = (await res.json()) as {
+    sections?: Array<{ slot?: string | null; body?: string | null }>;
+  };
+  const intro = (body.sections ?? []).find((s) => s.slot === "intro")?.body;
+  expect(
+    intro,
+    "у CMS немає секції `intro` для `camper-rental` — сій її міграцією",
+  ).toBeTruthy();
+
+  await page.goto("/camper-rental");
+  await expect(
+    page.locator("main"),
+    "вступ на сторінці не збігається з тим, що віддав API — отже він " +
+      "малюється з коду, і власник не може його змінити",
+  ).toContainText(intro!);
+});
