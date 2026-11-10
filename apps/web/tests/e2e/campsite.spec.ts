@@ -270,12 +270,27 @@ test.describe('campsite page', () => {
     // WebKit; a selector that silently matches nothing there would make
     // this test pass by finding no strays rather than by there being
     // none — the exact failure mode this file keeps catching elsewhere.
+    // 🔴 CAMP-453 ДОДАЛА ДРУГИЙ ОБЛІКОВАНИЙ ОБРАЗ — І ЦЕЙ СТОРОЖ УПІЙМАВ
+    // ЙОГО ПЕРШИМ, ЩО Й ПРАВИЛЬНО. Картки сусідніх кемпінгів показують
+    // НАШЕ лого як плейсхолдер (фотографій у нас нуль, CAMP-469). Це не
+    // фотографія кемпінгу й не чужий знімок: це один файл
+    // `public/logo.svg`, той самий на всіх картках.
+    //
+    // 🔴 ПОСЛАБЛЕННЯ ВУЗЬКЕ НАВМИСНО. «Деякі картинки можна» зробило б
+    // із цього тесту ніщо. Тому рахується не «не вебкам», а РІВНО ТРИ
+    // множини: кадри вебкаму, плейсхолдери з однією відомою адресою, і
+    // все інше — нуль. Будь-яка інша картинка в `main` і далі падіння,
+    // заради якого цей тест написано.
     const allImages = await page.locator('main img').count();
     const inPanel = await page.locator('[data-testid="webcam-note"] img').count();
+    const placeholders = page.locator('main img[src="/logo.svg"]');
+    const placeholderCount = await placeholders.count();
+    const strays = allImages - inPanel - placeholderCount;
     expect(
-      allImages - inPanel,
+      strays,
       `an image outside the webcam panel is a picture of the campsite we did not ` +
-        `verify (main img ${allImages}, webcam frames ${inPanel})`,
+        `verify (main img ${allImages}, webcam frames ${inPanel}, ` +
+        `logo placeholders ${placeholderCount})`,
     ).toBe(0);
     await expect(page.getByRole('link', { name: /add your photos/i })).toBeVisible();
   });
@@ -725,15 +740,32 @@ test.describe('🔴 CAMP-453 — порядок блоків на сторінц
     page,
     request,
   }, testInfo) => {
-    // Кемпінг беремо з живого переліку регіону, а не з назви в тесті:
-    // назва в тесті — це твердження про сьогоднішній імпорт.
-    const regions: { slug: string; spots: number }[] = await (
-      await request.get(`${API_BASE}/spots/fr/regions`)
+    // 🔴 КРАЇНА НЕ НАЗИВАЄТЬСЯ В ТЕСТІ. Перша редакція питала
+    // `/spots/fr/regions` — і впала на CI: у фікстурі CI Франції немає
+    // зовсім, бо це маленький набір даних. Той самий урок, що вже
+    // записаний у `hubs.spec.ts`: «тест, який називає країну, — це тест
+    // про ту країну». Беремо першу країну з кемпінгами, хай яка вона.
+    const countries: { country: string }[] = await (
+      await request.get(`${API_BASE}/spots/countries`)
     ).json();
-    const region = regions.find((r) => r.spots > 0);
-    expect(region, 'у Франції немає жодного регіону з кемпінгами').toBeTruthy();
+    expect(Array.isArray(countries) && countries.length, 'країн у базі немає').toBeTruthy();
 
-    await page.goto(`/camping/fr/${region!.slug}`);
+    let hub: string | null = null;
+    for (const { country } of countries) {
+      const regions: { slug: string; spots: number }[] = await (
+        await request.get(`${API_BASE}/spots/${country}/regions`)
+      ).json();
+      const region = Array.isArray(regions)
+        ? regions.find((r) => r.spots > 0)
+        : undefined;
+      if (region) {
+        hub = `/camping/${country}/${region.slug}`;
+        break;
+      }
+    }
+    expect(hub, 'у жодної країни немає регіону з кемпінгами').toBeTruthy();
+
+    await page.goto(hub!);
     const first = page.locator('main a.ct-card__link').first();
     await expect(first, 'на сторінці регіону немає карток').toHaveCount(1);
     const href = await first.getAttribute('href');
