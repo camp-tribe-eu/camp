@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 
+import { COUNTRY_CONFIG } from "../../src/data/rental/country-config";
 import {
   countryProblems,
   MEASURED,
@@ -39,8 +40,32 @@ test.beforeAll(async () => {
   const url = `${API}/rental/countries`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`GET ${url} → ${res.status}`);
-  const body = (await res.json()) as { countries?: RentalCountry[] };
-  COUNTRIES = body.countries ?? [];
+  const body = (await res.json()) as {
+    countries?: Array<Omit<RentalCountry, "data" | "definiteArticle">>;
+  };
+
+  // 🔴 ДОМІШУЄМО ТЕ, ЩО ЛИШИЛОСЬ У КОДІ, А НЕ ПРАЦЮЄМО БЕЗ НЬОГО.
+  //
+  // API віддає лише текст: `data` (який замір вести) і `definiteArticle`
+  // живуть у `COUNTRY_CONFIG`, бо обирають обчислення й граматику, а не
+  // показуються читачеві. Перша редакція цього файла брала відповідь
+  // як є — і правила нижче падали з `Cannot destructure property
+  // 'metric' of 'country.data'`. Тобто тест перевіряв не ту країну, яку
+  // бачить сайт, а її половину.
+  COUNTRIES = (body.countries ?? []).map((c) => {
+    const cfg = COUNTRY_CONFIG[c.code];
+    if (!cfg) {
+      throw new Error(
+        `країна «${c.code}» є в CMS, але не має рядка в COUNTRY_CONFIG — ` +
+          "саме це й мусить ловити сторож у lib/rental.ts",
+      );
+    }
+    return {
+      ...c,
+      data: { metric: cfg.metric, kind: cfg.kind },
+      ...(cfg.definiteArticle ? { definiteArticle: true as const } : {}),
+    };
+  });
 
   // 🔴 ЗНАМЕННИК. Над порожнім переліком «жодні дві країни не однакові»
   // істинне ні про що — зелений тест, який нічого не стереже.
