@@ -49,11 +49,41 @@ test.describe("robots.txt: ШІ-обхідники пущені рішенням
     for (const g of groups) {
       const disallow = [g?.disallow ?? []].flat();
       expect([g?.allow ?? []].flat(), String(g?.userAgent)).toContain("/");
-      // Закрити можна рівно те саме, що й усім: особисті поїздки і API.
+      // Закрити можна рівно те саме, що й усім: особисті поїздки, API
+      // і наші службові адреси.
       expect(disallow.sort(), String(g?.userAgent)).toEqual([
         "/api/",
+        "/internal/",
         "/trips/",
       ]);
+    }
+  });
+
+  /**
+   * 🔴 РІВНІСТЬ ДВОХ ПЕРЕЛІКІВ, А НЕ ДВА ОДНАКОВІ ЗРАЗКИ.
+   *
+   * Тест вище звіряє кожну групу зі сталою, виписаною в ньому ж. Якщо
+   * колись закриють новий шлях лише для `*`, доведеться правити і цей
+   * тест — і правити його для ШІ-групи забудуть так само, як забули б
+   * у коді. Тому окремо питаємо інше: чи однакові ці два переліки МІЖ
+   * СОБОЮ, хай там що в них лежить.
+   */
+  test("🔴 ШІ-кравлерам закрито рівно те саме, що й усім", () => {
+    const rules = robotsFor(true).rules;
+    const groups = (Array.isArray(rules) ? rules : [rules]) as Array<{
+      userAgent?: unknown;
+      disallow?: unknown;
+    }>;
+    const listOf = (g: { disallow?: unknown }) =>
+      [g?.disallow ?? []].flat().map(String).sort();
+    const star = groups.find((g) => String(g?.userAgent) === "*");
+    expect(star, "група для «*» зникла").toBeTruthy();
+    const everyone = listOf(star!);
+    expect(everyone.length).toBeGreaterThan(0);
+    for (const agent of WANTED) {
+      const g = groups.find((x) => String(x?.userAgent) === agent);
+      expect(g, agent).toBeTruthy();
+      expect(listOf(g!), agent).toEqual(everyone);
     }
   });
 
@@ -70,6 +100,8 @@ test.describe("robots.txt: ШІ-обхідники пущені рішенням
     // Щоб відсутність щось означала: правило, яке справді є, спрацьовує.
     expect(blockedByRobots(true, "/trips/abc")).toBe(true);
     expect(blockedByRobots(true, "/api/spots")).toBe(true);
+    // Вітрина каталогу секцій (CAMP-449) — службова сторінка, не для обходу.
+    expect(blockedByRobots(true, "/internal/sections")).toBe(true);
   });
 
   test("🔴 закрита збірка не пускає нікого — і ШІ теж", () => {
