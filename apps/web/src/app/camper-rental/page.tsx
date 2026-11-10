@@ -117,8 +117,8 @@ export const metadata: Metadata = {
   alternates: alternatesFor("/camper-rental"),
 };
 
-export default function CamperRentalHub() {
-  const countries = publishableCountries();
+export default async function CamperRentalHub() {
+  const countries = await publishableCountries();
   const offers = rentalOffers("hub");
   const questions = faq();
 

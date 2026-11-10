@@ -1,10 +1,20 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  Query,
+} from '@nestjs/common';
 import {
   normaliseCamperType,
   normaliseCountry,
   normaliseServices,
   RentalProvidersService,
 } from './rental-providers.service';
+import {
+  RentalCountriesService,
+  type RentalCountryView,
+} from './rental-countries.service';
 
 // CAMP-427.
 @Controller('rental/providers')
@@ -47,5 +57,35 @@ export class RentalCamperTypesController {
   @Get()
   list() {
     return this.providers.camperTypes();
+  }
+}
+
+/**
+ * Текст країн оренди — CAMP-479.
+ *
+ * 🔴 ОКРЕМИЙ КОНТРОЛЕР, А НЕ ЩЕ ОДИН ШЛЯХ У `rental/providers`. Питання
+ * іншого роду: там «хто здає техніку за цими ознаками», тут «що ми
+ * написали про країну». Змішати їх означало б, що зміна правил видачі
+ * партнерів чіпає сторінку з редакційним текстом.
+ */
+@Controller('rental/countries')
+export class RentalCountriesController {
+  constructor(private readonly countries: RentalCountriesService) {}
+
+  @Get()
+  async list(
+    @Query('language') language = 'en',
+  ): Promise<{ countries: RentalCountryView[] }> {
+    return { countries: await this.countries.all(language) };
+  }
+
+  @Get(':code')
+  async one(
+    @Param('code') code: string,
+    @Query('language') language = 'en',
+  ): Promise<RentalCountryView> {
+    const country = await this.countries.byCode(code.toLowerCase(), language);
+    if (!country) throw new NotFoundException(`немає країни «${code}»`);
+    return country;
   }
 }
