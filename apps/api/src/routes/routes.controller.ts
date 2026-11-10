@@ -1,5 +1,12 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  Query,
+} from '@nestjs/common';
 import { RoutesService } from './routes.service';
+import { RouteContentService, type RouteView } from './route-content.service';
 import {
   DEFAULT_PER_POINT,
   DEFAULT_RADIUS_M,
@@ -28,7 +35,35 @@ import { parseKinds } from './route-services';
 // and is the reason BULK_LIMIT exists; this is not that.
 @Controller('routes')
 export class RoutesController {
-  constructor(private readonly routes: RoutesService) {}
+  constructor(
+    private readonly routes: RoutesService,
+    private readonly content: RouteContentService,
+  ) {}
+
+  /**
+   * Усі маршрути з їхнім текстом — CAMP-479.
+   *
+   * 🔴 СТОЇТЬ ПЕРЕД `:slug` НАВМИСНО. Nest зіставляє маршрути в порядку
+   * оголошення, тож `/routes/near` мусить бути оголошений раніше за
+   * `/routes/:slug`, інакше «near» прочитається як слаг і віддасть 404
+   * на запит, який працював роками.
+   */
+  @Get('content')
+  async allContent(
+    @Query('language') language = 'en',
+  ): Promise<{ routes: RouteView[] }> {
+    return { routes: await this.content.all(language) };
+  }
+
+  @Get('content/:slug')
+  async oneContent(
+    @Param('slug') slug: string,
+    @Query('language') language = 'en',
+  ): Promise<RouteView> {
+    const route = await this.content.bySlug(slug, language);
+    if (!route) throw new NotFoundException(`немає маршруту «${slug}»`);
+    return route;
+  }
 
   /**
    * Campsites beside each stage of a route.

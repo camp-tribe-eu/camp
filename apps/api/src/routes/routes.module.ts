@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { RoutesController } from './routes.controller';
 import { RoutesService } from './routes.service';
+import { RouteContentService } from './route-content.service';
 
 // CAMP-3 / CAMP-45. Nothing here touches the `routes` or `route_points`
 // tables that already exist in the schema: the curated routes are a
@@ -10,7 +11,7 @@ import { RoutesService } from './routes.service';
 // asks the campsite table what is near a point.
 @Module({
   controllers: [RoutesController],
-  providers: [RoutesService],
+  providers: [RoutesService, RouteContentService],
   exports: [RoutesService],
 })
 export class RoutesModule {}
