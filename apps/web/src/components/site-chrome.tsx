@@ -258,7 +258,18 @@ function flattenNav(items: NavItem[], out: NavItem[] = []): NavItem[] {
  * the footer of every page rather than being repeated per template and
  * eventually forgotten on one of them.
  */
-export function SiteFooter({ nav = [] }: { nav?: NavItem[] }) {
+export function SiteFooter({
+  nav = [],
+  footerNote = null,
+}: {
+  nav?: NavItem[];
+  /**
+   * Речення під назвою — з CMS (CAMP-481). `null` означає, що редактор
+   * його не вписав або база недосяжна; тоді абзацу немає зовсім, бо
+   * порожній абзац читається як поломка верстки, а не як порожнеча.
+   */
+  footerNote?: string | null;
+}) {
   const more = flattenNav(nav);
   return (
     <footer className="mt-16 border-t border-line-2 bg-surface">
@@ -280,10 +291,9 @@ export function SiteFooter({ nav = [] }: { nav?: NavItem[] }) {
               <span aria-hidden="true">⛺</span>
               CampTribe
             </Link>
-            <p className="mt-3 max-w-[32ch]">
-              Campsites across the EU-27, with what is around each one —
-              measured from published data, with the gaps left as gaps.
-            </p>
+            {footerNote && (
+              <p className="mt-3 max-w-[32ch]">{footerNote}</p>
+            )}
           </div>
 
           {/* 2. Розділи з CMS. Порожній перелік не малює колонки взагалі:
