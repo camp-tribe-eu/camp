@@ -11,6 +11,7 @@ import {
   formatEur,
   MIN_KNOWN,
   readHubStats,
+  countryFaq,
   regionFaq,
   regionTiles,
   type HubRegionStats,
@@ -642,4 +643,67 @@ test('🔴 the country and region pages and everything they import read no reque
     }
   }
   expect(offenders).toEqual([]);
+});
+
+/**
+ * CAMP-451, пункт 6 — ті самі питання, але про КРАЇНУ, внизу сторінки.
+ *
+ * 🔴 ТУТ ПЕРЕВІРЯЄТЬСЯ ЗВЕДЕННЯ, А НЕ ФОРМУЛЮВАННЯ. Слова будує той
+ * самий `regionFaq`, і його чотири форми вже пришпилені вище; дублювати
+ * їх означало б завести другу правду про однину й множину. Нове тут
+ * одне: чи правильно складено рядки й чи не пообіцяно зайвої свіжості.
+ */
+test.describe('CAMP-451 — питання про країну', () => {
+  test('🔴 числа складаються з усіх регіонів, а не беруться з першого', () => {
+    const faq = countryFaq(STATS, 'Slovenia');
+    const free = faq.find((f) => f.key === 'free');
+    expect(free, 'питання про безплатні місця зникло').toBeTruthy();
+    // 100 + 40 + 4 = 144 місць, 7 + 0 + 1 = 8 безплатних.
+    expect(free!.answer).toContain('8 of the 144 sites');
+    expect(free!.question).toBe('Are there free places to camp in Slovenia?');
+  });
+
+  test('🔴 «станом на» — НАЙСТАРІША дата, а не найновіша', () => {
+    const faq = countryFaq(STATS, 'Slovenia');
+    // Регіони прочитані 18.10 і 12.10, один — ніколи. Країна правдива
+    // рівно настільки, наскільки свіжий її найзастаріліший регіон.
+    const answer = faq[0].answer;
+    expect(answer, `дата у відповіді: ${answer}`).toContain('12 October 2026');
+    expect(answer).not.toContain('18 October 2026');
+  });
+
+  test('🔴 порожні дані не малюють секції', () => {
+    expect(countryFaq([], 'Slovenia')).toEqual([]);
+    expect(
+      countryFaq(
+        [{ ...PTUJ, spots: 0, freeWild: 0 }],
+        'Slovenia',
+      ),
+      'країна без жодного кемпінга дістала питання',
+    ).toEqual([]);
+  });
+
+  test('🔴 поріг наповненості діє й на країні — питання просто немає', () => {
+    const faq = countryFaq(STATS, 'Slovenia');
+
+    // Нічна стоянка: 10+8+0 дозволено й 2+1+0 заборонено = 21 запис на
+    // 144 місця, тобто 14,6% — нижче за `FILL_MIN`. Питання НЕ ставиться.
+    // 🔴 Це не дефект зведення, а його найважливіша властивість: на
+    // країні знаменник росте швидше за записане, і відповідь, яку
+    // регіон міг дати чесно, країна дати вже не може.
+    expect(
+      faq.find((f) => f.key === 'overnight'),
+      'питання про нічну стоянку поставлено на 14,6% записаних',
+    ).toBeUndefined();
+
+    // Електрика: (16+5+2) + (9+2+2) = 36 із 144, тобто 25% — поріг
+    // пройдено, і знаменник у відповіді саме 36, а не 144.
+    const el = faq.find((f) => f.key === 'electricity');
+    expect(el?.answer, 'питання про електрику зникло').toContain(
+      'Of the 36 sites',
+    );
+    expect(el?.answer, 'знаменником стала країна, а не записане').not.toContain(
+      'Of the 144',
+    );
+  });
 });

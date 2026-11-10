@@ -29,7 +29,36 @@ interface Region {
  * region will ever reach a page. A test that names a country is a test
  * about that country.
  */
-async function regions(request: APIRequestContext) {
+/**
+ * 🔴 ЧИТАЄТЬСЯ ОДИН РАЗ НА ПРОЦЕС, І ЦЕ НЕ ОПТИМІЗАЦІЯ, А ЛІКУВАННЯ.
+ *
+ * Кожен виклик обходить `/spots/countries` і потім `/spots/{країна}/regions`
+ * по всіх 27 країнах — 28 запитів. Наш власний обмежувач частоти рахує їх
+ * по IP, і коли CAMP-451 додала сюди ще три тести, помічник почав падати
+ * «rs.map is not a function»: API віддавав 429, а тіло помилки — обʼєкт,
+ * а не масив. Заміряно локально 10.11.2026.
+ *
+ * 🔴 ЧОМУ КЕШ ТУТ БЕЗПЕЧНИЙ, хоч «кешована обіцянка робить тест залежним
+ * від порядку» — правило, яке в цьому проєкті вже коштувало прогонів
+ * (CAMP-476). Різниця в тому, що тут дані ЛИШЕ ЧИТАЮТЬСЯ і однакові для
+ * всіх тестів файла: жоден із них не підміняє відповідь API і не чекає
+ * іншої. Якби колись знадобився тест на ІНШИЙ стан бази, він мусив би
+ * скинути цей кеш — і цей абзац існує, щоб це було видно.
+ */
+let regionsCache: Promise<{ all: Region[]; thin: Region; fat: Region }> | null = null;
+
+function regions(request: APIRequestContext) {
+  if (regionsCache === null) {
+    regionsCache = fetchRegions(request).catch((e: unknown) => {
+      // Провал не кешується: одна тимчасова 429 не має класти весь файл.
+      regionsCache = null;
+      throw e;
+    });
+  }
+  return regionsCache;
+}
+
+async function fetchRegions(request: APIRequestContext) {
   const countries: { country: string }[] = await (
     await request.get(`${API_BASE}/spots/countries`)
   ).json();
@@ -153,6 +182,29 @@ test.describe('hub crawl path', () => {
       .click();
     await expect(page).toHaveURL(new RegExp(`${hub(paged!)}/page/2$`));
     await expect(page.locator('main ul li a').first()).toBeVisible();
+
+    // 🔴 CAMP-451, «Спосіб перевірки»: «перехід на останню сторінку
+    // віддає 200 і непорожній список».
+    //
+    // Твердження живе ТУТ, а не в окремому тесті, і це не ліньки. Свій
+    // тест мусив би мати свій `test.skip` на той самий випадок «нічого
+    // не пагінується» — і сторож бюджету пропусків упіймав мене на
+    // 39 проти 38: «тест, що відмовився бігти, не відрізнити від тесту,
+    // що пройшов». Регіон із пагінацією вже знайдено рядком вище.
+    const last = Math.ceil(paged!.spots / REGION_PER_PAGE);
+    expect(last, 'остання сторінка порахувалась у 1 — пагінації немає').toBeGreaterThan(1);
+
+    const url = `${hub(paged!)}/page/${last}`;
+    const res = await request.get(url);
+    expect(res.status(), `${url} → ${res.status()}`).toBe(200);
+
+    // 🔴 200 САМ ПО СОБІ НІЧОГО НЕ ДОВОДИТЬ: порожня остання сторінка
+    // теж віддасть 200. Тому рахуються картки у відданому HTML.
+    const cards = ((await res.text()).match(/class="ct-card"/g) ?? []).length;
+    expect(
+      cards,
+      `${url}: ${paged!.spots} місць, сторінка ${last} з ${last}, карток ${cards}`,
+    ).toBeGreaterThan(0);
   });
 
   test('a region that fits on one page shows no paginator', async ({
@@ -212,6 +264,86 @@ test.describe('hub indexing rules', () => {
     for (const url of ['/camping', `/camping/${fat.country}`, hub(fat)]) {
       const html = await (await request.get(url)).text();
       expect(html, url).toMatch(/<link rel="canonical"/i);
+    }
+  });
+});
+
+/**
+ * CAMP-451, «Спосіб перевірки», пункт 1: «Усі регіони країни мають
+ * картку: число карток = число регіонів у базі, обидва надрукувати».
+ *
+ * 🔴 ОБИДВА ЧИСЛА ДРУКУЮТЬСЯ НАВМИСНО. «Усі на місці» над порожнім
+ * переліком істинне й нічого не варте; а коли воно впаде, перше
+ * питання буде «скільки ж їх мало бути» — і відповідь має бути в
+ * звіті, а не в наступному прогоні.
+ */
+test.describe('🔴 CAMP-451 — картки регіонів на сторінці країни', () => {
+  test('кожен регіон країни має картку', async ({ page, request }, testInfo) => {
+    const { all } = await regions(request);
+    // Країна з найбільшою кількістю регіонів: там найлегше загубити
+    // хвіст переліку, і там це найдорожче.
+    const byCountry = new Map<string, number>();
+    for (const r of all) byCountry.set(r.country, (byCountry.get(r.country) ?? 0) + 1);
+    const [country, expected] = [...byCountry.entries()].sort((a, b) => b[1] - a[1])[0];
+    expect(expected, 'у жодної країни немає регіонів').toBeGreaterThan(0);
+
+    await page.goto(`/camping/${country}`);
+    const cards = page.locator('a.ct-rtile');
+    const drawn = await cards.count();
+
+    const summary = `${country}: регіонів у базі ${expected}, карток на сторінці ${drawn}`;
+    console.log(summary);
+    testInfo.annotations.push({ type: 'замір', description: summary });
+
+    expect(drawn, summary).toBe(expected);
+  });
+
+  /**
+   * 🔴 МУТАЦІЯ, ЯКУ ПРОСИТЬ КАРТКА: «прибрати фото з картки — тест на
+   * однакову висоту карток має почервоніти». Висота рядка карток — це
+   * те, що читач бачить як охайність: одна картка без зображення
+   * ламає рядок, і жоден тест про текст цього не бачить.
+   */
+  test('🔴 картки регіонів одного рядка однакової висоти', async ({
+    page,
+    request,
+  }, testInfo) => {
+    const { all } = await regions(request);
+    const country = all[0]?.country;
+    expect(country, 'у базі немає жодного регіону').toBeTruthy();
+
+    await page.goto(`/camping/${country}`);
+    const cards = page.locator('a.ct-rtile');
+    const n = await cards.count();
+    expect(n, 'карток регіонів немає зовсім').toBeGreaterThan(1);
+
+    const boxes = await cards.evaluateAll((els) =>
+      els.map((el) => {
+        const r = el.getBoundingClientRect();
+        return {
+          top: Math.round(r.top),
+          height: Math.round(r.height),
+          hasImage: el.querySelector('img, svg, .ct-flag') !== null,
+        };
+      }),
+    );
+
+    // Кожна картка несе зображення — інакше рядок ламається ще до того,
+    // як ми порівняємо висоти.
+    const blind = boxes.filter((b) => !b.hasImage).length;
+    expect(blind, `карток без зображення: ${blind} з ${n}`).toBe(0);
+
+    // Рядки визначаються по верхньому краю; у кожному — одна висота.
+    const rows = new Map<number, number[]>();
+    for (const b of boxes) rows.set(b.top, [...(rows.get(b.top) ?? []), b.height]);
+    const summary = `${country}: карток ${n}, рядків ${rows.size}`;
+    testInfo.annotations.push({ type: 'замір', description: summary });
+
+    for (const [top, heights] of rows) {
+      expect(
+        [...new Set(heights)],
+        `рядок ${top}: висоти ${heights.join(', ')} — ${summary}`,
+      ).toHaveLength(1);
     }
   });
 });
