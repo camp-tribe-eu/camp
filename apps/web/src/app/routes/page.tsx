@@ -1,11 +1,14 @@
-import type { Metadata } from 'next';
-import Link from 'next/link';
-import { countryName } from '@/lib/api';
-import { publishableCampsiteCount, routesDescription } from '@/lib/campsite-count';
-import { alternatesFor } from '@/lib/i18n';
-import { breadcrumbList, jsonLdProps } from '@/lib/jsonld';
-import { routeLibraryGraph } from '@/lib/route-jsonld';
-import { SERVICE_KINDS, SERVICE_LABEL } from '@/lib/route-services';
+import type { Metadata } from "next";
+import Link from "next/link";
+import { countryName } from "@/lib/api";
+import {
+  publishableCampsiteCount,
+  routesDescription,
+} from "@/lib/campsite-count";
+import { alternatesFor } from "@/lib/i18n";
+import { breadcrumbList, jsonLdProps } from "@/lib/jsonld";
+import { routeLibraryGraph } from "@/lib/route-jsonld";
+import { SERVICE_KINDS, SERVICE_LABEL } from "@/lib/route-services";
 import {
   CAMPSITES_PER_STAGE,
   formatKm,
@@ -13,13 +16,14 @@ import {
   getRoutes,
   STAGE_RADIUS_M,
   straightLineLabel,
-} from '@/lib/routes';
-import Breadcrumbs from '@/components/breadcrumbs';
-import RouteLibrary, { type RouteCard } from '@/components/route-library';
-import { Block } from '@/components/layout';
-import { LayeredBanner } from '@/components/layered-banner';
-import { PageSections } from '@/components/page-sections';
-import { pageContent } from '@/lib/page-content';
+  spelledCount,
+} from "@/lib/routes";
+import Breadcrumbs from "@/components/breadcrumbs";
+import RouteLibrary, { type RouteCard } from "@/components/route-library";
+import { Block } from "@/components/layout";
+import { LayeredBanner } from "@/components/layered-banner";
+import { PageSections } from "@/components/page-sections";
+import { pageContent } from "@/lib/page-content";
 
 // CAMP-3 / CAMP-45 — the route library index.
 //
@@ -41,17 +45,17 @@ import { pageContent } from '@/lib/page-content';
 // smaller claim; a search result with the wrong one is a false one.
 export async function generateMetadata(): Promise<Metadata> {
   return {
-    title: 'Camping routes across Europe',
+    title: "Camping routes across Europe",
     description: routesDescription(await publishableCampsiteCount()),
-    alternates: alternatesFor('/routes'),
+    alternates: alternatesFor("/routes"),
   };
 }
 
 export default async function RoutesIndex() {
-  const routes = getRoutes();
+  const routes = await getRoutes();
   // 🔴 КАТАЛОГ МАРШРУТІВ — НАШІ ВЛАСНІ ЗАПИСИ, вступ — CMS. Відмова
   // бази прибирає лише вступ, а не сторінку.
-  const page = await pageContent('routes').catch(() => null);
+  const page = await pageContent("routes").catch(() => null);
 
   const cards: RouteCard[] = routes.map((r) => ({
     slug: r.slug,
@@ -72,8 +76,8 @@ export default async function RoutesIndex() {
   const stops = routes.reduce((n, r) => n + r.stages.length, 0);
 
   const crumbs = [
-    { name: 'CampTribe', path: '/' },
-    { name: 'Routes', path: '/routes' },
+    { name: "CampTribe", path: "/" },
+    { name: "Routes", path: "/routes" },
   ];
 
   return (
@@ -81,10 +85,10 @@ export default async function RoutesIndex() {
       <script
         {...jsonLdProps(
           routeLibraryGraph({
-            name: 'Camping routes across Europe',
+            name: "Camping routes across Europe",
             description:
-              'Curated multi-day camping routes through the European Union, each with its stages and the campsites recorded near them.',
-            path: '/routes',
+              "Curated multi-day camping routes through the European Union, each with its stages and the campsites recorded near them.",
+            path: "/routes",
             routes: routes.map((r) => ({ name: r.name, slug: r.slug })),
           }),
         )}
@@ -103,12 +107,12 @@ export default async function RoutesIndex() {
           те, що правда завжди. */}
       <LayeredBanner
         headingLevel={1}
-        background={{ src: '/banners/eu-dawn.svg' }}
+        background={{ src: "/banners/eu-dawn.svg" }}
         tickerText="ROUTES"
-        heading={page?.title ?? 'Camping routes'}
+        heading={page?.title ?? "Camping routes"}
         description={page?.metaDescription ?? undefined}
         minHeight="min(42svh, 340px)"
-        textSize={{ desktop: '140px', mobile: '48px' }}
+        textSize={{ desktop: "140px", mobile: "48px" }}
         className="mt-4"
       />
 
@@ -146,27 +150,36 @@ export default async function RoutesIndex() {
           <p>
             {/* 🔴 The scaled-content position, stated to the reader rather
                 than only to ourselves in a code comment. It is also the
-                honest answer to "why only twelve". */}
-            There are twelve rather than fifty on purpose. Fifty would mean
-            one template with the place names swapped, which is the fastest
-            way to make a site that nobody — and no search engine — has any
-            reason to trust. Each of these has something of its own to say.
+                honest answer to "why only twelve".
+
+                🔴 ЧИСЛО РАХУЄТЬСЯ, А НЕ НАБРАНЕ СЛОВОМ. Тут стояло
+                «twelve», і збіг тримався лише тому, що маршрути лежали
+                файлом. Після CAMP-479 їх додає редактор — і тринадцятий
+                зробив би це речення неправдою, не зламавши нічого
+                видимого. */}
+            There are {spelledCount(routes.length)} rather than fifty on
+            purpose. Fifty would mean one template with the place names swapped,
+            which is the fastest way to make a site that nobody — and no search
+            engine — has any reason to trust. Each of these has something of its
+            own to say.
           </p>
           <p>
-            Every route is written stop by stop: {stops} stops across the{' '}
-            {routes.length} routes, and each stop carries the reason it is
-            there rather than the next town along. Days and nights are checked
-            to add up: a ten-day trip has nine nights.
+            Every route is written stop by stop: {stops} stops across the{" "}
+            {routes.length} routes, and each stop carries the reason it is there
+            rather than the next town along. Days and nights are checked to add
+            up: a ten-day trip has nine nights.
           </p>
           <p>
-            Under each stop on a route page there are up to{' '}
-            {CAMPSITES_PER_STAGE} campsites from our database within{' '}
+            Under each stop on a route page there are up to{" "}
+            {CAMPSITES_PER_STAGE} campsites from our database within{" "}
             {formatKm(STAGE_RADIUS_M)} of it, nearest first, and the nearest
-            recorded example of each of {SERVICE_KINDS.length} kinds of
-            service: {SERVICE_KINDS.map((k) => SERVICE_LABEL[k].toLowerCase()).join(', ')}.
-            That is a selection, not a list of everything in the area. The
-            services come from OpenStreetMap alone, so a gap in them is a gap
-            in what volunteers have mapped, not necessarily one on the ground.
+            recorded example of each of {SERVICE_KINDS.length} kinds of service:{" "}
+            {SERVICE_KINDS.map((k) => SERVICE_LABEL[k].toLowerCase()).join(
+              ", ",
+            )}
+            . That is a selection, not a list of everything in the area. The
+            services come from OpenStreetMap alone, so a gap in them is a gap in
+            what volunteers have mapped, not necessarily one on the ground.
           </p>
           <p>
             {/* 🔴 The missing numbers, said on the hub as well as on each
@@ -174,19 +187,18 @@ export default async function RoutesIndex() {
                 would look for them. */}
             <strong className="font-semibold text-heading">
               What is not here yet:
-            </strong>{' '}
+            </strong>{" "}
             road distances and driving times, a check of any route against the
             height, width or weight of your vehicle, and what the fuel will
             cost. Each needs our own routing engine, which is not running. We
             would rather leave the figure out than publish one we cannot stand
             behind — so the distance on each card is a straight-line distance:
-            the sum of the straight lines between its stops, labelled as
-            exactly that. The road is always longer, and on the mountain
-            sections much longer. For the
-            part of a budget that can be measured,{' '}
+            the sum of the straight lines between its stops, labelled as exactly
+            that. The road is always longer, and on the mountain sections much
+            longer. For the part of a budget that can be measured,{" "}
             <Link className="underline" href="/tools/camper-trip-cost">
               the trip cost calculator
-            </Link>{' '}
+            </Link>{" "}
             uses this week&rsquo;s published fuel prices and your own figures.
           </p>
         </Block>

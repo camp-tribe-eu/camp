@@ -27,8 +27,8 @@ const WIDE = { width: 1700, height: 900 };
  * існувати, тест почервоніє на 404 і скаже «ширина зламана» про
  * сторінку, якої немає.
  */
-function firstRoute(): string {
-  const routes = getRoutes();
+async function firstRoute(): Promise<string> {
+  const routes = await getRoutes();
   expect(routes.length, 'жодного маршруту в lib/routes.ts — замір сліпий').toBeGreaterThan(0);
   return `/routes/${routes[0].slug}`;
 }
@@ -48,7 +48,7 @@ test.describe('CAMP-459: вузькі секції стоять по центр�
   test.use({ viewport: WIDE });
 
   test('🔴 секція джерел центрована, а не притиснута вліво', async ({ page }) => {
-    await page.goto(firstRoute());
+    await page.goto(await firstRoute());
     const g = await gaps(page, '[data-testid="route-sources"]');
     // Якір: вона справді вужча за `main`, інакше «центровано» нічого не
     // означає — блок на всю ширину симетричний за побудовою.
@@ -60,7 +60,7 @@ test.describe('CAMP-459: вузькі секції стоять по центр�
   });
 
   test('усередині секції джерел ширини не скачуть', async ({ page }) => {
-    await page.goto(firstRoute());
+    await page.goto(await firstRoute());
     const widths = await page.evaluate(() => {
       const sec = document.querySelector('[data-testid="route-sources"]')!;
       return [...sec.children]
@@ -76,13 +76,13 @@ test.describe('CAMP-459: вузькі секції стоять по центр�
     // 🔴 Протилежна половина правила, і без неї попередні два тести
     // пройшли б на сторінці, де ВСЕ звужене до 840 — тобто на іншому
     // дефекті.
-    await page.goto(firstRoute());
+    await page.goto(await firstRoute());
     const stages = await gaps(page, '[aria-labelledby="stages-heading"]');
     expect(stages.w, `секція етапів завширшки ${stages.w} px`).toBeGreaterThan(1200);
   });
 
   test('горизонтального скролу немає', async ({ page }) => {
-    await page.goto(firstRoute());
+    await page.goto(await firstRoute());
     const over = await page.evaluate(
       () => document.documentElement.scrollWidth - window.innerWidth,
     );

@@ -1,32 +1,144 @@
 // CAMP-3 / CAMP-45: reading the curated routes, and fetching the
 // campsites that sit beside them.
 //
-// The routes themselves are a typed data file (src/data/routes). This
-// module is everything the pages need on top of that: lookup, the
-// derived numbers we are allowed to state, and the one API call.
-
-import { apiFetch, type Amenities, type Spot } from './api';
-import { CURATED_ROUTES } from '@/data/routes';
-import type { CuratedRoute } from './route-types';
+// 🔴 CAMP-479: МАРШРУТИ ПРИЇЖДЖАЮТЬ З API, А НЕ З ФАЙЛА.
+//
+// Тут стояв імпорт `@/data/routes` — дванадцять файлів із 7 813 словами
+// прози, яких власник не міг змінити без розробника. Текст переїхав у
+// базу: факти в `routes` і `route_points`, проза в `pages` того ж слага.
+//
+// 🔴 ЧЕРЕЗ ЦЕ `getRoutes` І `getRoute` СТАЛИ АСИНХРОННИМИ. Зберегти
+// синхронний підпис можна було б лише кешем у модулі, тобто копією
+// контенту в памʼяті процесу — і тоді правка в адмінці не доїжджала б
+// до читача, поки хтось не перезапустить сервер. Саме такий кеш і є
+// хардкодом, просто відкладеним у часі.
+import { apiFetch, type Amenities, type Spot } from "./api";
+import type { CuratedRoute } from "./route-types";
 import {
   formatKm,
   routeGeometryProvider,
   straightLineLegs,
   type RouteGeometryResult,
-} from './route-geometry';
-import type { SpotSource } from './sources';
+} from "./route-geometry";
+import type { SpotSource } from "./sources";
 
-export type { CuratedRoute, RouteStage } from './route-types';
-export { TRAVELLER_LABEL, TRAVELLER_TAGS } from './route-types';
+export type { CuratedRoute, RouteStage } from "./route-types";
+export { TRAVELLER_LABEL, TRAVELLER_TAGS } from "./route-types";
 
-export const ROUTES = CURATED_ROUTES;
+/**
+ * Число словами, для речень, де цифра виглядала б як дані.
+ *
+ * 🔴 ІСНУЄ ЧЕРЕЗ СПРАВЖНІЙ ДЕФЕКТ, ЗНАЙДЕНИЙ ПРИ ПЕРЕЇЗДІ (CAMP-479).
+ * На `/routes` стояло «There are twelve rather than fifty on purpose» —
+ * зашите слово поруч із абзацом, що рахує маршрути динамічно. Доки
+ * бібліотека була файлом, збіг тримався сам: дванадцять у коді й
+ * дванадцять у тексті. Тепер маршрути додає редактор, і першим же
+ * тринадцятим сторінка почала б брехати читачеві — тихо, бо речення
+ * лишилось би граматично бездоганним.
+ *
+ * Поза межами переліку — цифрою: «There are 21 rather than fifty»
+ * читається гірше, але не бреше.
+ */
+const NUMBER_WORDS = [
+  "zero",
+  "one",
+  "two",
+  "three",
+  "four",
+  "five",
+  "six",
+  "seven",
+  "eight",
+  "nine",
+  "ten",
+  "eleven",
+  "twelve",
+  "thirteen",
+  "fourteen",
+  "fifteen",
+  "sixteen",
+  "seventeen",
+  "eighteen",
+  "nineteen",
+  "twenty",
+];
 
-export function getRoutes(): CuratedRoute[] {
-  return CURATED_ROUTES;
+export function spelledCount(n: number): string {
+  return NUMBER_WORDS[n] ?? String(n);
 }
 
-export function getRoute(slug: string): CuratedRoute | null {
-  return CURATED_ROUTES.find((r) => r.slug === slug) ?? null;
+/**
+ * 🔴 ВИТРИМКА ТА САМА, ЩО В МЕНЮ Й НАЛАШТУВАНЬ САЙТУ.
+ *
+ * Next бере МІНІМУМ витримки по дереву маршруту, тож число, менше за
+ * інші, тихо пришвидшило б перевидання всіх сторінок, що тягнуть
+ * маршрути. Одне число на всі виклики — одна відповідь на питання «за
+ * скільки доїжджає правка».
+ */
+const ROUTE_REVALIDATE_SECONDS = 900;
+
+/**
+ * 🔴 ПОРОЖНІЙ ПЕРЕЛІК МАРШРУТІВ — ЦЕ ПОМИЛКА, А НЕ ПОРОЖНІЙ МАСИВ.
+ *
+ * Сторінка `/routes` без жодного маршруту виглядає як дизайн, а не як
+ * збій, і в такому вигляді доїде до читача та в індекс. Той самий
+ * висновок, що вже оплачений у `headerNav()`: збірка падає гучно, а на
+ * живому сервері Next лишає попередню справну сторінку.
+ *
+ * Запасного переліку в коді немає навмисно — він повернув би той самий
+ * хардкод, який ця картка прибирає, і зробив би збій невидимим.
+ */
+export async function getRoutes(): Promise<CuratedRoute[]> {
+  const res = await apiFetch("/routes/content", {
+    next: { revalidate: ROUTE_REVALIDATE_SECONDS },
+  });
+  if (!res.ok) {
+    throw new Error(
+      `маршрути недосяжні: GET /routes/content → ${res.status}. ` +
+        "Сторінка маршрутів без жодного маршруту — зламана сторінка, " +
+        "тож збірка зупиняється тут.",
+    );
+  }
+  const body = (await res.json()) as { routes?: CuratedRoute[] };
+  const routes = body.routes ?? [];
+  if (routes.length === 0) {
+    throw new Error(
+      "перелік маршрутів порожній: /routes/content віддав 200, але " +
+        "жодного маршруту. Перевір таблицю `routes` і сторінки з " +
+        "`type = 'route'`: маршрут без сторінки навмисно не виходить із API.",
+    );
+  }
+  return routes;
+}
+
+/**
+ * Один маршрут за слагом; `null`, якщо такого немає.
+ *
+ * 🔴 ТУТ ВИНЯТКУ НЕМАЄ, І ЦЕ НЕ НЕПОСЛІДОВНІСТЬ. «Переліку немає» —
+ * завжди поломка. «Цього маршруту немає» — законна відповідь: саме так
+ * сторінка дізнається, що треба віддати 404 замість порожнечі.
+ */
+export async function getRoute(slug: string): Promise<CuratedRoute | null> {
+  // 🔴 ПОРОЖНІЙ СЛАГ НЕ ЙДЕ В МЕРЕЖУ, І ЦЕ НЕ ОПТИМІЗАЦІЯ.
+  //
+  // `/routes/content/` — це ІНША адреса: перелік усіх маршрутів. Запит
+  // із порожнім слагом повернув би 200 і масив, який тут прочитався б
+  // як «маршрут знайдено». Заміряно падінням e2e: `getRoute('')` мав
+  // дати `null`, а давав об'єкт.
+  if (!slug.trim()) return null;
+
+  const res = await apiFetch(`/routes/content/${encodeURIComponent(slug)}`, {
+    next: { revalidate: ROUTE_REVALIDATE_SECONDS },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(
+      `маршрут «${slug}» недосяжний: GET /routes/content/${slug} → ` +
+        `${res.status}. Це не «сторінки немає» — це недосяжна база, і ` +
+        "мовчазний 404 сховав би її за звичайною відсутністю.",
+    );
+  }
+  return (await res.json()) as CuratedRoute;
 }
 
 // ── the campsites beside a route ─────────────────────────────────────────
@@ -75,7 +187,7 @@ export interface RouteNeighbour {
    * no page; such a campsite is not linked.
    */
   path: string | null;
-  type: Spot['type'];
+  type: Spot["type"];
   lat: number;
   lon: number;
   /** 🔴 Straight-line metres. Never a driving distance — see route-geometry.ts. */
@@ -143,9 +255,7 @@ export async function getRouteNeighbours(
     looked: false,
     groups: route.stages.map((s) => ({ lat: s.lat, lon: s.lon, spots: [] })),
   };
-  const points = route.stages
-    .map((s) => `${s.lat},${s.lon}`)
-    .join(';');
+  const points = route.stages.map((s) => `${s.lat},${s.lon}`).join(";");
 
   try {
     const res = await apiFetch(
@@ -161,7 +271,10 @@ export async function getRouteNeighbours(
     // index. Silently pairing stage 3 with stage 4's campsites is
     // exactly the "anchored to the wrong town" failure this section is
     // supposed to have learned from.
-    if (!Array.isArray(answer?.groups) || answer.groups.length !== route.stages.length) {
+    if (
+      !Array.isArray(answer?.groups) ||
+      answer.groups.length !== route.stages.length
+    ) {
       return unlooked;
     }
     // 🔴 A group we cannot read is not an empty group. Treating a
@@ -226,7 +339,7 @@ export async function measureRoute(
  * qualifier. There is a test asserting the rendered page contains this
  * phrase wherever it prints the total.
  */
-export const STRAIGHT_LINE_LABEL = 'in a straight line';
+export const STRAIGHT_LINE_LABEL = "in a straight line";
 
 export { formatKm };
 
@@ -253,14 +366,24 @@ export function routeShape(route: CuratedRoute): string {
   const countries = route.countries.length;
   return [
     `${route.days} days`,
-    `${nights} ${nights === 1 ? 'night' : 'nights'}`,
-    `${countries} ${countries === 1 ? 'country' : 'countries'}`,
-  ].join(' · ');
+    `${nights} ${nights === 1 ? "night" : "nights"}`,
+    `${countries} ${countries === 1 ? "country" : "countries"}`,
+  ].join(" · ");
 }
 
 const MONTH_SHORT = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
 ];
 
 /**
@@ -272,14 +395,16 @@ const MONTH_SHORT = [
  */
 export function formatMonths(months: number[]): string {
   const set = new Set(months);
-  if (set.size === 0) return '';
-  if (set.size === 12) return 'All year';
+  if (set.size === 0) return "";
+  if (set.size === 12) return "All year";
 
   // Find a month that starts a run: in the set, with the previous month
   // not in it. Walking from there handles the December→January wrap.
   const prev = (m: number) => (m === 1 ? 12 : m - 1);
   const next = (m: number) => (m === 12 ? 1 : m + 1);
-  const starts = [...set].filter((m) => !set.has(prev(m))).sort((a, b) => a - b);
+  const starts = [...set]
+    .filter((m) => !set.has(prev(m)))
+    .sort((a, b) => a - b);
 
   return starts
     .map((start) => {
@@ -289,10 +414,17 @@ export function formatMonths(months: number[]): string {
         ? MONTH_SHORT[start - 1]
         : `${MONTH_SHORT[start - 1]}–${MONTH_SHORT[end - 1]}`;
     })
-    .join(', ');
+    .join(", ");
 }
 
-/** Every country code used across the library, for the index filter. */
-export function allRouteCountries(routes = CURATED_ROUTES): string[] {
+/**
+ * Every country code used across the library, for the index filter.
+ *
+ * 🔴 ПЕРЕЛІК ТЕПЕР ОБОВʼЯЗКОВИЙ АРГУМЕНТ. Раніше тут стояло значення за
+ * замовчуванням — весь каталог із файла. Після переїзду в базу таке
+ * замовчування означало б прихований мережевий запит усередині чистої
+ * функції: виклик без аргументу виглядав би дешевим і ходив би в API.
+ */
+export function allRouteCountries(routes: CuratedRoute[]): string[] {
   return [...new Set(routes.flatMap((r) => r.countries))].sort();
 }

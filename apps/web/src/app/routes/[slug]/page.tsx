@@ -61,18 +61,21 @@ export const dynamicParams = false;
  * thousands. The query behind that call is an index walk measured at
  * 27 ms for a whole seven-stage route.
  *
- * This is bounded by a file in the repository, not by the database, so
- * it cannot grow without somebody writing a route by hand.
+ * 🔴 CAMP-479: МЕЖА БІЛЬШЕ НЕ У ФАЙЛІ, А В ТАБЛИЦІ. Раніше тут стояло
+ * «обмежено файлом у репозиторії, тож без правки руками не виросте».
+ * Тепер маршрути в базі, і зростання обмежує лише те, скільки їх завів
+ * редактор. Це свідомий обмін: власник отримав можливість додати
+ * маршрут без розробника, а ми втратили стелю, яку давав код.
  */
-export function generateStaticParams(): Params[] {
-  return getRoutes().map((r) => ({ slug: r.slug }));
+export async function generateStaticParams(): Promise<Params[]> {
+  return (await getRoutes()).map((r) => ({ slug: r.slug }));
 }
 
 export async function generateMetadata(props: {
   params: Promise<Params>;
 }): Promise<Metadata> {
   const { slug } = await props.params;
-  const route = getRoute(slug);
+  const route = await getRoute(slug);
   if (!route) return { title: 'Route not found' };
 
   return {
@@ -88,7 +91,7 @@ export async function generateMetadata(props: {
 
 export default async function RoutePage(props: { params: Promise<Params> }) {
   const { slug } = await props.params;
-  const route = getRoute(slug);
+  const route = await getRoute(slug);
   if (!route) notFound();
 
   // CAMP-113: the services block is fetched ALONGSIDE the campsites, not

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { CURATED_ROUTES } from '../../src/data/routes';
+import { ROUTE_FIXTURE } from '../fixtures/route';
 import {
   getRouteServices,
   SERVICE_KINDS,
@@ -26,7 +26,7 @@ import {
 // function with a stubbed `fetch` rather than asserting anything about
 // how it is written.
 
-const route = CURATED_ROUTES[0];
+const route = ROUTE_FIXTURE;
 
 /** Swap global fetch for the run of one test, and always put it back. */
 async function withFetch(
