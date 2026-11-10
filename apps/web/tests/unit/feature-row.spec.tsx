@@ -121,3 +121,57 @@ test('🔴 кроки на головній намальовані цією се
   // Нумерація лишилась: вона була до каталогу й мусить лишитись.
   expect(visibleText(html)).toContain('1');
 });
+
+/**
+ * CAMP-458 — картка може бути посиланням, а значок може стояти ліворуч.
+ *
+ * 🔴 ЧОМУ ПОСИЛАННЯ ОБГОРТАЄ ВСЮ КАРТКУ, А НЕ ЛИШЕ НАЗВУ. Власник сказав
+ * про два переходи на сторінці пального: «посилання майже не видно».
+ * Підкреслене слово в абзаці й картка — різні цілі для пальця й для ока.
+ */
+
+const linkItems = [
+  {
+    key: 'a',
+    href: '/camping/hr',
+    icon: <svg />,
+    title: 'Campsites in Croatia',
+    text: 'Region by region.',
+  },
+];
+
+/** Значення `class` елемента списку — а не згадка класу у правилах CSS. */
+const itemClasses = (html: string) =>
+  (html.match(/<li class="([^"]*)"/g) ?? []).map((m) =>
+    m.replace(/^<li class="/, '').replace(/"$/, ''),
+  );
+
+test('🔴 з адресою картка стає посиланням, без адреси — ні', () => {
+  const linked = renderComponent(FeatureRow, { items: linkItems });
+  expect(linked).toContain('<a class="ct-feat__link" href="/camping/hr"');
+  expect(itemClasses(linked)).toEqual(['ct-feat__item ct-feat__item--link']);
+
+  const plain = renderComponent(FeatureRow, {
+    items: [{ ...linkItems[0], href: undefined }],
+  });
+  expect(plain).not.toContain('ct-feat__link" href');
+  expect(itemClasses(plain)).toEqual(['ct-feat__item']);
+});
+
+test('🔴 назва й текст лежать УСЕРЕДИНІ посилання, а не поруч із ним', () => {
+  const html = renderComponent(FeatureRow, { items: linkItems });
+  const a = html.slice(html.indexOf('<a class="ct-feat__link"'), html.indexOf('</a>'));
+  expect(a, 'назва випала з посилання').toContain('Campsites in Croatia');
+  expect(a, 'текст випав з посилання').toContain('Region by region.');
+});
+
+test('🔴 значок ліворуч — це клас на списку, і типово його немає', () => {
+  const left = renderComponent(FeatureRow, {
+    items: linkItems,
+    iconSide: 'left' as const,
+  });
+  expect(left).toContain('<ul class="ct-feat ct-feat--icon-left"');
+
+  const top = renderComponent(FeatureRow, { items: linkItems });
+  expect(top).toContain('<ul class="ct-feat"');
+});
