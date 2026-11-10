@@ -80,7 +80,24 @@ export default function ReportProblem({ slug }: { slug: string }) {
 
   return (
     <section className="mt-8" data-testid="report-problem">
-      <details className="group rounded-card border border-line-2 bg-surface p-5 shadow-card">
+      {/* 🔴 НЕ САМОТНЯ КНОПКА В ПОРОЖНІЙ РАМЦІ (CAMP-453, пункт 4;
+          знімок 441/63). Було: картка, усередині якої лише дрібна
+          кнопка «Report a problem» — читач не знав ні що це, ні куди
+          воно піде, ні що станеться далі.
+
+          🔴 РЕЧЕННЯ НИЖЧЕ — НЕ НОВА ОБІЦЯНКА. Воно повторює те, що вже
+          стверджують наші умови й політика приватності: звернення читає
+          людина, і сторінка не змінюється, доки вона цього не зробить.
+          Вигадати тут «ми виправимо за 24 години» було б обіцянкою з
+          датою, якої ми не знаємо. */}
+      <div className="rounded-card border border-line-2 bg-surface p-5 shadow-card">
+      <h2 className="text-lg text-heading">Something wrong on this page?</h2>
+      <Block as="p" measure="read" className="mt-1 text-sm text-ink-2">
+        Tell us and a person will look. We take the report, check it
+        against the source, and correct our own data — nothing on this
+        page changes until someone has.
+      </Block>
+      <details className="group mt-4">
         <summary className={buttonClasses('secondary', 'sm', 'ct-disclosure cursor-pointer')}>
           Report a problem
         </summary>
@@ -210,6 +227,7 @@ export default function ReportProblem({ slug }: { slug: string }) {
           </form>
         )}
       </details>
+      </div>
     </section>
   );
 }
