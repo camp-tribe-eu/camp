@@ -409,3 +409,60 @@ test.describe("the section is in the sitemap", () => {
     }
   });
 });
+
+/**
+ * 🔴 ВСТУП І ЗАГОЛОВОК ПРИХОДЯТЬ ІЗ БАЗИ, А НЕ З КОДУ.
+ *
+ * Вказівка власника 10.11.2026: «все має бути динамічним щоб я міг
+ * міняти контент на бойовий». Заміряно того ж дня: /tools, /about і
+ * /contact читали CMS, а /guides і /routes — ні, і змінити там бодай
+ * слово власник не міг ніяк, окрім як попросити мене.
+ *
+ * Тест звіряє сторінку з ТИМ САМИМ API, з якого її будує сервер. Без
+ * цього «переїзд у CMS» лишався б твердженням про код: сторінка могла б
+ * малювати свій старий рядок, і ніхто б не помітив, доки власник не
+ * спробує його змінити.
+ */
+test.describe("🔴 CAMP-459/460 — /guides і /routes беруть текст із CMS", () => {
+  for (const [slug, path] of [
+    ["guides", "/guides"],
+    ["routes", "/routes"],
+  ] as const) {
+    test(`${path}: заголовок і вступ — ті самі рядки, що в базі`, async ({
+      page,
+      request,
+    }, testInfo) => {
+      const res = await request.get(`${API}/pages/${slug}`);
+      expect(res.status(), `GET ${API}/pages/${slug} → ${res.status()}`).toBe(200);
+      const body = (await res.json()) as {
+        title: string;
+        sections: { type: string; body: string | null }[];
+      };
+
+      expect(body.title?.length, "у базі немає назви сторінки").toBeGreaterThan(2);
+      const prose = body.sections.find((s) => s.type === "prose" && s.body);
+      expect(prose, "у базі немає вступного абзацу").toBeTruthy();
+
+      await page.goto(path);
+
+      const h1 = page.locator("main h1");
+      await expect(h1, "заголовків не один").toHaveCount(1);
+      await expect(h1).toHaveText(body.title);
+      await expect(
+        page.locator("main .ct-banner h1"),
+        "заголовок лишився поза банером",
+      ).toHaveCount(1);
+
+      // Перше речення вступу — достатньо, щоб довести джерело, і стійко
+      // до розмітки всередині абзацу.
+      const firstSentence = prose!.body!.split(". ")[0];
+      expect(firstSentence.length, "речення для звірки завузьке").toBeGreaterThan(20);
+      await expect(page.locator("main")).toContainText(firstSentence);
+
+      testInfo.annotations.push({
+        type: "замір",
+        description: `${path}: назва «${body.title}», вступ ${prose!.body!.length} символів із бази`,
+      });
+    });
+  }
+});
