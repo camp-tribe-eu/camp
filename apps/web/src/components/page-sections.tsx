@@ -6,6 +6,8 @@ import { isInternalHref, substitute } from "@/lib/rich-text";
 import Link from "next/link";
 import { FUEL, FUEL_COUNTRIES, longDate } from "@/lib/fuel";
 import { Block, type Measure } from "@/components/layout";
+import { Flag } from "./flag";
+import type { ReactNode } from "react";
 
 // CAMP-365 — рендер універсальних секцій (модель CAMP-362).
 //
@@ -264,6 +266,35 @@ export function cardsOf(
   });
 }
 
+/**
+ * 🔴 ЗНАЧОК ВИБИРАЄ КОД ЗА АДРЕСОЮ, А НЕ РЕДАКТОР У CMS.
+ *
+ * Власник просив значки на картках /tools (CAMP-458). Поле «іконка» в
+ * базі означало б або назву файлу, або розмітку — тобто або 404 на
+ * проді, коли файл перейменують, або SVG, який редактор уставив з
+ * чужого сайту. Тут адреса картки й так веде на НАШУ сторінку
+ * (`cardsOf` це перевіряє), тож значок іде за адресою.
+ *
+ * 🔴 НЕВІДОМА АДРЕСА — БЕЗ ЗНАЧКА, А НЕ З ТИПОВИМ. Картка про
+ * інструмент, якого ще немає в цій карті, краще стоятиме без значка,
+ * ніж із чужим: типовий значок бреше тихо.
+ */
+const CARD_ICONS: Record<string, ReactNode> = {
+  "/tools/camper-trip-cost": (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+      <rect x="4" y="2.5" width="16" height="19" rx="2.5" />
+      <path d="M7.5 6.5h9M7.5 11h2.5M12 11h2.5M16.5 11H17M7.5 14.5H10M12 14.5h2.5M16.5 14.5H17M7.5 18H10M12 18h2.5M16.5 18H17" strokeLinecap="round" />
+    </svg>
+  ),
+  "/tools/camper-packing-list": (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+      <path d="M8 4.5H6.5A1.5 1.5 0 0 0 5 6v13.5A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H16" />
+      <rect x="8" y="2.5" width="8" height="4" rx="1.2" />
+      <path d="M8.5 11.5l1.6 1.6 3.2-3.2M8.5 16.5l1.6 1.6 3.2-3.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+};
+
 function Cards({ section, values }: RenderProps) {
   const items = cardsOf(section.items, "секції cards", values);
   return (
@@ -271,8 +302,14 @@ function Cards({ section, values }: RenderProps) {
       {items.map((t) => (
         <li
           key={t.href}
-          className="rounded-card border border-line-2 bg-surface p-5"
+          className="flex gap-4 rounded-card border border-line-2 bg-surface p-5"
         >
+          {CARD_ICONS[t.href] && (
+            <span className="shrink-0 text-heading" aria-hidden="true">
+              {CARD_ICONS[t.href]}
+            </span>
+          )}
+          <div className="min-w-0">
           <h2 className="text-xl">
             <Link className="text-heading underline" href={t.href}>
               {t.title}
@@ -289,6 +326,7 @@ function Cards({ section, values }: RenderProps) {
               ))}
             </dl>
           )}
+          </div>
         </li>
       ))}
     </ul>
@@ -343,6 +381,14 @@ function FuelCountries({ section, values }: RenderProps) {
         {section.heading}
       </h2>
       {note && <Block as="p" measure="read" className="mt-2 text-sm text-ink-2">{note}</Block>}
+      {/* 🔴 ПРАПОР — ПОРУЧ ІЗ НАЗВОЮ, А НЕ ЗАМІСТЬ НЕЇ (CAMP-458).
+          `Flag` віддає порожній `alt`: диктор, що прочитав би «Flag of
+          Croatia Croatia», чув би одне й те саме двічі. А код без файлу
+          малює літери, не 404. Розмір задає батько — тут, як у тікера. */}
+      <style href="ct-fuel-countries" precedence="ct-components">{`
+.ct-fuel-country{display:inline-flex;align-items:center;gap:.5em}
+.ct-fuel-country .ct-flag{width:1.5em;height:auto;border-radius:.12em;flex:none}
+`}</style>
       <ul className="mt-4 flex flex-wrap gap-x-2 gap-y-3">
         {countries.map((c) => (
           <li key={c.code}>
@@ -350,7 +396,10 @@ function FuelCountries({ section, values }: RenderProps) {
               href={`/tools/camper-trip-cost/${c.code.toLowerCase()}`}
               size="sm"
             >
-              {c.name}
+              <span className="ct-fuel-country">
+                <Flag code={c.code} />
+                {c.name}
+              </span>
             </ButtonLink>
           </li>
         ))}
