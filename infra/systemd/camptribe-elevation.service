@@ -1,0 +1,47 @@
+# CAMP-493: добрати висоту кемпінгам, яким її бракує.
+#
+# 🔴 ЦЕ ЄДИНЕ МІСЦЕ, ДЕ ВИСОТА ЗАПОВНЮЄТЬСЯ НАДАЛІ. PR #534 (CAMP-484)
+# прибрав виклик api.open-meteo.com із compute-context і замінив його
+# РАЗОВИМ заповненням: 0 без висоти із 57 135 — і нічого, що тримає це
+# число нулем. `systemctl list-timers --all | grep -i "elev\|dem"` було
+# порожнім, юніта не було ні в /etc/systemd/system, ні в git. Кожен новий
+# кемпінг із тижневого імпорту приходив без висоти, а сторінка мовчала —
+# так само, як для місця, де даних справді немає.
+#
+# 🔴 ЩО ВОНО РОБИТЬ. Вибирає з бази ЛИШЕ рядки без числової висоти, сама
+# тягне потрібні смуги DEM із відра openmeteo (CC-BY-4.0) у CacheDirectory,
+# дописує `elevation` і `terrain`, прибирає плитки. Нічого не знайшла —
+# виходить за секунду без жодного завантаження: тому юніт щоденний, а не
+# «після імпорту» (див. таймер).
+#
+# 🔴 ДЗЕРКАЛО `/srv/camptribe/tools/dem` ТУТ НЕ ЧИТАЄТЬСЯ І НЕ ПОТРІБНЕ.
+# venv лежить у StateDirectory (/var/lib/camptribe-elevation), плитки — у
+# CacheDirectory (/var/cache/camptribe-elevation); від теки дзеркала цей
+# юніт не залежить жодним шляхом.
+#
+# 🔴 ЩО ТО ВОНО ЗНАЧИТЬ, КОЛИ ЮНІТ ВПАВ. Або відро не віддало смугу, або
+# рядок не порахувався (код виходу 1 — хоч один пропущено), або база
+# недоступна. Рядки лишаються без висоти й будуть добрані наступним
+# прогоном; сторож `camptribe-elevation-check` скаже, скільки їх.
+[Unit]
+Description=CampTribe fill missing campsite elevations
+After=postgresql.service network-online.target
+Wants=network-online.target
+OnFailure=camptribe-failed@%n.service
+
+[Service]
+Type=oneshot
+User=camptribe
+Group=camptribe
+WorkingDirectory=/srv/camptribe/current
+EnvironmentFile=/srv/camptribe/current/apps/api/.env
+StateDirectory=camptribe-elevation
+CacheDirectory=camptribe-elevation
+# Поруч живий сайт: добір не конкурує з ним ні за процесор, ні за диск.
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=3h
+ExecStart=/bin/bash /srv/camptribe/current/scripts/elevation/refill.sh
+# 🔴 Слід знімається лише після УСПІШНОГО прогону: для Type=oneshot
+# ExecStartPost не біжить, якщо ExecStart повернув ненуль.
+ExecStartPost=/bin/rm -f /srv/camptribe/failed/camptribe-elevation.service

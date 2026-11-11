@@ -1,0 +1,23 @@
+# CAMP-493: сторож висоти — міряє БАЗУ, а не код.
+#
+# 🔴 Норма — РІВНО 0 живих кемпінгів без висоти. Будь-яке інше число робить
+# юніт червоним, і лист називає число із знаменником («3 із 57 135»).
+# Сторож, який перевіряє лише «таймер є, скрипт викликається», лишився б
+# зеленим при заповнювачі, що падає щоночі.
+#
+# 🔴 ЧОМУ ОКРЕМИЙ ЮНІТ, А НЕ `ExecStartPost` заповнювача: для oneshot
+# ExecStartPost не біжить після збою, тобто сторож мовчав би рівно тоді,
+# коли заповнювач зламаний.
+[Unit]
+Description=CampTribe elevation coverage check
+After=postgresql.service
+OnFailure=camptribe-failed@%n.service
+
+[Service]
+Type=oneshot
+User=camptribe
+Group=camptribe
+WorkingDirectory=/srv/camptribe/current
+EnvironmentFile=/srv/camptribe/current/apps/api/.env
+ExecStart=/usr/bin/node scripts/ci/check-elevation-coverage.mjs --db
+ExecStartPost=/bin/rm -f /srv/camptribe/failed/camptribe-elevation-check.service

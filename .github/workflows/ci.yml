@@ -803,6 +803,15 @@ jobs:
       - name: And no budget is shorter than its own timer
         run: node scripts/ci/check-freshness-has-a-filler.mjs
 
+      # 🔴 CAMP-493: сторож висоти міряє БАЗУ на машині (`--db`); тут лише
+      # його самотест — що він червоніє на 1 рядку без висоти, друкує
+      # знаменник і ділить предикат із заповнювачем `refill.py`.
+      - name: The elevation sentry still turns red on one spot without a height
+        run: |
+          set -o pipefail
+          node scripts/ci/check-elevation-coverage.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-elevation-coverage self-test:' >/dev/null
+
       - name: The infrastructure drift sentry knows where every file goes
         run: |
           set -o pipefail

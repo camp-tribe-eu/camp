@@ -1,0 +1,11 @@
+[Unit]
+Description=CampTribe elevation coverage check, daily
+
+[Timer]
+# Після заповнювача (05:15): добір на тиждень нових кемпінгів займає
+# хвилини; година запасу, щоб сторож не бачив недороблене.
+OnCalendar=*-*-* 06:15:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target
