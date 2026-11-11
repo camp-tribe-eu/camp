@@ -38,7 +38,9 @@ const runnerOf = (client: Client) =>
       (await client.query(sql, params)).rows,
   }) as unknown as QueryRunner;
 
-async function loadMigrations(): Promise<Array<{ file: string; m: Runner; cls: any }>> {
+async function loadMigrations(): Promise<
+  Array<{ file: string; m: Runner; cls: any }>
+> {
   const dir = join(__dirname, '..', 'migrations');
   const out: Array<{ file: string; m: Runner; cls: any }> = [];
   for (const file of readdirSync(dir)
@@ -113,12 +115,18 @@ beforeAll(async () => {
 afterAll(async () => {
   await db?.end();
   if (admin) {
-    if (dbName) await admin.query(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`);
+    if (dbName)
+      await admin.query(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`);
     await admin.end();
   }
 });
 
-const KITCHEN = [/served as plain HTML/i, /without JavaScript/i, /partners we have not integrated/i, /planned alongside/i];
+const KITCHEN = [
+  /served as plain HTML/i,
+  /without JavaScript/i,
+  /partners we have not integrated/i,
+  /planned alongside/i,
+];
 
 test('anchor: before the migration the page really carries the kitchen', async () => {
   // 🔴 Без цього «нічого не знайдено» нижче нічого б не доводило: може,
