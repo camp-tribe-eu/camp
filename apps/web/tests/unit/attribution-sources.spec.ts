@@ -154,6 +154,12 @@ const SOURCE_FILES: ReadonlyArray<{ path: string; why: string }> = [
     why: "elevation tiles read from Open-Meteo’s open data bucket on AWS",
   },
   {
+    // CAMP-469: the decorative banners are generated through FAL. The host
+    // is named on the page with the model, not hidden in NOT_A_SOURCE.
+    path: "scripts/images/generate-banners.mjs",
+    why: "AI-generated decorative banners: the hosted inference service and its model",
+  },
+  {
     path: "scripts/osm-pipeline/geofabrik-url.sh",
     why: "OSM country extracts",
   },
