@@ -64,8 +64,8 @@ export default function OvernightStay({ overnight }: { overnight: unknown }) {
               target="_blank"
             >
               {source.name}
-            </a>{' '}
-            (<code>{source.tag}</code>), read on{' '}
+            </a>
+            , which records this site as {source.phrase}. Read on{' '}
             <time dateTime={facts.checkedAt}>
               {formatOvernightDay(facts.checkedAt)}
             </time>

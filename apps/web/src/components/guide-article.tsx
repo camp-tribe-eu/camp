@@ -38,9 +38,16 @@ export default function GuideArticle({ guide }: { guide: Guide }) {
         {label?.short ?? guide.provenance}
       </strong>
       {label?.explain && <> {label.explain}</>}
-      {needsAiDisclosure(guide.provenance) && guide.generator && (
-        <> The program is <code>{guide.generator}</code>.</>
-      )}
+      {/* 🔴 CAMP-463: ІМʼЯ ПРОГРАМИ — ЛИШЕ ДЛЯ ТЕКСТУ, ЯКИЙ ПИСАЛА МОВНА МОДЕЛЬ.
+          `region-facts@2` стояло на 463 сторінках гідів про воду як «The
+          program is region-facts@2» — внутрішня назва лічильника записів,
+          а не відповідь читача на питання «хто це написав» (на нього
+          відповідає позначка вище: «written by a program from our own
+          records»). Для моделі ім'я лишається — ст. 50(2) AI Act. У
+          JSON-LD `generator` лишається як було. */}
+      {guide.provenance !== 'data-generated' &&
+        needsAiDisclosure(guide.provenance) &&
+        guide.generator && <> The program is <code>{guide.generator}</code>.</>}
       {guide.authorName && (
         <>
           {' '}

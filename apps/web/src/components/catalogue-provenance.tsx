@@ -102,7 +102,17 @@ export function CatalogueProvenance({ guides }: { guides: readonly Guide[] }) {
         ? clauses[0]
         : `${clauses.slice(0, -1).join(', ')} and ${clauses[clauses.length - 1]}`}
       .{' '}
-      {needsAiDisclosure(provenance) && programs.length > 0 && (
+      {/* 🔴 CAMP-463: ІМʼЯ ПРОГРАМИ — ЛИШЕ ДЛЯ МОВНОЇ МОДЕЛІ. «The program is
+          region-facts@2» читач сторінки про воду розумів як внутрішню
+          назву, а не як відповідь на питання «хто це написав». Там, де
+          текст писала мовна модель (або людина з її допомогою), назва
+          лишається — ст. 50(2) AI Act. Лічильник програми, що рахує
+          записи й моделі не містить, імені не потребує: сказано
+          словами — «written by a program that counted what our records
+          hold». */}
+      {provenance !== 'data-generated' &&
+        needsAiDisclosure(provenance) &&
+        programs.length > 0 && (
         <>
           {programs.length === 1 ? 'The program is ' : 'The programs are '}
           {programs.map((p, i) => (
@@ -118,7 +128,7 @@ export function CatalogueProvenance({ guides }: { guides: readonly Guide[] }) {
           printed unconditionally and is false the moment one guide on the
           page came from a model. */}
       {counts.size === 1 && counts.has('data-generated') && (
-        <>Nothing here is an opinion, an estimate or a sentence a model invented.</>
+        <>Nothing here is an opinion or an estimate.</>
       )}
     </aside>
   );

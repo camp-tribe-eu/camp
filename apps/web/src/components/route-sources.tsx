@@ -40,6 +40,16 @@ import { Block } from '@/components/layout';
 // the services are counted too, and named separately, because they come
 // from OpenStreetMap alone while the campsites do not.
 
+/**
+ * 🔴 CAMP-463: A SOURCE ENTRY WITH THE CAMPSITE IT BELONGS TO. Раніше
+ * читач бачив лише `ref` — довгий URL `data.datatourisme.fr/23/e437c815-…`
+ * чи голий OSM-ідентифікатор `a2458948828`. Дата без того, чого вона
+ * стосується, читачеві нічого не каже; назва кемпінгу каже.
+ * Дата лишається (Licence Ouverte 2.0 вимагає її) — змінилась лише
+ * мова, якою вона подана.
+ */
+export type RouteSourceEntry = SpotSource & { spotName?: string | null };
+
 export default function RouteSources({
   sources,
   campsiteCount,
@@ -47,7 +57,7 @@ export default function RouteSources({
   note,
 }: {
   /** Every source entry from every campsite shown on this page. */
-  sources: SpotSource[];
+  sources: RouteSourceEntry[];
   campsiteCount: number;
   /**
    * CAMP-113: how many service points (fuel, charging, water, …) the
@@ -58,7 +68,7 @@ export default function RouteSources({
   note: string;
 }) {
   // Group by source id, keeping every date rather than reducing them.
-  const byId = new Map<string, SpotSource[]>();
+  const byId = new Map<string, RouteSourceEntry[]>();
   for (const s of sources ?? []) {
     const list = byId.get(s.id) ?? [];
     list.push(s);
@@ -153,7 +163,24 @@ export default function RouteSources({
                           const when = formatUpdated(e.updatedAt);
                           return (
                             <li key={`${e.ref}-${i}`}>
-                              <code className="text-ink-2">{e.ref}</code>
+                              {e.spotName ?? 'Unnamed campsite'}
+                              {/* 🔴 Посилання на запис джерела лишається
+                                  ПОСИЛАННЯМ: довгий URL не друкується,
+                                  але читач, що хоче перевірити, переходить
+                                  і бачить сам запис. */}
+                              {/^https?:\/\//.test(e.ref) && (
+                                <>
+                                  {' — '}
+                                  <a
+                                    href={e.ref}
+                                    className="underline"
+                                    rel="noopener noreferrer"
+                                    target="_blank"
+                                  >
+                                    record at the source
+                                  </a>
+                                </>
+                              )}
                               {when && (
                                 <>
                                   {' — '}
@@ -207,11 +234,10 @@ export default function RouteSources({
             Somebody reading this page should not conclude that a charging
             point absent from OpenStreetMap does not exist. */}
         Fuel, charging, water, disposal points, shops, places to eat, places to
-        sleep, rest areas and service areas all come from OpenStreetMap alone. Other sources for them —
-        Open Charge Map, the national fuel portals — are not settled yet, so
-        what is here is what volunteers have mapped and no more. We hold no
-        ratings and no photographs of these places, and we will not take either
-        from somebody else&rsquo;s site.
+        sleep, rest areas and service areas all come from OpenStreetMap alone,
+        so what is here is what volunteers have mapped and no more. There are
+        no ratings and no photographs of these places, and none are taken from
+        somebody else&rsquo;s site.
       </Block>
     </section>
   );

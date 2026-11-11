@@ -51,6 +51,22 @@ test('машину названо машиною, коли текст напис
   expect(visibleText(html)).toContain('camptribe-writer');
 });
 
+test('🔴 CAMP-463: лічильник записів не друкує свого імені, але говорить, що писала програма', () => {
+  const html = renderComponent(GuideArticle, {
+    guide: guide({ provenance: 'data-generated', generator: 'region-facts@2' }),
+  });
+  const text = visibleText(html);
+  expect(text).not.toContain('region-facts');
+  expect(text).not.toMatch(/model invented/i);
+  // Знаменник: позначка на місці й каже словами, хто писав.
+  expect(html).toContain('data-provenance="data-generated"');
+  expect(text).toContain('A program wrote this page from our own records.');
+  // …а мовна модель, як і раніше, названа поіменно (ст. 50(2) AI Act).
+  expect(visibleText(renderComponent(GuideArticle, { guide: guide() }))).toContain(
+    'camptribe-writer',
+  );
+});
+
 test('список у тілі лишається списком, а не рядком із дефісами', () => {
   const html = renderComponent(GuideArticle, { guide: guide() });
   expect(html).toContain('<ul');

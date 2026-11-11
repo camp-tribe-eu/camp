@@ -6,9 +6,11 @@ import { jsonLdProps } from "@/lib/jsonld";
 import { providerGraph, providerPath } from "@/lib/provider-jsonld";
 import {
   listProviders,
+  scaleParts,
   serviceLabel,
   type ProviderPage,
 } from "@/lib/rental-providers";
+import Day from "@/components/day";
 import { Block } from "@/components/layout";
 
 // CAMP-427 — сторінка однієї компанії, за зразком single product page.
@@ -125,10 +127,10 @@ export default async function ProviderPageView({
                             target="_blank"
                             rel="noopener noreferrer nofollow"
                           >
-                            {s.source_checked_on}
+                            <Day value={s.source_checked_on} />
                           </a>
                         ) : (
-                          s.source_checked_on
+                          <Day value={s.source_checked_on} />
                         )}
                       </span>
                     )}
@@ -166,8 +168,12 @@ export default async function ProviderPageView({
                           <span className="text-ink-2">
                             {" "}
                             (they say: {v.camper_type_said}
-                            {v.camper_type_checked_on &&
-                              `, read ${v.camper_type_checked_on}`}
+                            {v.camper_type_checked_on && (
+                              <>
+                                , read{" "}
+                                <Day value={v.camper_type_checked_on} />
+                              </>
+                            )}
                             )
                           </span>
                         )}
@@ -198,10 +204,10 @@ export default async function ProviderPageView({
                             target="_blank"
                             rel="noopener noreferrer nofollow"
                           >
-                            {v.source_checked_on}
+                            <Day value={v.source_checked_on} />
                           </a>
                         ) : (
-                          v.source_checked_on
+                          <Day value={v.source_checked_on} />
                         )}
                       </span>
                     )}
@@ -277,19 +283,21 @@ export default async function ProviderPageView({
 
           {/* 🔴 «За даними компанії» — не ввічливість, а точність: ці числа
               заявлені, а не зміряні нами, і читач має знати різницю. */}
+          {(scaleParts(p).length > 0 || p.sourceUrl) && (
           <section className="mt-6">
             <h2 className="text-2xl text-heading">
               Scale, as the company states it
             </h2>
-            <p className="mt-2 text-sm">
-              {p.declaredDepotCount !== null && (
-                <>depots: {p.declaredDepotCount} · </>
-              )}
-              {p.declaredFleetSize !== null && (
-                <>fleet: {p.declaredFleetSize} · </>
-              )}
-              {p.foundedYear !== null && <>trading since {p.foundedYear}</>}
-            </p>
+            {/* 🔴 CAMP-463: РОЗДІЛЮВАЧ СТОЇТЬ МІЖ ЗНАЧЕННЯМИ, А НЕ ПІСЛЯ КОЖНОГО.
+                Раніше кожен рядок мав свою « · » у кінці, і коли не було
+                року заснування, останній рядок закінчувався «fleet: 3 ·»
+                — крапка є, значення немає. Тепер частини збираються в
+                перелік і зʼєднуються тим, що справді є. */}
+            {scaleParts(p).length > 0 && (
+              <p className="mt-2 text-sm" data-testid="declared-scale">
+                {scaleParts(p).join(" · ")}
+              </p>
+            )}
             {p.sourceUrl && (
               <p className="mt-1 text-xs">
                 Source:{" "}
@@ -300,10 +308,16 @@ export default async function ProviderPageView({
                 >
                   {p.sourceUrl.replace(/^https:\/\//, "")}
                 </a>
-                {p.sourceCheckedOn && <> · checked {p.sourceCheckedOn}</>}
+                {p.sourceCheckedOn && (
+                  <>
+                    {" "}
+                    · checked <Day value={p.sourceCheckedOn} />
+                  </>
+                )}
               </p>
             )}
           </section>
+          )}
 
           {p.reviewProfiles.length > 0 && (
             <section className="mt-6">

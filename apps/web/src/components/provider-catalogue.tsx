@@ -11,6 +11,7 @@ import {
   countriesOf,
   filtersFromQuery,
   hiddenByUnknownType,
+  scaleParts,
   serviceCodesOf,
   serviceLabel,
   type CamperType,
@@ -237,14 +238,11 @@ export default function ProviderCatalogue({
                 </Link>
               </h3>
               <p className="mt-1 text-sm">
-                {p.homeCountry}
-                {p.declaredDepotCount !== null && (
-                  <> · depots: {p.declaredDepotCount} (company’s own figure)</>
-                )}
-                {p.declaredFleetSize !== null && (
-                  <> · fleet: {p.declaredFleetSize} (company’s own figure)</>
-                )}
-                {p.foundedYear !== null && <> · since {p.foundedYear}</>}
+                {/* 🔴 CAMP-463: «(company’s own figure)» ПІСЛЯ КОЖНОГО ЧИСЛА
+                    БУЛО ДВІЧІ НА РЯДОК ×10 КОМПАНІЙ; те саме, один раз, вже
+                    сказано над каталогом («what each company states about
+                    itself») і на сторінці компанії з джерелом і датою. */}
+                {[p.homeCountry, ...scaleParts(p)].join(" · ")}
               </p>
               <p className="mt-1 text-sm">
                 services listed: {p.serviceCount} · models: {p.vehicleCount}

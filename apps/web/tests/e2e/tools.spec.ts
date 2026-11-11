@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "./api-request";
 import { visibleText } from "../unit/rendered-text";
+import { scanPage } from "../../../../scripts/ci/disclosure-rules.mjs";
 
 // 🔴 ТОЙ САМИЙ ВИДОБУВАЧ ТЕКСТУ, ЩО Й У ЮНІТІ — І ЦЕ НЕ ЗРУЧНІСТЬ.
 //
@@ -289,9 +290,17 @@ test.describe("🔴 CAMP-365 — /tools", () => {
   test("🔴 не обіцяє інструмента, якого немає", async ({ page }) => {
     await page.goto("/tools");
     const html = await page.content();
-    expect(await page.locator("main").innerText()).toContain(
-      "comparison tool was planned",
-    );
+    // CAMP-463: раніше тут вимагалося, щоб сторінка ПРОГОВОРИЛАСЬ про
+    // плани («comparison tool was planned»). Це і є заборонений клас
+    // формулювань, тож перевірка перевернута: перелік береться з
+    // `scripts/ci/disclosure-rules.mjs`, власної копії тут немає.
+    const hits = scanPage("/tools", html);
+    expect(
+      hits,
+      `/tools розповідає про нашу кухню: ${hits
+        .map((h) => `${h.id} «${h.phrase}»`)
+        .join(", ")}`,
+    ).toEqual([]);
     expect(html).not.toMatch(/href="\/tools\/(camper-)?compar/);
   });
 
