@@ -91,6 +91,29 @@ import { ButtonLink } from "./button";
  * HTML, а не з константи. Ця сама механіка — у `ticker.tsx`.
  */
 
+/**
+ * 🔴 ЗАПАСНИЙ ШЛЯХ ПІСЛЯ РЕНДЕРУ (CAMP-469). Сторінка статична: коли файл
+ * переднього фото зникає вже ПІСЛЯ збірки (Directus упав, файл замінили на
+ * не-зображення), `<img>` дає битий значок на самому верху сторінки, а
+ * перерендерити її нікому. Цей сценарій ховає рамку фото, і банер стає
+ * таким, яким був без нього.
+ *
+ * Слухач стоїть на документі у фазі захоплення й ставиться ДО `<img>`,
+ * бо подія `error` не спливає, а помилка може статись раніше за гідратацію.
+ * Рамку ХОВАЄМО (`display:none`), а не видаляємо з DOM: видалений React-ом
+ * вузол ламає гідратацію й наступні оновлення. Подія могла статися до
+ * слухача (картинка з кешу), тому на `DOMContentLoaded` ще й перевіряємо
+ * `complete && naturalWidth === 0`. Лише для зображень цього банера.
+ * Вбудований скрипт CSP дозволяє (`script-src 'self' 'unsafe-inline'`).
+ */
+export const FOREGROUND_ERROR_GUARD =
+  "(function(){function hide(i){var m=i.closest('.ct-banner__media');if(m)m.style.display='none'}" +
+  "document.addEventListener('error',function(e){var t=e.target;" +
+  "if(t&&t.tagName==='IMG'&&t.classList.contains('ct-banner__media-img'))hide(t)},true);" +
+  "document.addEventListener('DOMContentLoaded',function(){" +
+  "var l=document.querySelectorAll('img.ct-banner__media-img');" +
+  "for(var k=0;k<l.length;k++){if(l[k].complete&&l[k].naturalWidth===0)hide(l[k])}})})()";
+
 export interface LayeredBannerProps {
   /** Шар 1: фонове фото. `alt` порожній, коли фото суто декоративне. */
   background: { src: string; alt?: string };
@@ -206,6 +229,9 @@ export function LayeredBanner({
           </div>
           {foreground ? (
             <div className="ct-banner__media">
+              <script
+                dangerouslySetInnerHTML={{ __html: FOREGROUND_ERROR_GUARD }}
+              />
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 className="ct-banner__media-img"

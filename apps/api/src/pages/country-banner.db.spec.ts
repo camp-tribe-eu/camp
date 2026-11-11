@@ -111,6 +111,15 @@ describe('CAMP-469: банер країни', () => {
     expect(await pages.campingCountryBanner('zz', 'en')).toBeNull();
   });
 
+  it('🔴 заповнений слот видно перевірці «всі порожні» — вона не сліпа', async () => {
+    await set('fr', '/banners/camp469-test.jpg', 'x');
+    const filled = (await qr.query(
+      `SELECT p.slug FROM pages p
+        WHERE p.type = 'camping-country' AND p.banner_image_url IS NOT NULL`,
+    )) as Array<{ slug: string }>;
+    expect(filled.map((r) => r.slug)).toEqual(['fr']);
+  });
+
   it('🔴 слотів рівно стільки, скільки держав ЄС-27, і всі порожні на свіжій базі', async () => {
     const members = Object.keys(
       JSON.parse(
@@ -125,5 +134,16 @@ describe('CAMP-469: банер країни', () => {
     )) as Array<{ slug: string }>;
     expect(rows.map((r) => r.slug)).toEqual(members);
     expect(members).toHaveLength(27);
+    // 🔴 «Усі порожні» — це ЗНАЧЕННЯ полів, а не лише наявність рядків: тест із
+    // назвою про порожнечу, що дивиться тільки на слаги, лишався зеленим, коли
+    // слот `fr` заповнювали. (На базі, де власник уже щось поставив, тест
+    // червоніє свідомо: він про свіжу, щойно змігровану базу.)
+    const filled = (await qr.query(
+      `SELECT p.slug FROM pages p
+         LEFT JOIN page_translations t ON t.page_id = p.id
+        WHERE p.type = 'camping-country'
+          AND (p.banner_image_url IS NOT NULL OR t.banner_image_alt IS NOT NULL)`,
+    )) as Array<{ slug: string }>;
+    expect(filled.map((r) => r.slug)).toEqual([]);
   });
 });

@@ -1,5 +1,5 @@
-import { fetchBannerFile } from '@/lib/cms-file';
-import { getRawBanner } from '@/lib/country-banner';
+import { getVerifiedFile } from '@/lib/cms-file';
+import { getRawBannerMemo } from '@/lib/country-banner';
 
 // CAMP-469 — власне зображення банера країни з Directus, з нашого origin.
 //
@@ -26,29 +26,40 @@ const notFound = () =>
   new Response('Not found', { status: 404, headers: NOT_FOUND_HEADERS });
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ code: string }> },
 ): Promise<Response> {
   const { code } = await params;
+  // До будь-якого походу в API: сміттєвий код не коштує нічого.
   if (!/^[a-z]{2}$/i.test(code)) return notFound();
 
-  const banner = await getRawBanner(code);
+  const banner = await getRawBannerMemo(code);
   // Шлях із `public/` віддає статика, цей маршрут про файли Directus.
   if (!banner || banner.source.kind !== 'file') return notFound();
 
-  const file = await fetchBannerFile(banner.source.id);
+  // З кешу на origin: годину свіжий, добу придатний, якщо Directus мовчить.
+  const file = await getVerifiedFile(banner.source.id);
   if (!file) return notFound();
+
+  const cacheControl =
+    'public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800';
+  if (request.headers.get('if-none-match') === file.etag) {
+    return new Response(null, {
+      status: 304,
+      headers: { etag: file.etag, 'cache-control': cacheControl },
+    });
+  }
 
   return new Response(file.bytes as BodyInit, {
     status: 200,
     headers: {
       'content-type': file.type,
       'content-length': String(file.bytes.length),
+      etag: file.etag,
       'x-content-type-options': 'nosniff',
       // Зображення не виконує нічого, навіть відкрите напряму.
       'content-security-policy': "default-src 'none'; sandbox",
-      'cache-control':
-        'public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800',
+      'cache-control': cacheControl,
     },
   });
 }

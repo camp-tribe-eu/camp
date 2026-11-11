@@ -2,6 +2,7 @@ import { apiFetch } from './api';
 import { isInternalHref } from './rich-text';
 import {
   bannerFileUsable,
+  nowMs,
   parseBannerSource,
   type BannerSource,
 } from './cms-file';
@@ -96,4 +97,38 @@ export async function getCountryBanner(
   } catch {
     return null;
   }
+}
+
+// ── Для маршруту: коротка пам'ять про поле банера ────────────────────────
+//
+// 🔴 `getRawBanner` кешується Next на добу, але 404 («поля немає») Next не
+// кешує, тож кожен запит на будь-який двобуквений код ішов у базу. Тут і
+// відповідь, і її відсутність живуть хвилину; ключів не більше 26×26, бо код
+// перевірено до виклику, а одночасні запити діляться одним походом.
+
+const RAW_TTL_MS = 60 * 1000;
+const rawMemo = new Map<string, { at: number; value: RawBanner }>();
+const rawInflight = new Map<string, Promise<RawBanner>>();
+
+export const rawBannerTestHooks = {
+  reset: () => {
+    rawMemo.clear();
+    rawInflight.clear();
+  },
+};
+
+export async function getRawBannerMemo(code: string): Promise<RawBanner> {
+  const key = code.toLowerCase();
+  const hit = rawMemo.get(key);
+  if (hit && nowMs() - hit.at < RAW_TTL_MS) return hit.value;
+  const running = rawInflight.get(key);
+  if (running) return running;
+  const p = getRawBanner(key)
+    .then((value) => {
+      rawMemo.set(key, { at: nowMs(), value });
+      return value;
+    })
+    .finally(() => rawInflight.delete(key));
+  rawInflight.set(key, p);
+  return p;
 }

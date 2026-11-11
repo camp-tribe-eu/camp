@@ -40,12 +40,69 @@ function resolveImport(from: string, spec: string): string | null {
   return null;
 }
 
+/**
+ * 🔴 Директива `'use client'` — це ПРОЛОГ файла: після пробілів і коментарів
+ * довільної довжини, до першого оператора. Раніше дивились на перші 400
+ * знаків, і клієнтський файл із довшою шапкою проходив як серверний.
+ */
+export function isClientSource(src: string): boolean {
+  let i = 0;
+  for (;;) {
+    while (i < src.length && /\s/.test(src[i])) i++;
+    if (src.startsWith('//', i)) {
+      const nl = src.indexOf('\n', i);
+      i = nl === -1 ? src.length : nl + 1;
+    } else if (src.startsWith('/*', i)) {
+      const end = src.indexOf('*/', i + 2);
+      if (end === -1) return false;
+      i = end + 2;
+    } else break;
+  }
+  return /^(['"])use client\1/.test(src.slice(i));
+}
+
+/** Усі способи підтягнути модуль: import, export from, import(), require(). */
+export function importSpecs(src: string): string[] {
+  const re =
+    /(?:import|export)\s[^'"]*?from\s*['"]([^'"]+)['"]|import\s*['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)|require\(\s*['"]([^'"]+)['"]\s*\)/g;
+  return [...src.matchAll(re)].map((m) => m[1] ?? m[2] ?? m[3] ?? m[4]);
+}
+
 const importsOf = (f: string): string[] =>
-  [...read(f).matchAll(/(?:import|export)\s[^'"]*?from\s*['"]([^'"]+)['"]|import\s*['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/g)]
-    .map((m) => resolveImport(f, m[1] ?? m[2] ?? m[3]))
+  importSpecs(read(f))
+    .map((spec) => resolveImport(f, spec))
     .filter((x): x is string => x !== null);
 
-const isClient = (f: string) => /^\s*(['"])use client\1/m.test(read(f).slice(0, 400));
+const isClient = (f: string) => isClientSource(read(f));
+
+test('🔴 сторож бачить клієнтський файл за будь-якої довжини шапки', () => {
+  const long = `/* ${'x'.repeat(2000)} */\n// ще рядок\n`;
+  expect(isClientSource(`'use client';\nimport a from 'b';`)).toBe(true);
+  expect(isClientSource(`${long}"use client"\nimport a from 'b';`)).toBe(true);
+  // Не клієнтські: директива не в прологу, або лише згадана.
+  expect(isClientSource(`import a from 'b';\n'use client';`)).toBe(false);
+  expect(isClientSource(`// 'use client'\nexport const x = 1;`)).toBe(false);
+  expect(isClientSource(`export const x = 'use client';`)).toBe(false);
+});
+
+test('🔴 сторож бачить усі форми підключення модуля', () => {
+  const src = [
+    `import a from '@/lib/one';`,
+    `import '@/lib/two';`,
+    `export * from '@/lib/three';`,
+    `export { x } from "@/lib/four";`,
+    `const m = await import('@/lib/five');`,
+    `const r = require("@/lib/six");`,
+  ].join('\n');
+  expect(importSpecs(src)).toEqual([
+    '@/lib/one',
+    '@/lib/two',
+    '@/lib/three',
+    '@/lib/four',
+    '@/lib/five',
+    '@/lib/six',
+  ]);
+});
 
 test('🔴 єдине місце, де читається токен — lib/cms-file.ts', () => {
   const holders = FILES.filter((f) => read(f).includes(NAME)).map((f) => f.slice(SRC.length + 1));

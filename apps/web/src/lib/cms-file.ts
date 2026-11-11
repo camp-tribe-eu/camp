@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 /**
  * Файл із Directus, відданий читачеві з НАШОГО origin — CAMP-469.
  *
@@ -27,7 +29,11 @@
  * файл завеликий — сторінка тоді показує запасний банер.
  */
 export const MAX_BYTES = 4 * 1024 * 1024;
-const TIMEOUT_MS = 5000;
+const DEFAULT_TIMEOUT_MS = 5000;
+
+/** Скільки чекаємо на Directus; змінною лише щоб тест не чекав п'ять секунд. */
+const timeoutMs = (): number =>
+  Number(process.env.CMS_FETCH_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS;
 
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const BARE_ID = new RegExp(`^${UUID}$`, 'i');
@@ -94,7 +100,8 @@ async function cms(path: string, revalidate?: number): Promise<Response | null> 
   try {
     const res = await fetch(`${c.base}${path}`, {
       headers: { authorization: `Bearer ${c.token}` },
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      // Таймаут охоплює й читання тіла, а не лише заголовки.
+      signal: AbortSignal.timeout(timeoutMs()),
       ...(revalidate === undefined ? {} : { next: { revalidate } }),
     });
     return res.ok ? res : null;
@@ -104,10 +111,11 @@ async function cms(path: string, revalidate?: number): Promise<Response | null> 
 }
 
 /**
- * Дешева перевірка на РЕНДЕРІ сторінки: файл є, це дозволений тип і він не
- * завеликий. Ґрунтується на метаданих Directus, без завантаження байтів.
+ * Дешева перевірка до завантаження: файл є, це дозволений тип і він не
+ * завеликий. Ґрунтується на метаданих Directus, без байтів. Відсіює 2-ГБ
+ * файл ще до того, як ми його почнемо читати.
  */
-export async function bannerFileUsable(id: string): Promise<boolean> {
+async function bannerFileMetaOk(id: string): Promise<boolean> {
   if (!BARE_ID.test(id)) return false;
   const res = await cms(`/files/${id}?fields=type,filesize`, 3600);
   if (!res) return false;
@@ -128,22 +136,140 @@ export async function bannerFileUsable(id: string): Promise<boolean> {
   }
 }
 
-/** Байти файла й тип за вмістом, або `null`. */
-export async function fetchBannerFile(
-  id: string,
-): Promise<{ bytes: Uint8Array; type: string } | null> {
-  if (!BARE_ID.test(id)) return null;
-  const res = await cms(`/assets/${id}`);
-  if (!res) return null;
+/**
+ * 🔴 ЧИТАННЯ ПОТОКОМ З ОБРИВОМ. `arrayBuffer()` буферизує все тіло, і лише
+ * потім можна зміряти довжину: заглушка без `Content-Length` віддала 2 ГБ за
+ * 5 с і підняла пам'ять процесу на 1,1 ГБ, а це публічний маршрут. Тут
+ * читаємо чанками й скасовуємо потік, щойно набралось більше за ліміт.
+ */
+async function readCapped(res: Response): Promise<Uint8Array | null> {
   const declared = Number(res.headers.get('content-length'));
-  if (Number.isFinite(declared) && declared > MAX_BYTES) return null;
+  const reader = res.body?.getReader();
+  if (!reader) return null;
+  if (Number.isFinite(declared) && declared > MAX_BYTES) {
+    await reader.cancel().catch(() => undefined);
+    return null;
+  }
+  const chunks: Uint8Array[] = [];
+  let total = 0;
   try {
-    const bytes = new Uint8Array(await res.arrayBuffer());
-    // Довжини заголовка вірити не можна: міряємо те, що прийшло.
-    if (bytes.length === 0 || bytes.length > MAX_BYTES) return null;
-    const type = sniffImage(bytes);
-    return type ? { bytes, type } : null;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.length;
+      if (total > MAX_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        return null;
+      }
+      chunks.push(value);
+    }
   } catch {
     return null;
   }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.length;
+  }
+  return out;
+}
+
+export interface VerifiedFile {
+  bytes: Uint8Array;
+  type: string;
+  etag: string;
+}
+
+/** Байти файла, тип за вмістом і ETag, або `null`. Без кешу. */
+export async function fetchBannerFile(id: string): Promise<VerifiedFile | null> {
+  if (!BARE_ID.test(id)) return null;
+  const res = await cms(`/assets/${id}`);
+  if (!res) return null;
+  const bytes = await readCapped(res);
+  if (!bytes || bytes.length === 0) return null;
+  const type = sniffImage(bytes);
+  if (!type) return null;
+  const etag = `"${createHash('sha1').update(bytes).digest('hex').slice(0, 24)}"`;
+  return { bytes, type, etag };
+}
+
+// ── Кеш на origin ────────────────────────────────────────────────────────
+//
+// 🔴 БЕЗ НЬОГО КОЖЕН ЗАПИТ ХОДИВ У DIRECTUS ПО 4 МБ (заміряно: 60 паралельних
+// запитів дали 60 походів). Ключ — id файла з ПОЛЯ БАНЕРА, а не що-небудь із
+// запиту: `?f=0..59` ключів не множить. Тримаємо не більше восьми файлів,
+// одночасні запити на той самий id діляться одним походом, відмова
+// запам'ятовується на хвилину, а застарілий файл віддається ще добу, якщо
+// Directus не відповів на оновлення.
+
+const FRESH_MS = 60 * 60 * 1000;
+const STALE_MS = 24 * 60 * 60 * 1000;
+const RETRY_MS = 60 * 1000;
+const MAX_ENTRIES = 8;
+
+interface Entry {
+  at: number;
+  value: VerifiedFile | null;
+  retryAt: number;
+}
+
+let clock: () => number = () => Date.now();
+const files = new Map<string, Entry>();
+const inflight = new Map<string, Promise<VerifiedFile | null>>();
+
+/** Для тестів: годинник і порожній кеш. */
+export const testHooks = {
+  setClock: (f: () => number) => {
+    clock = f;
+  },
+  reset: () => {
+    clock = () => Date.now();
+    files.clear();
+    inflight.clear();
+  },
+};
+
+export const nowMs = (): number => clock();
+
+export async function getVerifiedFile(id: string): Promise<VerifiedFile | null> {
+  const now = clock();
+  const e = files.get(id);
+  if (e && ((e.value && now - e.at < FRESH_MS) || now < e.retryAt)) {
+    return e.value;
+  }
+  const running = inflight.get(id);
+  if (running) return running;
+
+  const p = (async () => {
+    const fresh = await fetchBannerFile(id);
+    const t = clock();
+    if (fresh) {
+      files.set(id, { at: t, value: fresh, retryAt: 0 });
+    } else {
+      const keep = e?.value && t - e.at < STALE_MS ? e : null;
+      files.set(id, {
+        at: keep ? keep.at : t,
+        value: keep ? keep.value : null,
+        retryAt: t + RETRY_MS,
+      });
+    }
+    while (files.size > MAX_ENTRIES) {
+      files.delete(files.keys().next().value as string);
+    }
+    return files.get(id)!.value;
+  })().finally(() => inflight.delete(id));
+  inflight.set(id, p);
+  return p;
+}
+
+/**
+ * Для РЕНДЕРУ сторінки: чи справді читач дістане цей файл. Метадані
+ * Directus кажуть, чим файл ЗВЕТЬСЯ (SVG під іменем `.png`, HEIC із типом
+ * `image/jpeg` проходили), тому остаточно судять байти — ті самі, що віддасть
+ * маршрут, з того самого кешу.
+ */
+export async function bannerFileUsable(id: string): Promise<boolean> {
+  if (!(await bannerFileMetaOk(id))) return false;
+  return (await getVerifiedFile(id)) !== null;
 }
