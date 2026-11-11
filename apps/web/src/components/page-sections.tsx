@@ -313,7 +313,7 @@ function Cards({ section, values, compact }: RenderProps) {
       {items.map((t) => (
         <li
           key={t.href}
-          className="flex gap-4 rounded-card border border-line-2 bg-surface p-5"
+          className={`flex gap-4 rounded-card border border-line-2 bg-surface ${compact ? "p-4" : "p-5"}`}
         >
           {!compact && CARD_ICONS[t.href] && (
             <span className="shrink-0 text-heading" aria-hidden="true">
@@ -321,7 +321,7 @@ function Cards({ section, values, compact }: RenderProps) {
             </span>
           )}
           <div className="min-w-0">
-          <h2 className="text-xl">
+          <h2 className={compact ? "text-lg" : "text-xl"}>
             <Link className="text-heading underline" href={t.href}>
               {t.title}
             </Link>
