@@ -100,13 +100,12 @@ test('🔴 один зіпсований запис — один банер бе
   }
 });
 
-test('зображення без опису — декоративне, а не з вигаданим описом', () => {
-  expect(readCountryBanner({ src: '/banners/a.jpg' })).toEqual({
+test('зображення без опису — декоративне, а не з вигаданим описом', async () => {
+  expect(await readCountryBanner('si', { src: '/banners/a.jpg' })).toEqual({
     src: '/banners/a.jpg',
     alt: '',
   });
-  expect(readCountryBanner({ src: ' /banners/a.jpg ', alt: ' ok ' })).toEqual({
-    src: '/banners/a.jpg',
-    alt: 'ok',
-  });
+  expect(
+    await readCountryBanner('si', { src: ' /banners/a.jpg ', alt: ' ok ' }),
+  ).toEqual({ src: '/banners/a.jpg', alt: 'ok' });
 });
