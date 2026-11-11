@@ -47,7 +47,8 @@ test.describe("секції головної", () => {
 
   const full = () => [
     s("hero"), s("steps"),
-    s("prose", "stay"), s("prose", "drive"), s("prose", "notable"),
+    s("prose", "stay"), s("prose", "drive"), s("cards", "drive-links"),
+    s("prose", "notable"),
   ];
 
   test("усі на місці — скаржитись нема на що", () => {

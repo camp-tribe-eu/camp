@@ -56,7 +56,12 @@ import type { ReactNode } from "react";
  * надрукує «{{lead}}» читачеві — вона завалить збірку.
  */
 type Values = Readonly<Record<string, string>>;
-type RenderProps = { section: SectionView; values: Values };
+type RenderProps = {
+  section: SectionView;
+  values: Values;
+  /** Секція стоїть у вузькій коробці макета: без значків, три колонки на xl. */
+  compact?: boolean;
+};
 
 /**
  * 🔴 ШИРИНА НАЗВАНА В КОЖНОМУ ВАРІАНТІ, І ТИП ЦЬОГО ВИМАГАЄ (CAMP-447).
@@ -295,22 +300,28 @@ const CARD_ICONS: Record<string, ReactNode> = {
   ),
 };
 
-function Cards({ section, values }: RenderProps) {
+function Cards({ section, values, compact }: RenderProps) {
   const items = cardsOf(section.items, "секції cards", values);
   return (
-    <ul className="mt-8 grid gap-6 md:grid-cols-2">
+    <ul
+      className={
+        compact
+          ? "mt-6 grid gap-4 xl:grid-cols-3"
+          : "mt-8 grid gap-6 md:grid-cols-2"
+      }
+    >
       {items.map((t) => (
         <li
           key={t.href}
-          className="flex gap-4 rounded-card border border-line-2 bg-surface p-5"
+          className={`flex gap-4 rounded-card border border-line-2 bg-surface ${compact ? "p-4" : "p-5"}`}
         >
-          {CARD_ICONS[t.href] && (
+          {!compact && CARD_ICONS[t.href] && (
             <span className="shrink-0 text-heading" aria-hidden="true">
               {CARD_ICONS[t.href]}
             </span>
           )}
           <div className="min-w-0">
-          <h2 className="text-xl">
+          <h2 className={compact ? "text-lg" : "text-xl"}>
             <Link className="text-heading underline" href={t.href}>
               {t.title}
             </Link>
@@ -605,16 +616,18 @@ export function assertAllSectionsUsed(
 export function PageSections({
   sections,
   values,
+  compact,
 }: {
   sections: SectionView[];
   values?: Values;
+  compact?: boolean;
 }) {
   const all: Values = values ? { ...PAGE_VALUES, ...values } : PAGE_VALUES;
   return (
     <>
       {sections.map((s, i) => {
         const Render = RENDERERS[s.type as SectionType];
-        if (Render) return <Render key={i} section={s} values={all} />;
+        if (Render) return <Render key={i} section={s} values={all} compact={compact} />;
         throw new Error(
           `page-sections: невідомий тип секції «${s.type}». Відомі: ` +
             `${SECTION_TYPES.join(", ")}. Тип у базі зʼявився без рендера — ` +

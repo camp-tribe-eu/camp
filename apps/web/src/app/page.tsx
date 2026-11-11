@@ -164,7 +164,8 @@ export default async function Home() {
   // слотом, а не типом: `prose` їх три, і типом вони не розрізняються.
   const stay = sectionBySlot(page.sections, HOME_SLOTS[0]);
   const drive = sectionBySlot(page.sections, HOME_SLOTS[1]);
-  const notableText = sectionBySlot(page.sections, HOME_SLOTS[2]);
+  const driveLinks = sectionBySlot(page.sections, HOME_SLOTS[2]);
+  const notableText = sectionBySlot(page.sections, HOME_SLOTS[3]);
 
   return (
     <main>
@@ -193,6 +194,7 @@ export default async function Home() {
       <Hero
         stay={stay}
         drive={drive}
+        driveLinks={driveLinks}
         section={findSection(page.sections, HOME_SECTIONS[0])}
         values={values}
         countries={countries}
@@ -208,12 +210,14 @@ function Hero({
   section,
   stay,
   drive,
+  driveLinks,
   values,
   countries,
 }: {
   section: SectionView | null;
   stay: SectionView | null;
   drive: SectionView | null;
+  driveLinks: SectionView | null;
   values: Readonly<Record<string, string>>;
   countries: Awaited<ReturnType<typeof getCountries>>;
 }) {
@@ -226,13 +230,13 @@ function Hero({
         {/* 🔴 The two funnels as separate cards, not tabs. A tab hides one
             of them behind a click, and the mock-up's own note (CAMP-81) is
             that an inactive tab is not an entrance. */}
-        <div className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="mt-8 grid grid-cols-1 items-start gap-4 md:grid-cols-2">
           <div className="rounded-card border border-line-2 bg-bg p-5">
             {/* 🔴 ТЕКСТ ІЗ CMS, ПЕРЕЛІК КРАЇН — НІ. Якщо власник прибрав
                 секцію, зникає підпис, а не навігація: посилання на країни
                 це дані, а не контент (CAMP-365 п.4). */}
             {stay?.heading && (
-              <h2 className="text-base">{stay.heading}</h2>
+              <h2 className="text-xl md:text-[25px]">{stay.heading}</h2>
             )}
             {stay?.body && <p className="mt-1 text-sm text-ink-2">{stay.body}</p>}
             <ul className="mt-4 flex flex-wrap gap-x-2 gap-y-3">
@@ -258,11 +262,17 @@ function Hero({
               inventing a rental listing would misrepresent what it has. */}
           <div className="rounded-card border border-dashed border-line bg-transparent p-5">
             {drive?.heading && (
-              <h2 className="text-base">{drive.heading}</h2>
+              <h2 className="text-xl md:text-[25px]">{drive.heading}</h2>
             )}
             {drive?.body && (
               <Block as="p" measure="read" className="mt-1 text-sm text-ink-2">{drive.body}</Block>
             )}
+            {/* 🔴 CAMP-488: абзац вище обіцяє три відповіді — посвідчення,
+                вага спорядженого авто, чи влізе воно в кемпінг. Доти тут
+                не стояло нічого, і коробка лишалась порожньою на
+                пів-екрана. Картки ведуть на НАШІ сторінки, де ці
+                відповіді є; жодного орендодавця вони не вигадують. */}
+            {driveLinks && <PageSections sections={[driveLinks]} compact />}
           </div>
         </div>
       </div>
