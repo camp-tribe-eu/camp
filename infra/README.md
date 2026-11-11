@@ -40,6 +40,10 @@ status=200/CHDIR
 | `systemd/camptribe-retention.timer` | 04:00 UTC, `Persistent=true` — після бекапу 03:30, тож видалене лежить у зрізі ще 14 діб |
 | `systemd/camptribe-osm-import.service` | 🔴 вівторок 04:30 UTC: `import-release.mjs --max-age-days 9` (останній реліз `osm-weekly` → `camping_spots`). `spot_links` тут немає навмисно — це вирок людини |
 | `systemd/camptribe-osm-import.timer` | вівторок 04:30 UTC, `Persistent=true` (понеділкове будування екстрактів + доба запасу) |
+| `systemd/camptribe-elevation.service` | 🔴 щодня: `scripts/elevation/refill.sh` добирає висоту ЛИШЕ рядкам, де її немає; смуги DEM тягне з відра сама, дзеркало `tools/dem` не читає (CAMP-493) |
+| `systemd/camptribe-elevation.timer` | 05:15 UTC щодня, `Persistent=true`; нема чого добирати — виходить за секунду |
+| `systemd/camptribe-elevation-check.service` | 🔴 сторож по БАЗІ: `check-elevation-coverage.mjs --db`, норма «0 із <живих>», інакше червоне з числом і знаменником |
+| `systemd/camptribe-elevation-check.timer` | 06:15 UTC щодня, після заповнювача |
 | `systemd/camptribe-route-poi-import.service` | 🔴 вівторок 05:30 UTC: `import-route-poi.mjs --max-age-days 9` (той самий реліз `osm-weekly` → `osm_route_poi`; CAMP-113, рішення 28.10.2026). Усі країни релізу — в одну `osm_route_poi_staging`, лоадер один раз; невидані рядки видаляються лише в країнах, чий файл приїхав |
 | `systemd/camptribe-route-poi-import.timer` | вівторок 05:30 UTC, `Persistent=true` — через годину після імпорту кемпінгів (одне ядро Postgres), за пів години до сторожа свіжості |
 | `systemd/camptribe-fuel-prices.service` | 🔴 щодня: `import-stations.js --report` (ES/FR/IT → `fuel_station_prices`) |

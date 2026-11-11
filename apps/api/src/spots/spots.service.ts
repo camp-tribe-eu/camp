@@ -302,7 +302,8 @@ export class SpotsService {
   async nearby(slug: string, limit = 6): Promise<NearbySpot[]> {
     return this.db.query(
       `WITH me AS (SELECT location FROM camping_spots s
-                    WHERE s.slug = $1 AND ${publishedCountrySql('s')})
+                    WHERE s.slug = $1 AND ${publishedCountrySql('s')}),
+            candidates AS (
        SELECT s.slug, s.name, s.country, s.region, s.type,
               round(ST_Distance(s.location::geography,
                                 (SELECT location FROM me)::geography)) AS metres
@@ -318,8 +319,39 @@ export class SpotsService {
           -- Otherwise "nearby campsites" opens with the same campsite the
           -- reader is already looking at, 49 m away under another name.
           AND ${notSecondarySql('s')}
+        -- 🔴 ДВА КРОКИ, І ДРУГИЙ Є ПРИЧИНОЮ ЦІЄЇ ПРАВКИ.
+        --
+        -- «<->» на geometry міряє ПЛАНАРНУ відстань у ГРАДУСАХ, а число,
+        -- яке читач бачить поруч із назвою, рахує «ST_Distance(::geography)»
+        -- — справжні метри. Порядок і підпис рахували різне.
+        --
+        -- Заміряно на проді 11.11.2026 для «aire-aiguillon-sur-mer-le-port»:
+        --   було:  100 → 873 → 955 → 957 → 969 → 900
+        --   стало: 100 → 873 → 900 → 955 → 957 → 969
+        -- Власник побачив саме це в ревʼю: «969 m стоїть перед 900 m».
+        --
+        -- Арифметика, а не випадковість: на 46° пн. ш. градус довготи ≈ 77 км,
+        -- широти ≈ 111 км. Сусід за 900 м НА СХІД дає більшу відстань у
+        -- градусах, ніж сусід за 969 м НА ПІВНІЧ, і планарний порядок
+        -- ставить його останнім.
+        --
+        -- 🔴 ЧОМУ НЕ ПРОСТО «ORDER BY ST_Distance(::geography)». Індекс на
+        -- «location» — звичайний gist по geometry; географічне сортування
+        -- його не вживає, і запит пішов би по всій таблиці (63 307 рядків).
+        -- Тому «<->» лишається, але лише щоб ІНДЕКСОМ набрати кандидатів,
+        -- а остаточний порядок дають метри.
+        --
+        -- Запас у п'ять разів — не з ока: найгірше спотворення планарної
+        -- метрики в ЄС-27 на 60° пн. ш. (північ Швеції й Фінляндії) — це
+        -- cos(60°) = 0.5, тобто вдвічі. П'ятикратний набір покриває його
+        -- із запасом і коштує читання 30 рядків замість 6.
         ORDER BY s.location <-> (SELECT location FROM me)
-        LIMIT $2`,
+        LIMIT $2 * 5
+     )
+     SELECT slug, name, country, region, type, metres
+       FROM candidates
+      ORDER BY metres
+      LIMIT $2`,
       [slug, limit],
     );
   }
