@@ -274,9 +274,9 @@ class RefillTests(unittest.TestCase):
         sid = self.add(45.5, 10.0)                # NaN, жодного факту про кемпінг
         self.assertTrue(self.nothing_to_say(sid), 'вихідна умова: порожня сторінка не індексується')
         self.run_main()
-        self.assertIsNotNone(self.skip(sid), 'рядок мусить бути в карантині')
         self.assertTrue(self.nothing_to_say(sid),
                         'карантин зробив порожню сторінку індексованою (правило: context = \'{}\')')
+        self.assertIsNotNone(self.skip(sid), 'і рядок справді в карантині, а не просто не торкнутий')
 
     def test_quarantine_writes_only_live_unfilled_rows_for_thirty_days(self):
         cur = self.conn.cursor()
