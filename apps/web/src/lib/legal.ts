@@ -216,7 +216,11 @@ export const LEGAL_PAGES: LegalPage[] = [
     // 1.2 (08.11.2026, CAMP-450): the country flags on /camping — the SVG
     // files of flag-icons (MIT), hosted by us, named with their copyright
     // holder. Migration 1794800000000-AttributionFlags.
-    version: '1.2',
+    // 1.3 (10.11.2026): висота більше не йде через api.open-meteo.com —
+    // ми читаємо плитки Copernicus із відкритого відра Open-Meteo на AWS
+    // і рахуємо висоту й рельєф самі (CAMP-484). Джерело й ліцензія ті
+    // самі, змінився ШЛЯХ — а сторінка атрибуції про шлях і каже.
+    version: '1.3',
     effectiveFrom: '2026-11-08',
   },
   {
