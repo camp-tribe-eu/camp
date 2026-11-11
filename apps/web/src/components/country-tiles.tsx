@@ -3,6 +3,7 @@ import Link from "next/link";
 import type { CountrySummary } from "@/lib/api";
 import { countryName } from "@/lib/api";
 import { EU_MEMBER_STATES, isEuMemberState } from "@/lib/eu-countries";
+import { isUnpublishedCountry } from "@/lib/unpublished-countries";
 import { Flag } from "./flag";
 
 /**
@@ -93,7 +94,11 @@ export function countryTiles(countries: readonly CountrySummary[]): CountryTile[
   const byName = (a: CountryTile, b: CountryTile) =>
     a.name.localeCompare(b.name, "en");
 
-  const members: CountryTile[] = EU_MEMBER_STATES.map((code) => ({
+  // CAMP-490: член Союзу, якого не показуємо, не дістає навіть порожньої
+  // плитки «ще немає» — це теж був би показ.
+  const members: CountryTile[] = EU_MEMBER_STATES.filter(
+    (code) => !isUnpublishedCountry(code),
+  ).map((code) => ({
     code,
     name: countryName(code),
     data: byCode.get(code) ?? null,

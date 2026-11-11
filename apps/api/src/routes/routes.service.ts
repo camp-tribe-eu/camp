@@ -1,3 +1,4 @@
+import { publishedCountrySql } from '../spots/unpublished-countries';
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -172,6 +173,7 @@ export class RoutesService {
              FROM camping_spots s
             WHERE s.missing_since IS NULL
               AND s.region IS NOT NULL
+              AND ${publishedCountrySql('s')}
               -- 🔴 CAMP-144, and this is the dearest place a duplicate
               -- lands. A stop offers four campsites; when two of them
               -- are one campsite under two spellings the reader gets

@@ -472,6 +472,16 @@ jobs:
         run: node scripts/ci/check-cms-hardening.mjs
       - name: The import list is the Union, and nothing else
         run: node scripts/ci/check-eu-scope.mjs
+      # 🔴 CAMP-490. Країни, яких не публікуємо, не з'являються у відповідях
+      # API. Сам сторож питає справжню базу й тому живе на машині, а не тут:
+      # база CI не має жодного рядка кемпінгу, і він завжди закінчував би
+      # виходом 2. У CI їде лише доказ, що кожна точка входу вміє його
+      # почервоніти.
+      - name: Unpublished-country guard still catches a leak in every entry point
+        run: |
+          set -o pipefail
+          node scripts/ci/check-unpublished-countries.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-unpublished-countries self-test:' >/dev/null
       # 🔴 CAMP-178. A job running a Node nobody chose is how a version
       # skew becomes permanent: `warning-geography` sat on 24 for weeks
       # because it was copied from a file that needed 24, and nothing in
