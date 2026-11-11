@@ -337,13 +337,29 @@ test.describe("🔴 the disclosure the AI Act requires", () => {
     ).toBeLessThan(bodyBox!.y);
   });
 
-  test('it names the program, not merely "a machine"', async ({
+  // 🔴 CAMP-463: ВИМОГА ЗВУЗИЛАСЬ ДО ТЕКСТУ, ЯКИЙ ПИСАЛА МОВНА МОДЕЛЬ.
+  //
+  // Раніше тест брав БУДЬ-ЯКИЙ гайд із `provenance !== "human"` і вимагав
+  // імені генератора. Під це підпадав і `data-generated` — сторінка, яку
+  // склала програма, що РАХУЄ записи в нашій базі. Її внутрішнє імʼя
+  // (`region-facts@2`) читачеві не відповідало ні на що: власник побачив
+  // його на `/guides/topic/water` і назвав внутрішньою кухнею.
+  //
+  // Ст. 50(2) AI Act вимагає позначати вміст, ЗГЕНЕРОВАНИЙ системою ШІ.
+  // Лічильник записів нею не є, тож імені моделі він не має, і назвати
+  // його означало б сказати читачеві неправду про природу тексту. Для
+  // `ai-generated` і `ai-assisted` вимога лишається й перевіряється тут.
+  test('AI-written guide names the model, not merely "a machine"', async ({
     page,
     request,
   }) => {
     const list = await guides(request);
-    const generated = list.find((g) => g.provenance !== "human" && g.generator);
-    test.skip(!generated, "no machine-made guide with a generator");
+    const generated = list.find(
+      (g) =>
+        (g.provenance === "ai-generated" || g.provenance === "ai-assisted") &&
+        g.generator,
+    );
+    test.skip(!generated, "no AI-written guide with a generator");
 
     await page.goto(`/guides/${generated!.slug}`);
     await expect(page.getByTestId("provenance")).toContainText(
@@ -378,7 +394,7 @@ test.describe("🔴 the disclosure the AI Act requires", () => {
 });
 
 test.describe("🔴 a generated page still shows gaps as gaps", () => {
-  test("it says how many campsites have nothing recorded", async ({
+  test("it says how many campsites are empty, and that a program wrote it", async ({
     page,
     request,
   }) => {
@@ -387,6 +403,16 @@ test.describe("🔴 a generated page still shows gaps as gaps", () => {
     test.skip(!g, "no data-generated guide in this build");
 
     await page.goto(`/guides/${g!.slug}`);
+    // 🔴 CAMP-463: друга половина тієї ж межі в ТОМУ САМОМУ тесті, щоб
+    // не плодити другий `test.skip` на ту саму відсутню фікстуру (бюджет
+    // пропусків e2e — `scripts/ci/check-e2e-skips.mjs`). Знявши вимогу
+    // імені генератора для `data-generated`, легко лишити сторінку, яка
+    // не каже про програму ВЗАГАЛІ — а це вже обман, незалежно від AI Act.
+    const prov = page.getByTestId("provenance");
+    await expect(prov).toContainText(/program|database|our own records/i);
+    if (g!.generator) {
+      await expect(prov).not.toContainText(g!.generator);
+    }
     const text = await page.locator("main").innerText();
     // The sentence that makes the rest trustworthy: an absence is not a
     // "no". If this ever disappears, the page has started implying

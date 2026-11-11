@@ -67,16 +67,43 @@ export function readOvernight(raw: unknown): OvernightFacts {
   return UNKNOWN_OVERNIGHT;
 }
 
-/** `osm:motorhome=yes` → who, and which tag. Null when it is not nameable. */
+/**
+ * 🔴 CAMP-463: THE TAG, IN WORDS. Читач бачив `motorhome=designated` —
+ * сирий тег OSM. Тепер він бачить речення, а тег лишається в `tag` для
+ * тих, хто його читає (тести, дані).
+ *
+ * Слів рівно стільки, скільки значень API взагалі пише в `source`
+ * (`OVERNIGHT_YES` = yes, designated; `OVERNIGHT_NO` = no, у
+ * apps/api/src/osm/tag-mapping.ts). Тег, якого ми не знаємо, дає
+ * нейтральне «tagged for motorhomes», а не вгадане значення.
+ */
+export function overnightTagPhrase(tag: string): string {
+  const m = /^motorhome=(.+)$/.exec(tag);
+  const values = m ? new Set(m[1].split(';')) : new Set<string>();
+  const yes = values.has('yes');
+  const designated = values.has('designated');
+  const no = values.has('no');
+  if (no && !yes && !designated && values.size === 1) {
+    return 'closed to motorhomes';
+  }
+  if (yes && designated && values.size === 2) {
+    return 'open to motorhomes and signposted for them';
+  }
+  if (designated && values.size === 1) return 'signposted for motorhomes';
+  if (yes && values.size === 1) return 'open to motorhomes';
+  return 'tagged for motorhomes';
+}
+
+/** `osm:motorhome=yes` → who, which tag, and the tag in words. Null when it is not nameable. */
 export function describeOvernightSource(
   source: string,
-): { name: string; url: string; tag: string } | null {
+): { name: string; url: string; tag: string; phrase: string } | null {
   const at = source.indexOf(':');
   if (at <= 0) return null;
   const known = OVERNIGHT_SOURCES[source.slice(0, at)];
   const tag = source.slice(at + 1);
   if (!known || tag === '' || /\s/.test(tag)) return null;
-  return { ...known, tag };
+  return { ...known, tag, phrase: overnightTagPhrase(tag) };
 }
 
 /** `2026-10-12` → "12 October 2026", in UTC so no time zone moves the day. */

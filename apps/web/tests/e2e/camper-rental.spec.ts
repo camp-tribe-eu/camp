@@ -63,29 +63,27 @@ import { inProse } from "../../src/lib/rental";
 // are the failures that would cost the most and would look like nothing.
 
 test.describe("the rental hub", () => {
-  test("leads with what it is, and says it has no prices", async ({ page }) => {
+  test("leads with what it is, not with what it lacks", async ({ page }) => {
     await page.goto("/camper-rental");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(
       "Renting a camper in the EU",
     );
     await expect(
-      page.getByText("There are no prices and no vehicles here."),
+      page.getByText("Every number on these pages is either a count"),
     ).toBeVisible();
+    await expect(page.getByText("no prices and no vehicles")).toHaveCount(0);
     await expect(page.getByTestId("rental-thresholds")).toBeVisible();
     await expect(page.getByTestId("rental-checklist")).toBeVisible();
   });
 
-  test("discloses how it is funded, above the fold rather than in the footer", async ({
+  test("says nothing about how it is funded while it has no commission link", async ({
     page,
   }) => {
+    // 🔴 CAMP-463. Розкриття звʼязку стоїть ТАМ, ДЕ ВІН Є (UCPD ст. 7(2));
+    // коли посилань немає, розкривати нічого, і блок не малюється.
     await page.goto("/camper-rental");
-    const disclosure = page.getByTestId("rental-disclosure");
-    await expect(disclosure).toBeVisible();
-    // 🔴 Proximity, not existence. The disclosure has to sit above the
-    // commercial slot it qualifies — a reader decides before they scroll.
-    const disclosureBox = await disclosure.boundingBox();
-    const slotBox = await page.getByTestId("rental-offer-slot").boundingBox();
-    expect(disclosureBox!.y).toBeLessThan(slotBox!.y);
+    await expect(page.getByTestId("rental-disclosure")).toHaveCount(0);
+    await expect(page.getByTestId("rental-offer-slot")).toHaveCount(0);
   });
 
   test("links to exactly the countries that have a page", async ({ page }) => {
@@ -164,16 +162,12 @@ test.describe("a country page", () => {
 });
 
 test.describe("the commercial slot, while there is no partner", () => {
-  test("is visible, empty and explained rather than hidden", async ({
+  test("is not drawn at all, and the page does not explain its absence", async ({
     page,
   }) => {
     await page.goto("/camper-rental/fr");
-    const slot = page.getByTestId("rental-offer-slot");
-    await expect(slot).toBeVisible();
-    await expect(slot).toHaveAttribute("data-state", "empty");
-    await expect(
-      slot.getByText("We have no rental partner for France"),
-    ).toBeVisible();
+    await expect(page.getByTestId("rental-offer-slot")).toHaveCount(0);
+    await expect(page.getByText("no rental partner")).toHaveCount(0);
   });
 
   test("contains no affiliate link anywhere in the section", async ({

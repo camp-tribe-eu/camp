@@ -458,7 +458,8 @@ test.describe("/routes", () => {
 
   test("🔴 it says what is not here, in the place a reader comparing routes looks", () => {
     const text = visibleText(html);
-    expect(text).toContain("What is not here yet");
+    expect(text).toContain("What this page does not show");
+    expect(text).not.toMatch(/routing engine|not running/i);
     for (const missing of [
       "road distances and driving times",
       "height, width or weight of your vehicle",

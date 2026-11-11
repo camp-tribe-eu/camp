@@ -27,6 +27,15 @@ import { Block } from '@/components/layout';
 // somebody has to remember.
 
 export default function RentalDisclosure({ offers }: { offers: number }) {
+  // 🔴 CAMP-463: БЕЗ ПОСИЛАНЬ — НІЧОГО НЕ МАЛЮЄМО. Тут була друга гілка:
+  // «There are no affiliate links on this page yet. Camper rental
+  // commission is how this site is meant to pay for itself… We have no
+  // rental partner at the moment». Це не розкриття звʼязку (його немає,
+  // отже розкривати нічого — UCPD ст. 7(2) вимагає позначати комерційний
+  // інтерес ТАМ, ДЕ ВІН Є), а розповідь читачеві про наші гроші й
+  // перемовини. День, коли зʼявиться перше посилання, гілка з
+  // `offers > 0` уже тут і чекає.
+  if (offers === 0) return null;
   return (
     <aside
       data-testid="rental-disclosure"
@@ -36,8 +45,7 @@ export default function RentalDisclosure({ offers }: { offers: number }) {
       <h2 className="text-sm uppercase tracking-[0.08em] text-heading">
         How this page is paid for
       </h2>
-      {offers > 0 ? (
-        <Block as="p" measure="read" className="mt-2 text-sm leading-6 text-ink">
+      <Block as="p" measure="read" className="mt-2 text-sm leading-6 text-ink">
           <strong className="text-heading">
             Some links on this page are affiliate links.
           </strong>{' '}
@@ -50,24 +58,7 @@ export default function RentalDisclosure({ offers }: { offers: number }) {
             How this works
           </Link>
           .
-        </Block>
-      ) : (
-        <Block as="p" measure="read" className="mt-2 text-sm leading-6 text-ink">
-          <strong className="text-heading">
-            There are no affiliate links on this page yet.
-          </strong>{' '}
-          Camper rental commission is how this site is meant to pay for
-          itself, and we would rather say so than let you find out. We have
-          no rental partner at the moment, so there is nothing here earning
-          us anything — and nothing on this page has been written to make an
-          offer look good. When that changes, every commission link will be
-          marked as one before you click it.{' '}
-          <Link href="/legal/terms#links" className="underline">
-            How this works
-          </Link>
-          .
-        </Block>
-      )}
+      </Block>
     </aside>
   );
 }

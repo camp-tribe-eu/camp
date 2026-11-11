@@ -146,7 +146,7 @@ export default function RouteFigures({
           />
           <MissingFigure
             label="Driving time"
-            note="Arrives with the routing engine, alongside the road distance. We will not estimate it from the straight line — on these roads that would be wrong by a factor, not by a margin."
+            note="Not shown. We will not estimate it from the straight line — on these roads that would be wrong by a factor, not by a margin."
             testId="figure-driving-time-missing"
           />
         </>

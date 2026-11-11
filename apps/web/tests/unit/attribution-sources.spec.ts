@@ -250,8 +250,13 @@ const NOT_A_SOURCE: Readonly<Record<string, Exception>> = {
     "scripts/ops/pull-security-log.sh",
   ),
   "data.datatourisme.fr": because(
-    "the prefix of DATAtourisme object identifiers, quoted in a comment about the tariff entity; nothing is fetched from it",
+    "the prefix of DATAtourisme object identifiers, quoted in a comment about the tariff entity, and in the CAMP-463 disclosure guard's rule that refuses such a URL as visible text on a page; nothing is fetched from it",
     "apps/api/src/entities/spot-tariff.entity.ts",
+    "scripts/ci/disclosure-rules.mjs",
+    // 🔴 CAMP-463: і в самому сторожі, що цим правилом користується.
+    // Без цього рядка обхід продакшн-коду валить збірку: хост у шаблоні
+    // ЗАБОРОНИ він читає так само, як звернення.
+    "scripts/ci/check-no-internal-disclosure.mjs",
   ),
 
   // ── фікстури самоперевірок і приклади в коментарях ──

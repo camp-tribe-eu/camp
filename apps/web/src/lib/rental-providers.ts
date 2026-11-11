@@ -330,3 +330,61 @@ export async function listCamperTypes(): Promise<CamperType[]> {
   if (!res.ok) return [];
   return (await res.json()) as CamperType[];
 }
+
+/**
+ * 🔴 CAMP-463: ДАТА ДЛЯ ЧИТАЧА, А НЕ ISO. База віддає `2026-11-03T00:00:00.000Z`
+ * (колонка `date`, що пройшла через JSON), і сторінка друкувала це
+ * слово в слово — 16 разів на одній сторінці компанії. Тепер:
+ * `3 November 2026`. Машині дата лишається в `datetime` елемента
+ * `<time>` (див. `Day` на сторінці компанії).
+ *
+ * Значення, яке не схоже на дату, повертається як є: краще бачити, що
+ * база віддала щось дивне, ніж написати вигадану дату. Саме це й
+ * ловить сторож `check-no-internal-disclosure` — ISO-формат у видимому
+ * тексті.
+ */
+export function readableDay(value: string): string {
+  const m = /^(\d{4}-\d{2}-\d{2})(?:$|T)/.exec(value);
+  if (!m) return value;
+  const d = new Date(`${m[1]}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+/** The day to put in a `datetime` attribute: date only, no clock. */
+export function isoDay(value: string): string | undefined {
+  const m = /^(\d{4}-\d{2}-\d{2})(?:$|T)/.exec(value);
+  return m ? m[1] : undefined;
+}
+
+/**
+ * 🔴 CAMP-463: ЗАЯВЛЕНИЙ МАСШТАБ — ПЕРЕЛІК ТОГО, ЩО Є, А НЕ РЯДОК ІЗ
+ * РОЗДІЛЮВАЧЕМ ПІСЛЯ КОЖНОЇ ЧАСТИНИ. Раніше сторінка компанії друкувала
+ * `depots: 1 · fleet: 3 · ` — крапка стоїть, значення немає, бо року
+ * заснування не було. Роздільник ставить той, хто зʼєднує (`.join(' · ')`),
+ * тож обірвати його нікому.
+ *
+ * Слова, а не ключі: «1 depot», «fleet of 3», а не `depots: 1`.
+ */
+export function scaleParts(p: {
+  declaredDepotCount: number | null;
+  declaredFleetSize: number | null;
+  foundedYear: number | null;
+}): string[] {
+  const parts: string[] = [];
+  if (p.declaredDepotCount !== null) {
+    parts.push(
+      `${p.declaredDepotCount} ${p.declaredDepotCount === 1 ? 'depot' : 'depots'}`,
+    );
+  }
+  if (p.declaredFleetSize !== null) {
+    parts.push(`fleet of ${p.declaredFleetSize}`);
+  }
+  if (p.foundedYear !== null) parts.push(`trading since ${p.foundedYear}`);
+  return parts;
+}

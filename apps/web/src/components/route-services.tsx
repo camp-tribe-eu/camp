@@ -1,4 +1,5 @@
 import { formatDistance } from '@/lib/api';
+import OpeningHours from '@/components/opening-hours';
 import { formatKm, STRAIGHT_LINE_LABEL } from '@/lib/routes';
 import {
   AVERAGE_BADGE,
@@ -55,7 +56,12 @@ import { Block } from '@/components/layout';
 // deliberately — see the header of lib/route-services.ts.
 
 /**
- * 🔴 Verbatim, monospaced, and labelled as OpenStreetMap's own syntax.
+ * 🔴 CAMP-463: ЧИТАЄТЬСЯ СЛОВАМИ, КОЛИ РОЗБІР ТОЧНИЙ, І ПІД СПОЙЛЕРОМ, КОЛИ
+ * НІ. Сирий рядок мапи в тілі сторінки — машинний формат, показаний
+ * читачеві; див. components/opening-hours.tsx. Решта цього коментаря —
+ * чому розбір усе-або-нічого, а не «найкраще, що вдалось».
+ *
+ * (Попередня редакція: verbatim, monospaced, labelled as OSM syntax.)
  *
  * The campsite page already does this and CAMP-141 says why. The scar is
  * older: raw OSM `opening_hours` was published as schema.org
@@ -88,9 +94,11 @@ function Hours({ value }: { value: string | null }) {
     );
   }
   return (
-    <span className="font-mono text-ink-2" data-testid="service-hours">
-      {value}
-    </span>
+    <OpeningHours
+      value={value}
+      className="text-ink-2"
+      testId="service-hours"
+    />
   );
 }
 
@@ -667,10 +675,11 @@ export default function RouteStageServices({
       >
         The nearest one of each, from OpenStreetMap, within{' '}
         {formatKm(SERVICE_RADIUS_M)}. Opening
-        hours are printed in OpenStreetMap&rsquo;s own syntax, unchanged — we do
-        not translate them into &ldquo;open now&rdquo;, because most of them
-        carry seasons and exceptions a rewrite would lose. We have not phoned
-        ahead, and we hold no ratings or photographs of these places.
+        hours are as OpenStreetMap records them, and we do not turn them into
+        &ldquo;open now&rdquo;: most carry seasons and exceptions a rewrite
+        would lose, so those are shown as recorded. Nothing here has been
+        checked on the ground, and there are no ratings or photographs of
+        these places.
         {/* 🔴 CAMP-119. The same words on every stage, so they sit inside
             the one marked paragraph and not in a second one: the guard
             looks away from marked text, and this is a promise about

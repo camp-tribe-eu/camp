@@ -61,9 +61,28 @@ export const PROVENANCE_LABEL: Record<
   'data-generated': {
     short: 'Assembled from our database',
     explain:
-      'A program wrote this page from our own records. Every number on it is a count of what has been recorded — nothing here is an opinion, an estimate or a sentence a model invented.',
+      'A program wrote this page from our own records. Every number on it is a count of what has been recorded.',
   },
 };
+
+/**
+ * 🔴 CAMP-463: THE LABEL ON A CARD, OR NOTHING.
+ *
+ * `Assembled from our database` стояло на КОЖНІЙ з 463 карток гіда (на
+ * екрані — капсом, `uppercase`), хоча тієї самої фрази стоїть один раз
+ * над переліком (components/catalogue-provenance.tsx) — і рахує вона
+ * там, скільки карток чого. Картка, що повторює її 463 рази, не додає
+ * читачеві нічого, а розповідає про наш спосіб виробництва там, де
+ * він прийшов по воду.
+ *
+ * Картка, що ПОЗНАЧЕНА ІНАКШЕ (`ai-generated`, `ai-assisted`, `human`),
+ * лишає позначку: вона вирізняє її з-поміж решти, а для машинного
+ * тексту написана ст. 50(2) AI Act.
+ */
+export function cardProvenanceLabel(p: GuideProvenance): string | null {
+  if (p === 'data-generated') return null;
+  return PROVENANCE_LABEL[p]?.short ?? p;
+}
 
 /** Machine-made text is labelled; a person's work is credited. */
 export function needsAiDisclosure(p: GuideProvenance): boolean {

@@ -22,11 +22,10 @@ import {
   routeFuelPrices,
   SERVICE_KINDS,
 } from '@/lib/route-services';
-import type { SpotSource } from '@/lib/sources';
 import RouteCampsites from '@/components/route-campsites';
 import RouteFigures from '@/components/route-figures';
 import RouteMapEmbed from '@/components/route-map-embed';
-import RouteSources from '@/components/route-sources';
+import RouteSources, { type RouteSourceEntry } from '@/components/route-sources';
 import RouteStageServices, {
   RouteFuelPrices,
 } from '@/components/route-services';
@@ -106,7 +105,11 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
 
   const path = `/routes/${slug}`;
   const allSpots = neighbours.groups.flatMap((g) => g.spots);
-  const allSources: SpotSource[] = allSpots.flatMap((s) => s.sources ?? []);
+  // 🔴 CAMP-463: кожен запис джерела несе назву кемпінгу, якого він
+  // стосується, — читач бачить «Camping X — 17 November 2024», а не URL.
+  const allSources: RouteSourceEntry[] = allSpots.flatMap((s) =>
+    (s.sources ?? []).map((src) => ({ ...src, spotName: s.name ?? null })),
+  );
   const serviceCount = services.groups.reduce(
     (n, g) => n + g.services.length,
     0,

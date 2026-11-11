@@ -171,19 +171,16 @@ export default async function CamperRentalHub() {
         </Block>
       )}
 
+      {/* 🔴 CAMP-463: ПЕРШЕ, ЩО БАЧИТЬ ЧИТАЧ, — ЩО СТОРІНКА Є, А НЕ ЧОГО НА
+          НІЙ НЕМАЄ. Тут стояло жирним «There are no prices and no
+          vehicles here.» і далі «We hold no rental inventory and do not
+          invent one». Це відповідь на питання, якого читач ще не
+          ставив, і зізнання про нас. «Цін немає» лишилось там, де його
+          шукають: у відповіді на «Why are there no prices» нижче й біля
+          каталогу компаній. */}
       <Block as="p" measure="read" className="mt-4 text-ink-2">
-        <strong className="text-ink">
-          There are no prices and no vehicles here.
-        </strong>{" "}
-        {/* 🔴 CAMP-463: тут стояло «we hold no rental inventory, we have
-            no partner, and we are not going to invent a fleet to look
-            busier than we are». Перша половина речення корисна читачеві —
-            вона каже, чого тут НЕ шукати; друга розповідала про стан
-            наших справ і про те, якими ми НЕ хочемо здаватись. Лишилось
-            те, що про сторінку, а не про нас. */}
-        We hold no rental inventory and do not invent one. Every number on these pages
-        is either a count of our own {count(MEASURED.total.spots)} campsite
-        records — measured on{" "}
+        Every number on these pages is either a count of our own{" "}
+        {count(MEASURED.total.spots)} campsite records — measured on{" "}
         <time dateTime={MEASURED.measuredAt}>
           {longDate(MEASURED.measuredAt)}
         </time>{" "}

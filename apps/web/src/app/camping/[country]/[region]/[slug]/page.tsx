@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import OpeningHours from '@/components/opening-hours';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import {
@@ -278,10 +279,12 @@ function Contact({ spot }: { spot: Spot }) {
         {openingHours && (
           <>
             <dt className="text-sm text-ink-2">Open</dt>
-            {/* Verbatim, in OpenStreetMap's own syntax. Rewriting
-                "Mo-Su 09:00-13:00" into prose is a translation we would
-                get wrong for the seasonal and conditional forms. */}
-            <dd className="font-mono text-sm text-ink-2">{openingHours}</dd>
+            {/* CAMP-463: словами, коли розбір точний; інакше «Opening
+                hours as recorded» під спойлером. Сезонні й умовні форми
+                НЕ переписуються — див. lib/opening-hours.ts. */}
+            <dd className="text-sm text-ink-2">
+              <OpeningHours value={openingHours} />
+            </dd>
           </>
         )}
         {operator && (
