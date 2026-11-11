@@ -89,8 +89,6 @@ export function countryTiles(countries: readonly CountrySummary[]): CountryTile[
   const byCode = new Map<string, CountrySummary>();
   for (const c of countries) {
     if (!looksLikeCode(c?.country)) continue;
-    // CAMP-490: API такого рядка не віддає, але плитку з нього не малюємо.
-    if (isUnpublishedCountry(c.country)) continue;
     byCode.set(c.country.trim().toLowerCase(), c);
   }
   const byName = (a: CountryTile, b: CountryTile) =>
