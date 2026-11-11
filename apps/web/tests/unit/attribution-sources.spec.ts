@@ -146,7 +146,13 @@ const SOURCE_FILES: ReadonlyArray<{ path: string; why: string }> = [
     path: "apps/web/src/data/fuel-prices.json",
     why: "country fuel averages as shipped (meta)",
   },
-  { path: "apps/api/src/osm/compute-context.ts", why: "elevation and relief" },
+  {
+    // CAMP-484: виклик api.open-meteo.com прибрано з `compute-context.ts`,
+    // і разом із ним звідти зник єдиний зовнішній хост. Джерело висоти
+    // тепер читає скрипт заповнення — він і є місцем, де живе хост.
+    path: "scripts/elevation/fill-by-band.sh",
+    why: "elevation tiles read from Open-Meteo’s open data bucket on AWS",
+  },
   {
     path: "scripts/osm-pipeline/geofabrik-url.sh",
     why: "OSM country extracts",
@@ -629,9 +635,11 @@ const REFERENCE_HOSTS: Readonly<Record<string, string>> = {
   "openfreemap.org":
     "the tile provider’s home page; its tiles come from tiles.openfreemap.org, which is in code",
   "spacedata.copernicus.eu":
-    "the Copernicus DEM catalogue record; the data reaches us through api.open-meteo.com, which is in code",
+    "the Copernicus DEM catalogue record; the tiles reach us from openmeteo.s3.amazonaws.com, which is in code",
   "open-meteo.com":
-    "Open-Meteo’s home page and terms; the endpoint api.open-meteo.com is in code",
+    "Open-Meteo’s home page and terms; its open data bucket openmeteo.s3.amazonaws.com is in code",
+  "registry.opendata.aws":
+    "the AWS Open Data registry record for Open-Meteo’s bucket; the files themselves come from openmeteo.s3.amazonaws.com, which is in code",
   "naturalearthdata.com":
     "Natural Earth’s home page; its files come from naciscdn.org and raw.githubusercontent.com, which are in code",
   "datatourisme.fr": "DATAtourisme’s home page, which is also in code",
