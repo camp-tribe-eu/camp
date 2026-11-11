@@ -1782,6 +1782,34 @@ jobs:
           ./scripts/osm-pipeline/backup-local.selftest.sh | tee /dev/stderr \
             | grep -c 'backup-local dump self-test: усе гаразд' >/dev/null
 
+      # 🔴 CAMP-493 (рецензія #544). Сторож висоти й заповнювач перевіряються
+      # на СПРАВЖНІЙ базі, тому живуть у цьому job (є postgis), а не в `gate`.
+      # Попередня версія самотесту ганяла лише `verdict()` на підставних
+      # числах і пережила шість мутацій із шести: порожній FILTER, `AND false`
+      # у знаменнику, `[live, missing]` місцями, `process.exit(0)` у вході.
+      # Обидва кроки читають надруковане: рядок із власною назвою друкується
+      # лише коли виконано рівно EXPECTED випадків.
+      - name: The elevation sentry turns red on a real database with one spot without a height
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+        run: |
+          set -o pipefail
+          node scripts/ci/check-elevation-coverage.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-elevation-coverage self-test: ran 20, passed 20, failed 0' >/dev/null
+      - name: The elevation filler fills, parks and refuses on a real database
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+        run: |
+          set -o pipefail
+          python3 -m venv "$RUNNER_TEMP/elevation-venv"
+          "$RUNNER_TEMP/elevation-venv/bin/pip" install --quiet -r scripts/elevation/requirements.txt
+          "$RUNNER_TEMP/elevation-venv/bin/python" scripts/elevation/test_refill.py 2>&1 | tee /dev/stderr \
+            | grep -c 'elevation refill tests: ran 13, failed 0' >/dev/null
+
       # 🔴 ПІДТЯГУВАННЯ КЕМПІНГА ДО НАЙБЛИЖЧОЇ ЗОНИ — на справжньому PostGIS.
       # Те, що робить запит (відстань, країна, межа), текстом не перевіряється:
       # мутація «межа ×10» лишає в тексті все, що бачить текстовий тест.
