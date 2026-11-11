@@ -226,18 +226,6 @@ const NOT_A_SOURCE: Readonly<Record<string, Exception>> = {
     "the OGC XML namespace in the WFS request fetch-wildfires.mjs builds; nothing is fetched from it",
     "scripts/effis/fetch-wildfires.mjs",
   ),
-  // 🔴 CAMP-463: ХОСТ У СТОРОЖІ, А НЕ ЗВЕРНЕННЯ ДО НЬОГО. Це другий
-  // порядок, і він вартий окремого речення: сторож
-  // `check-no-internal-disclosure.mjs` ЗАБОРОНЯЄ друкувати читачеві сирі
-  // URL джерел, і щоб заборонити — мусить назвати хост у своєму шаблоні.
-  // Обхід продакшн-коду бачить рядок і вимагає назвати джерело на
-  // сторінці атрибуції. DATAtourisme там і так названий, але вже за
-  // своїм справжнім хостом; цей файл до нього не ходить жодного разу.
-  "data.datatourisme.fr": because(
-    "a forbidden-pattern literal in the guard that stops us printing raw source URLs to readers; the script makes no request",
-    "scripts/ci/check-no-internal-disclosure.mjs",
-    "scripts/ci/disclosure-rules.mjs",
-  ),
   "schema.org": because(
     "the JSON-LD vocabulary identifier in structured data and in its checker; a name, not an endpoint",
     "apps/web/src/",
@@ -265,6 +253,10 @@ const NOT_A_SOURCE: Readonly<Record<string, Exception>> = {
     "the prefix of DATAtourisme object identifiers, quoted in a comment about the tariff entity, and in the CAMP-463 disclosure guard's rule that refuses such a URL as visible text on a page; nothing is fetched from it",
     "apps/api/src/entities/spot-tariff.entity.ts",
     "scripts/ci/disclosure-rules.mjs",
+    // 🔴 CAMP-463: і в самому сторожі, що цим правилом користується.
+    // Без цього рядка обхід продакшн-коду валить збірку: хост у шаблоні
+    // ЗАБОРОНИ він читає так само, як звернення.
+    "scripts/ci/check-no-internal-disclosure.mjs",
   ),
 
   // ── фікстури самоперевірок і приклади в коментарях ──
