@@ -154,8 +154,8 @@ async function run(source, label) {
 
 // ── самотест ──────────────────────────────────────────────────────────
 
-// правило × 1 (приклад) + законне × 1 + 14 іменованих перевірок нижче.
-const EXPECTED_CASES = FORBIDDEN.length + LEGITIMATE.length + 14;
+// правило × 1 (приклад) + законне × 1 + 16 іменованих перевірок нижче.
+const EXPECTED_CASES = FORBIDDEN.length + LEGITIMATE.length + 16;
 
 function selfTest() {
   let bad = 0;
@@ -217,6 +217,19 @@ function selfTest() {
     scanPage('/x', page('<p>read <time dateTime="2026-11-03T00:00:00.000Z">3 November 2026</time></p>')).length === 0 &&
       scanPage('/x', page('<p>read <time dateTime="2026-11-03T00:00:00.000Z">2026-11-03T00:00:00.000Z</time></p>')).length === 1,
   );
+  // 5b. Атрибути будь-якого тега — не видимий текст: ні блочного, ні
+  // рядкового. Сире посилання на запис джерела (C) живе в `href`, і саме
+  // там воно законне.
+  check(
+    'атрибути блочного тега не читаються',
+    scanPage('/x', page('<div title="routing engine 2026-11-03T00:00:00.000Z" data-t="Mo 15:30-19:45">text</div>')).length === 0,
+  );
+  check(
+    'href із сирим URL джерела не червоніє, а той самий URL текстом — так',
+    scanPage('/x', page('<p><a href="https://data.datatourisme.fr/23/e437c815-500c-375e-9720-84692c3a214a">record at the source</a></p>')).length === 0 &&
+      scanPage('/x', page('<p><a href="/x">https://data.datatourisme.fr/23/e437c815-500c-375e-9720-84692c3a214a</a></p>')).length >= 1,
+  );
+
   // 6. Скрипт і JSON-LD не читаються.
   check(
     'фраза в <script> (JSON-LD) не червоніє',
