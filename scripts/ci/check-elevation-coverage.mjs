@@ -23,13 +23,14 @@
 //
 // 🔴 «БЕЗ ВИСОТИ» — ЦЕ НЕ «НЕМАЄ КЛЮЧА». `{"elevation": null}` чи рядок
 // `"137"` теж без висоти: читач не побачить ні того, ні іншого. Три умови
-// (`LIVE_SQL`, `MISSING_SQL`, `QUARANTINED_SQL`) — слово в слово ті, що
+// (`LIVE_SQL`, `MISSING_SQL`, `PARKED_SQL`) — слово в слово ті, що
 // вибирають заповнювач (`scripts/elevation/refill.py`); це доводить тест
 // заповнювача, який бере їх звідси.
 //
 // 🔴 КАРАНТИН (рецензія #544). Рядок, що не порахується ніколи (NaN, смуги
 // немає у відрі), при нормі «рівно 0» давав би дві тривоги щоночі навіки.
-// Заповнювач ставить йому `context.elevation_skipped.until` на 30 діб: він
+// Заповнювач кладе його в таблицю `spot_elevation_skips` (НЕ в `context`:
+// мітка там робила порожню сторінку індексованою) на 30 діб: він
 // не рахується в червоне число, але ЗАВЖДИ друкується поруч, і сторож
 // червоніє, коли їх більше за `PARKED_BUDGET`. Карантин не вимикає сторожа:
 // він переносить рядок з однієї цифри в іншу, яку теж видно.
@@ -54,10 +55,14 @@ export const KNOWN_FLAGS = Object.freeze(['--self-test', '--db']);
 
 export const LIVE_SQL = 'missing_since IS NULL';
 export const MISSING_SQL = "jsonb_typeof(context->'elevation') IS DISTINCT FROM 'number'";
-export const QUARANTINED_SQL =
-  "CASE WHEN jsonb_typeof(context#>'{elevation_skipped,until}') = 'number' " +
-  "THEN (context#>>'{elevation_skipped,until}')::numeric > extract(epoch from now()) " +
-  'ELSE false END';
+// 🔴 «У карантині» = рядок у `spot_elevation_skips` ІСНУЄ, і більше нічого.
+// Жодного порівняння `until` із годинником: строк, що спливає між
+// заповнювачем (05:15) і сторожем (06:15), давав би хибне червоне раз на 30
+// діб — «заповнювач не добирає», хоча він бачив рядок ще в карантині й нічого
+// не пропустив. Пробує рядок знову лише заповнювач, і вирок про нього
+// виносить він: заповнить або подовжить.
+export const PARKED_SQL =
+  'EXISTS (SELECT 1 FROM spot_elevation_skips k WHERE k.camping_spot_id = camping_spots.id)';
 
 /** Скільки рядків може сидіти в карантині, не червонячи сторожа (≈ 0,035% від 57 135). */
 export const PARKED_BUDGET = 20;
@@ -67,8 +72,8 @@ export const PARKED_BUDGET = 20;
  * Мертві (`missing_since`) не рахуються ніде: читач їх не бачить.
  */
 export const COUNT_SQL =
-  `SELECT count(*) FILTER (WHERE ${MISSING_SQL} AND NOT (${QUARANTINED_SQL})), ` +
-  `count(*) FILTER (WHERE ${MISSING_SQL} AND (${QUARANTINED_SQL})), ` +
+  `SELECT count(*) FILTER (WHERE ${MISSING_SQL} AND NOT ${PARKED_SQL}), ` +
+  `count(*) FILTER (WHERE ${MISSING_SQL} AND ${PARKED_SQL}), ` +
   `count(*) FROM camping_spots WHERE ${LIVE_SQL}`;
 
 /** Помилка ВЖИВАННЯ — код 2 без стеку. */
@@ -107,7 +112,7 @@ export function verdict({ missing, parked, live }) {
     return {
       ok: false,
       line: `✗ без висоти: 0 із ${fmt(live)} живих кемпінгів, АЛЕ ${tail}: ` +
-        'рядків, які не порахувались, більше за бюджет — дивись `context.elevation_skipped.why`',
+        'рядків, які не порахувались, більше за бюджет — дивись `spot_elevation_skips.why`',
     };
   }
   return { ok: true, line: `✓ без висоти: 0 із ${fmt(live)} живих кемпінгів; ${tail}` };
@@ -192,34 +197,41 @@ function selfTest() {
     try {
       sql('CREATE TABLE camping_spots (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), ' +
           "context jsonb NOT NULL DEFAULT '{}', missing_since timestamptz)");
-      const ins = (n, ctx, dead = false) => sql(
-        `INSERT INTO camping_spots (context, missing_since) SELECT '${ctx}'::jsonb, ` +
-        `${dead ? 'now()' : 'NULL'} FROM generate_series(1, ${n})`);
-      const soon = Math.floor(Date.now() / 1000) + 86400;
-      const past = Math.floor(Date.now() / 1000) - 86400;
+      // Справжній DDL міграції, а не його копія в тесті.
+      sql(readFileSync(path.join(ROOT, 'apps/api/src/migrations/1796100000000-SpotElevationSkips.ts'), 'utf8')
+        .match(/query\(`\s*(CREATE TABLE "spot_elevation_skips"[\s\S]*?)`\)/)[1]);
+      const ins = (n, ctx, { dead = false, parkedFor = null } = {}) => {
+        sql(`INSERT INTO camping_spots (context, missing_since) SELECT '${ctx}'::jsonb, ` +
+            `${dead ? 'now()' : 'NULL'} FROM generate_series(1, ${n})`);
+        if (parkedFor !== null) {
+          sql(`INSERT INTO spot_elevation_skips (camping_spot_id, until, why) SELECT id, ` +
+              `now() + interval '${parkedFor}', 'тест' FROM camping_spots WHERE context = '${ctx}'::jsonb`);
+        }
+      };
       ins(3, '{"elevation": 137}');                                   // є висота
       ins(1, '{}');                                                   // ключа немає
       ins(1, '{"elevation": null}');                                  // null
       ins(1, '{"elevation": "137"}');                                 // рядок, не число
-      ins(1, `{"elevation_skipped": {"until": ${past}}}`);            // карантин МИНУВ → знову «не добрано»
-      ins(1, `{"elevation_skipped": {"until": ${soon}}}`);            // карантин триває
-      ins(1, '{"elevation_skipped": {"until": "завтра"}}');           // сміття в мітці — не карантин
-      ins(4, '{}', true);                                             // МЕРТВІ без висоти — не рахуються ніде
-      // живих 3+1+1+1+1+1+1 = 9; без висоти й не в карантині: {}, null, "137", минулий, сміття = 5; у карантині 1.
+      ins(1, '{"tag": "future"}', { parkedFor: '1 day' });            // карантин триває
+      ins(1, '{"tag": "past"}', { parkedFor: '-1 day' });             // строк МИНУВ — усе одно «в карантині» для сторожа
+      ins(4, '{}', { dead: true });                                   // МЕРТВІ без висоти — не рахуються ніде
+      // живих 3+1+1+1+1+1 = 8; не добрано: {}, null, "137" = 3; у карантині 2 (в тому числі зі строком, що минув).
       t('🔴 readDb на справжній базі: ще не добрано / карантин / живих',
-        readDb(url), { missing: 5, parked: 1, live: 9 });
+        readDb(url), { missing: 3, parked: 2, live: 8 });
+      t('🔴 карантин зі строком, що МИНУВ, не червоніє: сторож не порівнює `until` із годинником',
+        readDb(url).missing, 3);
       const red = cli();
       t('🔴 `--db` підпроцесом на цій базі — червоне', red.rc, 1);
-      t('🔴 і називає число та знаменник', red.text.includes('5 із 9'), true);
+      t('🔴 і називає число та знаменник', red.text.includes('3 із 8'), true);
 
       sql(`UPDATE camping_spots SET context = '{"elevation": 1}' WHERE missing_since IS NULL AND ` +
-          `${MISSING_SQL} AND NOT (${QUARANTINED_SQL})`);
-      t('після добору readDb: 0 ще не добрано, карантин лишився', readDb(url), { missing: 0, parked: 1, live: 9 });
+          `${MISSING_SQL} AND NOT ${PARKED_SQL}`);
+      t('після добору readDb: 0 ще не добрано, карантин лишився', readDb(url), { missing: 0, parked: 2, live: 8 });
       const green = cli();
       t('🔴 `--db` підпроцесом після добору — зелене', green.rc, 0);
-      t('🔴 зелене друкує знаменник живих (мертві не в ньому)', green.text.includes('0 із 9'), true);
+      t('🔴 зелене друкує знаменник живих (мертві не в ньому)', green.text.includes('0 із 8'), true);
 
-      ins(PARKED_BUDGET, `{"elevation_skipped": {"until": ${soon}}}`);
+      ins(PARKED_BUDGET, '{"tag": "bulk"}', { parkedFor: '1 day' });
       t('🔴 карантин понад бюджет: `--db` підпроцесом червоне', cli().rc, 1);
     } catch (e) {
       f += 1;
@@ -229,7 +241,7 @@ function selfTest() {
     }
   }
 
-  t('🔴 лічильник: усі випадки дійшли до кінця', p + f, 18);
+  t('🔴 лічильник: усі випадки дійшли до кінця', p + f, 19);
   console.log(`check-elevation-coverage self-test: ran ${p + f}, passed ${p}, failed ${f}`);
   return f === 0 ? 0 : 1;
 }

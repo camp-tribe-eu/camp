@@ -39,26 +39,29 @@ TILE_URL = os.environ.get(
     'https://openmeteo.s3.amazonaws.com/data/copernicus_dem90/static/lat_{band}.om',
 )
 
-# 🔴 Ці три умови — слово в слово ті, що рахує сторож
-# `check-elevation-coverage.mjs` (MISSING_SQL, LIVE_SQL, QUARANTINED_SQL).
+# 🔴 Ці умови — слово в слово ті, що рахує сторож
+# `check-elevation-coverage.mjs` (LIVE_SQL, MISSING_SQL, PARKED_SQL).
 # Заповнювач і сторож мусять питати про ОДНУ множину рядків: заповнювач, що
 # добирає мертвих, дає код 1 через кемпінг, якого читач не бачить, а сторож,
 # що рахує інших, червоніє через рядок, якого заповнювач не торкається.
-# Звіряє їх самотест сторожа — а ще й справжня база, не лише текст.
 LIVE = "missing_since IS NULL"
 MISSING = "jsonb_typeof(context->'elevation') IS DISTINCT FROM 'number'"
-# 🔴 КАРАНТИН: рядок, який не порахувався (NaN, поза покриттям плитки), не
-# мусить червоніти щоночі навіки, але й не мусить зникати зі сторожа.
-# Знак у `context.elevation_skipped.until` (секунди epoch) ховає його від
-# заповнювача й від ЧЕРВОНОГО, а сторож усе одно друкує їхню кількість і
-# червоніє, коли їх більше за бюджет. Мине строк — рядок знову «ще не
-# добраний» і його пробують удруге.
-QUARANTINED = (
-    "CASE WHEN jsonb_typeof(context#>'{elevation_skipped,until}') = 'number' "
-    "THEN (context#>>'{elevation_skipped,until}')::numeric > extract(epoch from now()) "
-    "ELSE false END"
-)
+# 🔴 КАРАНТИН ЖИВЕ В ОКРЕМІЙ ТАБЛИЦІ `spot_elevation_skips`, НЕ В `context`:
+# правило індексації кемпінга — буквально `context = '{}'`, і мітка в
+# `context` робила порожню сторінку індексованою (замір рецензента).
+# Для сторожа «у карантині» = рядок у таблиці існує, БЕЗ порівняння з
+# часом; `until` читає лише заповнювач (PARKED_ACTIVE) — тому строк, що
+# спливає між заповнювачем і сторожем, не дає хибного червоного.
+PARKED = ("EXISTS (SELECT 1 FROM spot_elevation_skips k "
+          "WHERE k.camping_spot_id = camping_spots.id)")
+PARKED_ACTIVE = ("EXISTS (SELECT 1 FROM spot_elevation_skips k "
+                 "WHERE k.camping_spot_id = camping_spots.id AND k.until > now())")
 QUARANTINE_DAYS = 30
+
+
+class BadData(Exception):
+    """Дані такі: NaN у плитці, висота поза здоровим глуздом. Це карантин."""
+
 
 # Межі здорового глузду — ті самі, що в apply.sh: найвища точка ЄС — Монблан
 # (4 808 м), найнижча суходільна — польдери (≈ −7 м).
@@ -155,18 +158,22 @@ def drop_tiles_below(dem, tiles_dir: str, keep_from: int) -> None:
 def count_missing(cur):
     """(ще не добрано, у карантині, усього живих) — те саме, що міряє сторож."""
     cur.execute(
-        f"SELECT count(*) FILTER (WHERE {LIVE} AND {MISSING} AND NOT ({QUARANTINED})), "
-        f"count(*) FILTER (WHERE {LIVE} AND {MISSING} AND ({QUARANTINED})), "
+        f"SELECT count(*) FILTER (WHERE {LIVE} AND {MISSING} AND NOT {PARKED}), "
+        f"count(*) FILTER (WHERE {LIVE} AND {MISSING} AND {PARKED}), "
         f"count(*) FILTER (WHERE {LIVE}) FROM camping_spots")
     return cur.fetchone()
 
 
 def select_todo(cur, limit: int = 0):
-    """Живі рядки без висоти й не в карантині: (id, lat, lon, був_карантин)."""
+    """Живі рядки без висоти, чий карантин не чинний: (id, lat, lon, був_карантин).
+
+    «Був» — будь-який рядок у таблиці, навіть минулий: саме він означає, що
+    цей рядок уже відомий як безнадійний і повторна невдача не новина.
+    """
     cur.execute(
         f"SELECT id::text, ST_Y(location::geometry), ST_X(location::geometry), "
-        f"context ? 'elevation_skipped' FROM camping_spots "
-        f"WHERE {LIVE} AND {MISSING} AND NOT ({QUARANTINED}) ORDER BY 2, 1"
+        f"{PARKED} FROM camping_spots "
+        f"WHERE {LIVE} AND {MISSING} AND NOT {PARKED_ACTIVE} ORDER BY 2, 1"
         + (f' LIMIT {int(limit)}' if limit else ''))
     return cur.fetchall()
 
@@ -185,7 +192,7 @@ def write_rows(cur, rows) -> int:
     from psycopg2.extras import execute_values
     got = execute_values(cur, f"""
         UPDATE camping_spots s
-           SET context = (coalesce(s.context, '{{}}'::jsonb) - 'elevation_skipped')
+           SET context = coalesce(s.context, '{{}}'::jsonb)
                || jsonb_build_object(
                     'elevation', d.ele,
                     'terrain', jsonb_build_object('relief', d.rel, 'type', d.kind))
@@ -199,21 +206,24 @@ def write_rows(cur, rows) -> int:
 
 
 def quarantine(cur, items) -> int:
-    """Закарантинити рядки, що не порахуються: [(id, чому)]. Лише ще порожні."""
+    """Закарантинити рядки, що не порахуються: [(id, чому)]. Лише живі й ще порожні.
+
+    Пише в `spot_elevation_skips`, НЕ в `context`; повторний виклик на тому
+    самому рядку подовжує строк. Повертає, скільки рядків справді записано.
+    """
     if not items:
         return 0
     from psycopg2.extras import execute_values
-    until = int(time.time()) + QUARANTINE_DAYS * 86400
     got = execute_values(cur, f"""
-        UPDATE camping_spots s
-           SET context = coalesce(s.context, '{{}}'::jsonb)
-               || jsonb_build_object('elevation_skipped',
-                    jsonb_build_object('until', {until}, 'why', d.why))
+        INSERT INTO spot_elevation_skips (camping_spot_id, until, why)
+        SELECT s.id, now() + make_interval(days => {int(QUARANTINE_DAYS)}), d.why
           FROM (VALUES %s) AS d(id, why)
-         WHERE s.id = d.id::uuid
-           AND {LIVE.replace('missing_since', 's.missing_since')}
+          JOIN camping_spots s ON s.id = d.id::uuid
+         WHERE {LIVE.replace('missing_since', 's.missing_since')}
            AND {MISSING.replace('context', 's.context')}
-        RETURNING s.id
+        ON CONFLICT (camping_spot_id)
+          DO UPDATE SET until = EXCLUDED.until, why = EXCLUDED.why
+        RETURNING camping_spot_id
         """, items, template='(%s, %s)', fetch=True)
     return len(got)
 
@@ -305,17 +315,31 @@ def run(conn, args, tiles_dir: str) -> int:
             try:
                 centre = dem.elevation(lat, lon)
                 vals = [centre] + [dem.elevation(a, b) for a, b in dem.ring(lat, lon)]
+                # 🔴 NaN — це «плитка тут нічого не знає», і округлення NaN
+                # кидало б ValueError, не відрізняючи його від зламаного venv.
+                # Тому «дані такі» називається явно, і лише воно карантинить.
+                if not all(math.isfinite(v) for v in vals):
+                    raise BadData('плитка не має значення в цій точці (NaN)')
                 relief = max(vals) - min(vals)
                 ele, rel = round(centre), round(relief)
                 if not (ELEVATION_RANGE[0] <= ele <= ELEVATION_RANGE[1]
                         and RELIEF_RANGE[0] <= rel <= RELIEF_RANGE[1]):
-                    raise ValueError(f'поза межами здорового глузду: {ele} м, рельєф {rel} м')
-            except Exception as err:  # noqa: BLE001
+                    raise BadData(f'поза межами здорового глузду: {ele} м, рельєф {rel} м')
+            except BadData as err:
                 # 🔴 Нуль метрів — правдоподібна висота; тихо записати його
                 # замість «не знаю» означало б збрехати правдоподібно.
-                print(f'🔴 {sid}: {str(err)[:80]}', file=sys.stderr)
-                parked_now.append((sid, str(err)[:80]))
+                print(f'🔴 {sid}: {err}', file=sys.stderr)
+                parked_now.append((sid, str(err)[:200]))
                 known_bad, new_bad = (known_bad + 1, new_bad) if was else (known_bad, new_bad + 1)
+                continue
+            except Exception as err:  # noqa: BLE001
+                # 🔴 ВСЕ ІНШЕ — «НАМ СТАЛО ЗЛЕ» (битий кеш плитки, зламане
+                # середовище), а не «дані такі». Карантин на 30 діб після
+                # полагодження причини тримав би рядки без висоти, тож тут —
+                # лише тривога й повтор наступної ночі.
+                print(f'🔴 {sid}: збій обрахунку, не вада даних — {type(err).__name__}: '
+                      f'{str(err)[:80]}', file=sys.stderr)
+                transient += 1
                 continue
             rows.append((sid, ele, rel, dem.terrain(relief)))
         wrote = write_rows(cur, rows)

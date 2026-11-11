@@ -1797,7 +1797,7 @@ jobs:
         run: |
           set -o pipefail
           node scripts/ci/check-elevation-coverage.mjs --self-test | tee /dev/stderr \
-            | grep -c 'check-elevation-coverage self-test: ran 19, passed 19, failed 0' >/dev/null
+            | grep -c 'check-elevation-coverage self-test: ran 20, passed 20, failed 0' >/dev/null
       - name: The elevation filler fills, parks and refuses on a real database
         env:
           PGHOST: localhost
@@ -1808,7 +1808,7 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/elevation-venv"
           "$RUNNER_TEMP/elevation-venv/bin/pip" install --quiet -r scripts/elevation/requirements.txt
           "$RUNNER_TEMP/elevation-venv/bin/python" scripts/elevation/test_refill.py 2>&1 | tee /dev/stderr \
-            | grep -c 'elevation refill tests: ran 10, failed 0' >/dev/null
+            | grep -c 'elevation refill tests: ran 13, failed 0' >/dev/null
 
       # 🔴 ПІДТЯГУВАННЯ КЕМПІНГА ДО НАЙБЛИЖЧОЇ ЗОНИ — на справжньому PostGIS.
       # Те, що робить запит (відстань, країна, межа), текстом не перевіряється:
