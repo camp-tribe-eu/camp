@@ -53,21 +53,8 @@ const DB_URL =
  * the day affiliate links go live this must already be running against
  * customer-api with a key, like every other Open-Meteo call.
  */
-const ELEVATION_URL =
-  process.env.OPEN_METEO_BASE_URL ?? 'https://api.open-meteo.com';
-const ELEVATION_BATCH = 100;
 
-/** Points sampled around a site to describe the ground it sits in. */
-const RELIEF_RADIUS_M = 1000;
 const RELIEF_SAMPLES = 8;
-
-/**
- * Pause between elevation batches. With 8 relief samples per campsite,
- * a thousand sites is ~100 requests; at this pace the run stays inside
- * Open-Meteo's per-minute allowance instead of provoking the 20-second
- * penalty that a 429 costs.
- */
-const BATCH_PAUSE_MS = 700;
 
 const argv = process.argv.slice(2);
 const FORCE_ALL = argv.includes('--all');
@@ -120,196 +107,6 @@ export function saysSomething(context: SpotContext): boolean {
     context.elevation !== undefined ||
     context.terrain !== undefined
   );
-}
-
-/** Eight points on a circle, for the relief of the bowl around a site. */
-function ring(lat: number, lon: number): { lat: number; lon: number }[] {
-  const out: { lat: number; lon: number }[] = [];
-  for (let i = 0; i < RELIEF_SAMPLES; i++) {
-    const a = (2 * Math.PI * i) / RELIEF_SAMPLES;
-    const dLat = (RELIEF_RADIUS_M * Math.cos(a)) / 111_320;
-    const dLon =
-      (RELIEF_RADIUS_M * Math.sin(a)) /
-      (111_320 * Math.cos(lat * (Math.PI / 180)));
-    out.push({ lat: +(lat + dLat).toFixed(5), lon: +(lon + dLon).toFixed(5) });
-  }
-  return out;
-}
-
-/**
- * Elevations for a list of points, in request order.
- *
- * 🔴 Two things here are load-bearing, and the first version got both
- * wrong in a way that produced plausible-looking output:
- *
- *   • The returned array MUST be the same length as the request. If a
- *     short answer were appended as-is, every later point would shift by
- *     the difference and campsites would silently inherit each other's
- *     altitude. Nothing downstream could detect that, so it is checked
- *     here and treated as a failed batch.
- *   • A failure must be visible. The progress counter used to be written
- *     with `\r` on the same line, so a warning printed between two
- *     updates was immediately overwritten — three batches failed on the
- *     first real run and the only trace was a coverage number that came
- *     out at 87.7% instead of 100%.
- */
-/** Not a failure to retry: the budget is gone until tomorrow. */
-class DailyLimitReached extends Error {}
-
-async function elevations(
-  points: { lat: number; lon: number }[],
-  label: string,
-): Promise<{ values: (number | null)[]; failedBatches: number }> {
-  const out: (number | null)[] = [];
-  let failedBatches = 0;
-
-  for (let i = 0; i < points.length; i += ELEVATION_BATCH) {
-    const chunk = points.slice(i, i + ELEVATION_BATCH);
-    const url =
-      `${ELEVATION_URL}/v1/elevation` +
-      `?latitude=${chunk.map((p) => p.lat).join(',')}` +
-      `&longitude=${chunk.map((p) => p.lon).join(',')}`;
-
-    let got: (number | null)[] | null = null;
-    let lastError = '';
-
-    // 🔴 Node's fetch has no default timeout: a connection that is
-    // accepted and then goes quiet hangs for ever. This runs unattended
-    // every week (CAMP-28), so "for ever" means a job that never
-    // finishes and never fails — the one outcome nobody gets alerted
-    // about. Observed here as a 9-minute silence with the process at 0%
-    // CPU while I worked out whether it was stuck or merely slow.
-    const TIMEOUT_MS = 30_000;
-
-    // 🔴 Patience is measured in attempts, and four was not enough.
-    //
-    // Observed on the Croatian import: the run sails through the first
-    // couple of thousand sample points and then starts collecting 429s,
-    // which is consistent with the free tier's 5,000 calls/hour counting
-    // each LOCATION rather than each HTTP request — 6,320 relief samples
-    // in one run crosses that, while 64 requests comes nowhere near the
-    // 600/minute limit. Their documentation describes weighting by
-    // variables and time span, not by location, so this is what the
-    // behaviour says rather than what the docs promise.
-    //
-    // Either way the right response is to wait longer, not to give up:
-    // a lost batch is a hundred sample points, about eleven campsites
-    // with no terrain. Twelve attempts at twenty seconds rides out a
-    // limit boundary; a genuine outage still ends after four minutes.
-    const MAX_ATTEMPTS = 12;
-    for (let attempt = 0; attempt < MAX_ATTEMPTS && !got; attempt++) {
-      try {
-        const res = await fetch(url, {
-          signal: AbortSignal.timeout(TIMEOUT_MS),
-        });
-        // 🔴 429 and 5xx both mean "come back later", and both deserve
-        // the same patience.
-        //
-        // 429 is their per-minute limit; waiting is the correct response,
-        // because hammering gets the whole project blocked and their
-        // terms say so in as many words. A 503 is their server under
-        // load — and it was being treated as an ordinary error, given
-        // three retries two seconds apart, and then given up on. Observed
-        // live: one relief batch lost that way writes nulls for a hundred
-        // sample points, which is about eleven campsites with no terrain.
-        // They are picked up again on the next run, but only because the
-        // selection above looks for the gap; there is no reason to create
-        // it in the first place.
-        if (res.status === 429 || res.status >= 500) {
-          lastError = `HTTP ${res.status}`;
-
-          // 🔴 The daily limit is not something to wait out.
-          //
-          // Open-Meteo says it in as many words — "Daily API request
-          // limit exceeded. Please try again tomorrow." — and the free
-          // tier allows 10,000 calls a day. We made 74 HTTP requests
-          // before hitting it, which is only possible if each LOCATION
-          // in a multi-point request counts as a call: 1,079 elevations
-          // plus 8 relief samples each is about 9,700.
-          //
-          // Retrying that is pointless and impolite: twelve attempts
-          // twenty seconds apart, across seventy batches, is four hours
-          // of hammering a limit that resets tomorrow. Stop, say why,
-          // and let the next run pick up the gap — the selection above
-          // already looks for spots whose terrain is missing.
-          const body = await res.text().catch(() => '');
-          if (/daily .*limit/i.test(body)) {
-            throw new DailyLimitReached(
-              'Open-Meteo daily limit reached: ' +
-                'the free tier counts each coordinate, not each request, ' +
-                'so a bulk import of a country spends it in one go. ' +
-                'The campsites without surroundings are picked up by the ' +
-                'next run; nothing else needs doing.',
-            );
-          }
-
-          await new Promise((r) => setTimeout(r, 20_000));
-          continue;
-        }
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const body = (await res.json()) as { elevation?: unknown };
-        if (!Array.isArray(body.elevation)) throw new Error('no elevation[]');
-        if (body.elevation.length !== chunk.length) {
-          throw new Error(
-            `got ${body.elevation.length} values for ${chunk.length} points`,
-          );
-        }
-        got = body.elevation.map((v) =>
-          typeof v === 'number' && Number.isFinite(v) ? v : null,
-        );
-      } catch (err) {
-        if (err instanceof DailyLimitReached) throw err;
-        lastError = String(err);
-        if (attempt < MAX_ATTEMPTS - 1) {
-          // Capped, so a long tail of retries cannot become an hour.
-          await new Promise((r) =>
-            setTimeout(r, Math.min(20_000, 2000 * (attempt + 1))),
-          );
-        }
-      }
-    }
-
-    if (!got) {
-      failedBatches++;
-      // Own line, before the progress counter is redrawn.
-      console.warn(`\n  ⚠ ${label} batch at ${i} gave up: ${lastError}`);
-      got = chunk.map(() => null);
-    }
-
-    out.push(...got);
-
-    // 🔴 `\r` only works on a terminal. Redirected to a file or a CI log
-    // it writes a line that never ends, so a run that takes twenty
-    // minutes looks like a run that produced nothing — which is exactly
-    // how three failed batches went unnoticed once before. One line per
-    // batch when nobody is watching a terminal.
-    const done = Math.min(i + ELEVATION_BATCH, points.length);
-    if (process.stdout.isTTY) {
-      process.stdout.write(`\r  ${label} ${done}/${points.length}   `);
-    } else {
-      console.log(`  ${label} ${done}/${points.length}`);
-    }
-
-    // 🔴 A deliberate pause between batches.
-    //
-    // Firing them as fast as the network allows earns a 429, and the
-    // handler then waits 20 seconds — so going faster makes the whole
-    // run slower, and a batch that exhausts its four attempts is written
-    // as nulls, losing the elevation for a hundred campsites silently.
-    // Their terms ask for this politeness in as many words.
-    if (i + ELEVATION_BATCH < points.length) {
-      await new Promise((r) => setTimeout(r, BATCH_PAUSE_MS));
-    }
-  }
-
-  if (process.stdout.isTTY) process.stdout.write('\n');
-  if (out.length !== points.length) {
-    // Belt and braces: the invariant the whole alignment rests on.
-    throw new Error(
-      `elevation alignment broken: ${out.length} values for ${points.length} points`,
-    );
-  }
-  return { values: out, failedBatches };
 }
 
 // 🔴 CAMP-295. ЄДИНЕ МІСЦЕ, ДЕ НАЗВА З OSM СТАЄ ТЕКСТОМ ДЛЯ ЧИТАЧА.
@@ -500,7 +297,6 @@ async function main(): Promise<void> {
   // again.
   const SLICE = 200;
 
-  let failedBatches = 0;
   let written = 0;
   let noWater = 0;
   let noStation = 0;
@@ -508,62 +304,41 @@ async function main(): Promise<void> {
   let nothingToSay = 0;
   /** Heights kept from the previous run because the DEM had nothing new. */
   let carriedForward = 0;
-  let stoppedAtLimit = false;
   const reliefs: number[] = [];
 
-  for (let start = 0; start < todo.length && !stoppedAtLimit; start += SLICE) {
+  for (let start = 0; start < todo.length; start += SLICE) {
     const slice = todo.slice(start, start + SLICE);
 
-    // 🔴 Assigned BEFORE the try, and each half kept as soon as it
-    // returns. The first version declared them and filled both inside
-    // the try, so when the centres succeeded (200 coordinates spent) and
-    // the rings then hit the limit, the catch overwrote the centres with
-    // nulls — two hundred coordinates bought and thrown away — and
-    // `failedBatches` was never added either, so the "⚠ failed batches"
-    // warning vanished on exactly the runs where it mattered. Found by
-    // review with a stubbed endpoint and a budget of 250.
-    let centreEle: (number | null)[] = slice.map(() => null);
-    let ringEle: (number | null)[] = slice.flatMap(() =>
+    // Висота й рельєф тут навмисно порожні — див. нижче.
+    const centreEle: (number | null)[] = slice.map(() => null);
+    const ringEle: (number | null)[] = slice.flatMap(() =>
       Array(RELIEF_SAMPLES).fill(null),
     );
-    try {
-      const centre = await elevations(
-        slice.map((r) => ({ lat: Number(r.lat), lon: Number(r.lon) })),
-        'elevation',
-      );
-      centreEle = centre.values;
-      failedBatches += centre.failedBatches;
-
-      const around = await elevations(
-        slice.flatMap((r) => ring(Number(r.lat), Number(r.lon))),
-        'relief   ',
-      );
-      ringEle = around.values;
-      failedBatches += around.failedBatches;
-    } catch (err) {
-      if (!(err instanceof DailyLimitReached)) throw err;
-      // 🔴 Out of quota — but NOT out of work. The distances to water, a
-      // town, a shop and a station come from PostGIS and cost nothing at
-      // all; they are already in `slice` from the query at the top. So
-      // this slice and every remaining one still get written, without
-      // new height or terrain, and the retry filter above picks them up
-      // tomorrow because `elevation === undefined`.
-      stoppedAtLimit = true;
-    }
+    // 🔴 CAMP-484: ВИСОТУ ТУТ БІЛЬШЕ НЕ РАХУЮТЬ, І ЦЕ НЕ ВТРАТА.
+    //
+    // Тут стояли два запити до `api.open-meteo.com/v1/elevation` — по
+    // одному на центр і на кільце рельєфу. Дві причини прибрати:
+    //
+    // 1. ПРАВО. Безкоштовний тариф Open-Meteo некомерційний дослівно:
+    //    «You may only use the free API services for non-commercial
+    //    purposes». Обовʼязок вмикається першим афіліатним посиланням,
+    //    а не датою, — тобто код мусив змінитись ДО монетизації, не
+    //    після.
+    //
+    // 2. ЧИСЛА. Квота давала ~1 100 висот на добу. Заміряно 10.11.2026:
+    //    висоту мали 1 289 кемпінгів із 63 307 — два відсотки. Решту
+    //    цей шлях заповнював би 56 днів.
+    //
+    // Ті самі дані — Copernicus GLO-90 — лежать у відрі `openmeteo` під
+    // CC-BY-4.0 і читаються локально. `scripts/elevation/` рахує всі
+    // 62 018 за чверть години; 10.11.2026 покриття стало 63 307 зі
+    // 63 307, мінімум −6 м (польдери), максимум 3 384 м (Альпи).
+    //
+    // Тому цей скрипт лишає за собою те, що бере з PostGIS і що коштує
+    // нуль: вода, місто, крамниця, станція. Висота й рельєф приходять
+    // окремим кроком і не залежать від чужої квоти.
 
     await writeSlice(slice, centreEle, ringEle);
-
-    if (stoppedAtLimit) {
-      // Everything after this slice, with the PostGIS half only.
-      const rest = todo.slice(start + SLICE);
-      if (rest.length > 0) {
-        await writeSlice(
-          rest,
-          rest.map(() => null),
-          rest.flatMap(() => Array(RELIEF_SAMPLES).fill(null)),
-        );
-      }
-    }
   }
 
   async function writeSlice(
@@ -749,31 +524,6 @@ async function main(): Promise<void> {
       `  height kept        ${carriedForward}  (DEM silent, coordinates unchanged)`,
     );
   }
-  if (failedBatches) {
-    console.log(
-      `  ⚠ failed batches   ${failedBatches}  (rerun to fill them in)`,
-    );
-  }
-
-  // 🔴 A run that ran out of quota is incomplete, not substandard.
-  //
-  // The 90% gate below exists so a partial DEM run cannot ship looking
-  // fine. But once the work is sliced, stopping at the daily limit is the
-  // NORMAL way a large country is processed — France needs about eight
-  // days of quota — and failing the run every one of those days would
-  // train everybody to ignore the gate that is supposed to catch a real
-  // shortfall. Say where it got to, and leave the gate for runs that
-  // actually finished.
-  if (stoppedAtLimit) {
-    console.log(
-      `\n⚠ stopped at Open-Meteo's daily limit.\n` +
-        `  Heights and terrain are missing for the spots after the last full slice;\n` +
-        `  their water, town, shop and station distances ARE written and live.\n` +
-        `  Run again tomorrow — the selection above picks up exactly the gap.\n`,
-    );
-    await db.end();
-    return;
-  }
 
   // The card's own bar: "fields filled for >90% of a country's records".
   // Exiting non-zero makes that a gate rather than a number somebody
@@ -805,13 +555,10 @@ async function main(): Promise<void> {
 
 if (require.main === module) {
   main().catch((err) => {
-    // A limit we have been told to wait out is not a crash: say it in one
-    // sentence, without a stack trace nobody needs.
-    if (err instanceof DailyLimitReached) {
-      console.error(`\n⚠ ${err.message}\n`);
-    } else {
-      console.error(err);
-    }
+    // 🔴 CAMP-484: гілки про вичерпану квоту тут більше немає, бо немає
+    // квоти. Висоту рахує `scripts/elevation/` з локального дзеркала
+    // Copernicus; чужого ліміту, який треба «перечекати», не існує.
+    console.error(err);
     // 🔴 Exit, rather than only setting exitCode.
     //
     // On this path the Postgres client is still open, its socket keeps

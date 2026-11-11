@@ -38,7 +38,12 @@ def tile(band: int):
         path = os.path.join(DEM_DIR, f'lat_{band}.om')
         if not os.path.exists(path):
             raise FileNotFoundError(f'немає плитки {path}')
-        _tiles[band] = OmFileReader(open(path, 'rb'))
+        # 🔴 ШЛЯХ, А НЕ ВІДКРИТИЙ ФАЙЛ. `OmFileReader` приймає рядок
+        # зі шляхом або обгортку fsspec; звичайний обʼєкт файла він
+        # відхиляє з «Input must be either a file path string or an
+        # fsspec.core.OpenFile obj». Локально я цього не побачив, бо
+        # там читав просто з S3 через fsspec.
+        _tiles[band] = OmFileReader(path)
     return _tiles[band]
 
 
