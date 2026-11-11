@@ -164,7 +164,8 @@ export default async function Home() {
   // слотом, а не типом: `prose` їх три, і типом вони не розрізняються.
   const stay = sectionBySlot(page.sections, HOME_SLOTS[0]);
   const drive = sectionBySlot(page.sections, HOME_SLOTS[1]);
-  const notableText = sectionBySlot(page.sections, HOME_SLOTS[2]);
+  const driveLinks = sectionBySlot(page.sections, HOME_SLOTS[2]);
+  const notableText = sectionBySlot(page.sections, HOME_SLOTS[3]);
 
   return (
     <main>
@@ -193,6 +194,7 @@ export default async function Home() {
       <Hero
         stay={stay}
         drive={drive}
+        driveLinks={driveLinks}
         section={findSection(page.sections, HOME_SECTIONS[0])}
         values={values}
         countries={countries}
@@ -208,12 +210,14 @@ function Hero({
   section,
   stay,
   drive,
+  driveLinks,
   values,
   countries,
 }: {
   section: SectionView | null;
   stay: SectionView | null;
   drive: SectionView | null;
+  driveLinks: SectionView | null;
   values: Readonly<Record<string, string>>;
   countries: Awaited<ReturnType<typeof getCountries>>;
 }) {
@@ -263,6 +267,12 @@ function Hero({
             {drive?.body && (
               <Block as="p" measure="read" className="mt-1 text-sm text-ink-2">{drive.body}</Block>
             )}
+            {/* 🔴 CAMP-488: абзац вище обіцяє три відповіді — посвідчення,
+                вага спорядженого авто, чи влізе воно в кемпінг. Доти тут
+                не стояло нічого, і коробка лишалась порожньою на
+                пів-екрана. Картки ведуть на НАШІ сторінки, де ці
+                відповіді є; жодного орендодавця вони не вигадують. */}
+            {driveLinks && <PageSections sections={[driveLinks]} />}
           </div>
         </div>
       </div>
