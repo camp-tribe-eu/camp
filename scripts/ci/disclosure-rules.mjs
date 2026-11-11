@@ -223,8 +223,21 @@ export function visibleText(html) {
   let h = html;
   const body = /<body[^>]*>([\s\S]*)<\/body>/i.exec(h);
   if (body) h = body[1];
+  // 🔴 КОМЕНТАРІ ЗНІМАЮТЬСЯ ДО СТАЛОГО СТАНУ, А НЕ ОДНИМ ПРОХОДОМ.
+  // CodeQL (js/incomplete-multi-character-sanitization) впіймав це на
+  // PR #539, і за шаблоном він має рацію: один прохід лишає `<!--`,
+  // складений із перекриття (`<!--<!---->`).
+  //
+  // Наслідку тут немає — це скрипт CI, який читає наш власний зібраний
+  // HTML і лише РАХУЄ збіги. Але відхилення в чужому UI переживає свою
+  // причину, тож дешевше прибрати привід, ніж щороку пояснювати.
+  let prev;
+  do {
+    prev = h;
+    h = h.replace(/<!--[\s\S]*?-->/g, '');
+  } while (h !== prev);
+
   h = h
-    .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/<(script|style|template)\b[^>]*>[\s\S]*?<\/\1>/gi, ' ')
     .replace(/<details\b[^>]*\bdata-hours="as-recorded"[^>]*>[\s\S]*?<\/details>/gi, ' ')
     .replace(new RegExp(`</?(?:${INLINE})\\b[^>]*>`, 'gi'), '')

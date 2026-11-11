@@ -154,8 +154,8 @@ async function run(source, label) {
 
 // ── самотест ──────────────────────────────────────────────────────────
 
-// правило × 1 (приклад) + законне × 1 + 16 іменованих перевірок нижче.
-const EXPECTED_CASES = FORBIDDEN.length + LEGITIMATE.length + 16;
+// правило × 1 (приклад) + законне × 1 + 17 іменованих перевірок нижче.
+const EXPECTED_CASES = FORBIDDEN.length + LEGITIMATE.length + 17;
 
 function selfTest() {
   let bad = 0;
@@ -228,6 +228,17 @@ function selfTest() {
     'href із сирим URL джерела не червоніє, а той самий URL текстом — так',
     scanPage('/x', page('<p><a href="https://data.datatourisme.fr/23/e437c815-500c-375e-9720-84692c3a214a">record at the source</a></p>')).length === 0 &&
       scanPage('/x', page('<p><a href="/x">https://data.datatourisme.fr/23/e437c815-500c-375e-9720-84692c3a214a</a></p>')).length >= 1,
+  );
+
+  // 5c. Перекритий коментар: один прохід лишив би живий `<!--`
+  // (CodeQL, PR #539). Усередині — заборонена фраза, що має зникнути.
+  check(
+    'перекритий коментар знімається цілком',
+    visibleText('<p>a<!--<!---->b</p>') === 'ab' &&
+      // внутрішній коментар збирає зовнішній із уламків; після одного проходу
+      // `> routing engine` лишається видимим
+      scanPage('/x', page('<p>ok<<!---->!-- a > routing engine --></p>')).length === 0,
+    JSON.stringify(visibleText('<p>ok<<!---->!-- a > routing engine --></p>')),
   );
 
   // 6. Скрипт і JSON-LD не читаються.
