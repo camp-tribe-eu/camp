@@ -367,25 +367,6 @@ test.describe("🔴 the disclosure the AI Act requires", () => {
     );
   });
 
-  // 🔴 ДРУГИЙ БІК ТІЄЇ Ж МЕЖІ. Знявши вимогу імені для `data-generated`,
-  // легко лишити сторінку, яка не каже про програму ВЗАГАЛІ — а це вже
-  // обман, незалежно від AI Act. Тому тут перевірка на слова.
-  test("a program-counted guide still says a program wrote it", async ({
-    page,
-    request,
-  }) => {
-    const list = await guides(request);
-    const counted = list.find((g) => g.provenance === "data-generated");
-    test.skip(!counted, "no program-counted guide in the fixture");
-
-    await page.goto(`/guides/${counted!.slug}`);
-    const block = page.getByTestId("provenance");
-    await expect(block).toContainText(/program|database|our own records/i);
-    if (counted!.generator) {
-      await expect(block).not.toContainText(counted!.generator);
-    }
-  });
-
   // The structured data has to agree with the page. A crawler that is
   // told an organisation authored text a program produced has been
   // misled just as surely as a reader would be.
@@ -413,7 +394,7 @@ test.describe("🔴 the disclosure the AI Act requires", () => {
 });
 
 test.describe("🔴 a generated page still shows gaps as gaps", () => {
-  test("it says how many campsites have nothing recorded", async ({
+  test("it says how many campsites are empty, and that a program wrote it", async ({
     page,
     request,
   }) => {
@@ -422,6 +403,16 @@ test.describe("🔴 a generated page still shows gaps as gaps", () => {
     test.skip(!g, "no data-generated guide in this build");
 
     await page.goto(`/guides/${g!.slug}`);
+    // 🔴 CAMP-463: друга половина тієї ж межі в ТОМУ САМОМУ тесті, щоб
+    // не плодити другий `test.skip` на ту саму відсутню фікстуру (бюджет
+    // пропусків e2e — `scripts/ci/check-e2e-skips.mjs`). Знявши вимогу
+    // імені генератора для `data-generated`, легко лишити сторінку, яка
+    // не каже про програму ВЗАГАЛІ — а це вже обман, незалежно від AI Act.
+    const prov = page.getByTestId("provenance");
+    await expect(prov).toContainText(/program|database|our own records/i);
+    if (g!.generator) {
+      await expect(prov).not.toContainText(g!.generator);
+    }
     const text = await page.locator("main").innerText();
     // The sentence that makes the rest trustworthy: an absence is not a
     // "no". If this ever disappears, the page has started implying
