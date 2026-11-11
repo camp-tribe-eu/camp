@@ -29,7 +29,7 @@ The reader-facing statement lives in `apps/web/src/app/llms.txt/route.ts`
 runs in CI and fails if a raster file sits in `public/banners/` while that
 sentence is missing. The service and model are named for readers on the
 attribution page, section "Decorative images" (migration
-`1796300000000-AttributionBannerImages`, version 1.4). The campsite page block "We don't publish pictures we
+`1796400000000-AttributionBannerImages`, version 1.4). The campsite page block "We don't publish pictures we
 haven't verified" was measured and left alone: it says "here", the page
 renders no banner, and a banner shows no place, so it stays true.
 

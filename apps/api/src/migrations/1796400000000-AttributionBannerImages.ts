@@ -27,8 +27,8 @@ import {
  * запит і seed кожного збережено. Про права на вихід не пишемо нічого
  * понад це: умови сервісу — їхні, і ми їх не переказуємо з пам'яті.
  */
-export class AttributionBannerImages1796300000000 implements MigrationInterface {
-  name = 'AttributionBannerImages1796300000000';
+export class AttributionBannerImages1796400000000 implements MigrationInterface {
+  name = 'AttributionBannerImages1796400000000';
 
   /** Те, що 1.3 поклала в базу — береться з її міграції, не передруковується. */
   readonly previous = new AttributionElevationFromBucket1796000000000().page;

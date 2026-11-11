@@ -223,7 +223,7 @@ export const LEGAL_PAGES: LegalPage[] = [
     // 1.4 (11.11.2026, CAMP-469): декоративні банери згенеровані ШІ —
     // названо модель (FLUX1.1 [pro] ultra) і сервіс (fal.run), і сказано,
     // що вони не зображують жодного реального місця. Migration
-    // 1796300000000-AttributionBannerImages.
+    // 1796400000000-AttributionBannerImages.
     version: '1.4',
     effectiveFrom: '2026-11-11',
   },
