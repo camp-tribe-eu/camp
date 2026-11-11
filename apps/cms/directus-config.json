@@ -19,12 +19,6 @@
       "icon": "camping"
     },
     {
-      "collection": "featured_blocks",
-      "hidden": false,
-      "singleton": false,
-      "icon": "push_pin"
-    },
-    {
       "collection": "guides",
       "hidden": false,
       "singleton": false,
@@ -101,18 +95,6 @@
       "hidden": false,
       "singleton": false,
       "icon": "flag"
-    },
-    {
-      "collection": "rental_cities",
-      "hidden": false,
-      "singleton": false,
-      "icon": "location_city"
-    },
-    {
-      "collection": "rental_city_translations",
-      "hidden": false,
-      "singleton": false,
-      "icon": "translate"
     },
     {
       "collection": "reviews",
