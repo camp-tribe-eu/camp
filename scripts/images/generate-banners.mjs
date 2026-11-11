@@ -1,4 +1,5 @@
 // CAMP-469: decorative images for the site, generated through FAL.
+// Second pass: the owner asked for photographs, not illustrations.
 //
 //   FAL_KEY=... node scripts/images/generate-banners.mjs [--only=eu-dawn,tent] [--dry-run]
 //
@@ -23,37 +24,42 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.resolve(here, '../../apps/web/public/banners');
-const MODEL = 'fal-ai/flux/schnell';
+const MODEL = 'fal-ai/flux-pro/v1.1-ultra';
 
 // Delivered size is what the slot needs: 1920px for the wide banners (the
-// container is 1704px), 1200px for the square cards. FAL rounds each side
-// to a multiple of 16 (1920x1080 came back 1920x1072), so the result is
-// cropped to the exact ratio with sharp's `cover`, a sub-1% resample.
+// container is 1704px), 1200px for the square cards. The model returns
+// ~2-4 MP at its own aspect ratio (16:9, 21:9, 1:1); sharp's `cover` crops
+// to the exact slot ratio and downsizes.
+//
+// 🔴 PHOTOREALISTIC means it reads as a real photograph of a real place.
+// So every prompt forbids the things that pin a picture to a place or a
+// person: country, mountain, city, landmark, sign, number plate, flag,
+// text, people, brand marks. Look at every output before committing it,
+// and look for objects floating without a shadow.
 const NO_PLACE =
-  'generic anonymous landscape, no recognisable place, no landmark, no buildings, no text, no letters, no logos, no people';
-const STYLE =
-  'soft painterly flat illustration, muted palette, calm, plenty of empty space for a headline, low contrast';
+  'generic unremarkable landscape that cannot be tied to any country, no mountains, no landmark, no buildings, no signs, no text, no number plates, no license plate, no lettering, no emblems, no flags, no logos, no people';
+const PHOTO = 'photograph, natural light, shot on a full-frame camera, 35mm lens, fine detail, editorial magazine quality';
 
 export const IMAGES = [
   {
-    name: 'eu-dawn',
-    width: 1920, height: 1080, seed: 4690001, quality: 72,
-    prompt: `Abstract dawn over a gentle dark treeline, a single small tent silhouette at the horizon, sky fading from deep blue to warm peach, ${STYLE}, ${NO_PLACE}`,
+    name: 'eu-dawn', aspect: '16:9',
+    width: 1920, height: 1080, seed: 4690011, quality: 62,
+    prompt: `Misty flat meadow at first light, a single small green dome tent far in the middle distance with long soft shadow on the dewy grass, a line of deciduous trees on the horizon, pale pink and gold sky, wide empty sky above, ${PHOTO}, ${NO_PLACE}`,
   },
   {
-    name: 'about',
-    width: 1920, height: 840, seed: 4690002, quality: 72,
-    prompt: `Quiet night sky full of stars above a dark forest edge, a faint glow from a small camp fire far away, deep navy and slate tones, ${STYLE}, ${NO_PLACE}`,
+    name: 'about', aspect: '21:9',
+    width: 1920, height: 840, seed: 4690012, quality: 62,
+    prompt: `Clear night sky with the Milky Way over a dark silhouetted pine forest edge and a quiet open field, long exposure astrophotography, deep blue tones, ${PHOTO}, ${NO_PLACE}`,
   },
   {
-    name: 'camper',
-    width: 1200, height: 1200, seed: 4690003, quality: 74,
-    prompt: `A small simple camper van parked on an empty country road among green fields and trees, golden morning light, side view, ${STYLE}, ${NO_PLACE}`,
+    name: 'camper', aspect: '1:1',
+    width: 1200, height: 1200, seed: 4690043, quality: 66,
+    prompt: `Telephoto photograph compressing a long straight empty country road lined with green fields, a small white camper van with a smooth blank rear, far down the road driving away from the camera along its own lane, seen from behind, the van occupies less than one tenth of the frame width, wheels on the asphalt with a short soft shadow under and beside it, warm low morning sun, ${PHOTO}, ${NO_PLACE}`,
   },
   {
-    name: 'tent',
-    width: 1200, height: 1200, seed: 4690004, quality: 74,
-    prompt: `A lone dome tent on a grassy clearing at dusk, warm light glowing inside, pine forest behind, first stars, ${STYLE}, ${NO_PLACE}`,
+    name: 'tent', aspect: '1:1',
+    width: 1200, height: 1200, seed: 4690014, quality: 66,
+    prompt: `A lone orange dome tent pitched on a grassy clearing at blue hour, warm light glowing from inside, guy lines pegged into the grass, tall spruce forest behind, first stars, ${PHOTO}, ${NO_PLACE}`,
   },
 ];
 
@@ -63,12 +69,13 @@ async function generate(img, key) {
     headers: { Authorization: `Key ${key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       prompt: img.prompt,
-      image_size: { width: img.width, height: img.height },
-      num_inference_steps: 4,
+      aspect_ratio: img.aspect,
       num_images: 1,
       seed: img.seed,
+      raw: true,
+      safety_tolerance: '2',
       enable_safety_checker: true,
-      output_format: 'png',
+      output_format: 'jpeg',
     }),
   });
   if (!res.ok) throw new Error(`${img.name}: FAL answered ${res.status}`);
