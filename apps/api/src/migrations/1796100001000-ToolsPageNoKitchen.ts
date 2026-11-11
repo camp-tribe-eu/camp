@@ -32,8 +32,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * 🔴 НЕ ВИДАЛЯЄТЬСЯ СТОРІНКА Й НЕ ЧІПАЮТЬСЯ КАРТКИ ІНСТРУМЕНТІВ: лише
  * один фрагмент у вступі й один завершальний блок.
  */
-export class ToolsPageNoKitchen1796100000000 implements MigrationInterface {
-  name = 'ToolsPageNoKitchen1796100000000';
+export class ToolsPageNoKitchen1796100001000 implements MigrationInterface {
+  name = 'ToolsPageNoKitchen1796100001000';
 
   /** Дослівно те, що засіяла `SeedToolsPage`. */
   static readonly OLD_INTRO_TAIL =
@@ -54,8 +54,8 @@ export class ToolsPageNoKitchen1796100000000 implements MigrationInterface {
           AND p.slug = 'tools'
           AND st.body LIKE '%' || $1::text || '%'`,
       [
-        ToolsPageNoKitchen1796100000000.OLD_INTRO_TAIL,
-        ToolsPageNoKitchen1796100000000.NEW_INTRO_TAIL,
+        ToolsPageNoKitchen1796100001000.OLD_INTRO_TAIL,
+        ToolsPageNoKitchen1796100001000.NEW_INTRO_TAIL,
       ],
     );
     await queryRunner.query(
@@ -68,7 +68,7 @@ export class ToolsPageNoKitchen1796100000000 implements MigrationInterface {
            WHERE p.slug = 'tools'
              AND st.body = $1::text
         )`,
-      [ToolsPageNoKitchen1796100000000.OLD_CLOSING],
+      [ToolsPageNoKitchen1796100001000.OLD_CLOSING],
     );
   }
 
@@ -82,8 +82,8 @@ export class ToolsPageNoKitchen1796100000000 implements MigrationInterface {
           AND p.slug = 'tools'
           AND st.body LIKE '%' || $1::text || '%'`,
       [
-        ToolsPageNoKitchen1796100000000.NEW_INTRO_TAIL,
-        ToolsPageNoKitchen1796100000000.OLD_INTRO_TAIL,
+        ToolsPageNoKitchen1796100001000.NEW_INTRO_TAIL,
+        ToolsPageNoKitchen1796100001000.OLD_INTRO_TAIL,
       ],
     );
     // Блок, якого вже немає, повертається лише якщо його ще нема, — і з
@@ -97,7 +97,7 @@ export class ToolsPageNoKitchen1796100000000 implements MigrationInterface {
          FROM page_sections s
          JOIN page_section_translations st ON st.section_id = s.id
         WHERE s.page_id = $1 AND st.body = $2::text`,
-      [page[0].id, ToolsPageNoKitchen1796100000000.OLD_CLOSING],
+      [page[0].id, ToolsPageNoKitchen1796100001000.OLD_CLOSING],
     );
     if (Number(has[0]?.count ?? 0) > 0) return;
     const row: Array<{ id: string }> = await queryRunner.query(
@@ -108,7 +108,7 @@ export class ToolsPageNoKitchen1796100000000 implements MigrationInterface {
     await queryRunner.query(
       `INSERT INTO page_section_translations (section_id, language_code, body, items)
        VALUES ($1, 'en', $2, '[]'::jsonb)`,
-      [row[0].id, ToolsPageNoKitchen1796100000000.OLD_CLOSING],
+      [row[0].id, ToolsPageNoKitchen1796100001000.OLD_CLOSING],
     );
   }
 }
