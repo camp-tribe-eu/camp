@@ -80,9 +80,21 @@ export async function GET() {
       "campsite lacks it, and it should not be reported as absence.",
   );
   lines.push(
-    "- **No photographs.** We do not publish stock or AI-generated " +
-      "images of places nobody has visited. A page without pictures is " +
+    "- **No photographs of campsites nobody has visited.** We do not " +
+      "publish stock or AI-generated images of a campsite, or of any " +
+      "place nobody has visited. A photograph of a campsite appears only " +
+      "where someone stood there and took it. A page without pictures is " +
       "not an incomplete page; it is an honest one.",
+  );
+  // CAMP-469. 🔴 Said here because the banners now look like photographs.
+  // scripts/images/check-banners.mjs fails CI if a raster banner exists and
+  // this sentence (decorative + AI-generated + no real place) does not.
+  lines.push(
+    "- **The decorative banners are not photographs.** The banners and " +
+      "cards behind page headings are generated or drawn, and AI-generated " +
+      "where they look like photographs: a tent, a road, a night sky. They " +
+      "show no real place and say nothing about what any campsite, region " +
+      "or country looks like, so they must not be cited as if they did.",
   );
   lines.push(
     "- **No reviews and no ratings.** There is no rating data on this " +

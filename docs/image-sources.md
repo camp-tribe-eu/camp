@@ -24,13 +24,12 @@ photorealism it is not, so it is stated here and must be kept true:
   looked at before commit for those and for objects floating without a
   shadow.
 
-A reader-facing disclosure is not written yet. Candidate places, found in
-code and not touched: the "We don't publish pictures we haven't verified"
-block on the campsite page
-(`apps/web/src/app/camping/[country]/[region]/[slug]/page.tsx`) and the
-About page. Note that `apps/web/src/app/llms.txt/route.ts` says "No
-photographs. We do not publish stock or AI-generated ..."; that sentence and
-these banners need reconciling by whoever owns the pages.
+The reader-facing statement lives in `apps/web/src/app/llms.txt/route.ts`
+("The decorative banners are not photographs"). `scripts/images/check-banners.mjs`
+runs in CI and fails if a raster file sits in `public/banners/` while that
+sentence is missing. The campsite page block "We don't publish pictures we
+haven't verified" was measured and left alone: it says "here", the page
+renders no banner, and a banner shows no place, so it stays true.
 
 ## Common to all four
 
