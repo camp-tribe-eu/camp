@@ -17,6 +17,21 @@ export class PagesController {
   }
 
   /**
+   * Зображення банера країни (CAMP-469). Два сегменти шляху, тож із
+   * `:slug` нижче не зіткнеться. 404, коли зображення не поставлено, —
+   * веб читає це як «малюй, як малював».
+   */
+  @Get('camping-country/:code')
+  async campingCountryBanner(
+    @Param('code') code: string,
+    @Query('language') language = 'en',
+  ): Promise<{ src: string; alt: string }> {
+    const banner = await this.pages.campingCountryBanner(code, language);
+    if (!banner) throw new NotFoundException(`немає зображення для «${code}»`);
+    return banner;
+  }
+
+  /**
    * 🔴 404, А НЕ ПОРОЖНЯ СТОРІНКА. Сторінка, якої немає, мусить
    * виглядати як відсутня і для читача, і для пошуковика — інакше ми
    * віддамо 200 над порожнечею, і вона потрапить в індекс.

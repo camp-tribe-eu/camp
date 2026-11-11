@@ -206,6 +206,38 @@ export class PagesService {
   }
 
   /**
+   * Власне зображення банера країни — CAMP-469.
+   *
+   * 🔴 `null` — «зображення немає», і веб у цьому випадку малює банер як
+   * і малював. Порожній рядок, пробіли й відсутність рядка CMS — одне й те
+   * саме «немає»: «стерли в CMS» і «не заповнювали» не можуть розходитись.
+   *
+   * 🔴 ВИДИМІСТЬ — ТА САМА `VISIBLE`, що в сторінок: країна, яку власник
+   * зняв із публікації, не віддає й зображення.
+   */
+  async campingCountryBanner(
+    code: string,
+    language: string,
+  ): Promise<{ src: string; alt: string } | null> {
+    const rows = await this.db.query<
+      Array<{ src: string | null; alt: string | null }>
+    >(
+      `SELECT p.banner_image_url AS src, t.banner_image_alt AS alt
+         FROM pages p
+         JOIN page_translations t
+           ON t.page_id = p.id AND t.language_code = $2
+        WHERE p.slug = $1
+          AND p.type = 'camping-country'
+          AND ${VISIBLE}
+        LIMIT 1`,
+      [code.toLowerCase(), language],
+    );
+    const src = rows[0]?.src?.trim();
+    if (!src) return null;
+    return { src, alt: rows[0].alt?.trim() ?? '' };
+  }
+
+  /**
    * Дописи блогу, найсвіжіший першим.
    *
    * 🔴 ПОРЯДОК — ЗА ДАТОЮ, А НЕ ЗА `sort`. Сторінки впорядковує рука

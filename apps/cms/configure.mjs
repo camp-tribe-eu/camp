@@ -462,6 +462,9 @@ const FIELD_META = {
         choices: [
           { text: 'Сторінка', value: 'page' },
           { text: 'Допис блогу', value: 'post' },
+          // CAMP-469: рядок країни кемпінгів. Слаг = код країни, а сам
+          // рядок лише тримає зображення її банера.
+          { text: 'Країна кемпінгів (camping-country)', value: 'camping-country' },
         ],
       },
     },
@@ -481,11 +484,23 @@ const FIELD_META = {
     noindex: { interface: 'boolean', note: 'Заборонити пошуковикам індексувати цю сторінку.' },
     sort: { interface: 'input', note: 'Порядок у переліках.' },
     author_name: { interface: 'input', note: 'Підпис під дописом. Порожньо — підпису немає.' },
+    // 🔴 CAMP-469. Лише для сторінок типу «camping-country»; в інших
+    // типів це поле ні на що не впливає.
+    banner_image_url: {
+      interface: 'input',
+      note:
+        'Власне фото країни для банера (тип camping-country). Шлях від кореня сайту, напр. /banners/slovenia.jpg. ' +
+        'Порожньо — банер без фото, як зараз. 🔴 Лише ВАШЕ фото місця: сток і згенеровані картинки не можна.',
+    },
   },
   page_translations: {
     title: { interface: 'input', note: 'Заголовок, який читач бачить угорі сторінки.' },
     meta_title: { interface: 'input', note: 'Заголовок у вкладці браузера й у видачі пошуку.' },
     meta_description: { interface: 'input-multiline', note: 'Опис під посиланням у видачі пошуку.' },
+    banner_image_alt: {
+      interface: 'input',
+      note: 'Що на фото банера, одним реченням — для незрячих читачів. Порожньо — фото вважається прикрасою.',
+    },
   },
   page_sections: {
     type: {
