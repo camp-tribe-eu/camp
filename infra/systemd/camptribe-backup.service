@@ -10,3 +10,13 @@ User=camptribe
 Group=camptribe
 WorkingDirectory=/srv/camptribe/current
 ExecStart=/usr/local/bin/camptribe-backup
+# 🔴 СЛІД ЗНІМАЄТЬСЯ ЛИШЕ ПІСЛЯ УСПІШНОГО ПРОГОНУ, і без цього рядка
+# він не знімається НІКОЛИ. Заміряно 11.11.2026: цей юніт тривожив,
+# клав слід у /srv/camptribe/failed — і не прибирав його навіть тоді,
+# коли наступний прогін був зелений. Лист обіцяє читачеві протилежне
+# («слід зникає сам лише після УСПІШНОГО прогону»), тож тривога
+# повторювалася б щодванадцять годин вічно, про давно полагоджене.
+#
+# Для Type=oneshot ExecStartPost не біжить, якщо ExecStart повернув
+# ненуль — саме тому ця гілка й означає «успіх», а не «старт».
+ExecStartPost=/bin/rm -f /srv/camptribe/failed/camptribe-backup.service
