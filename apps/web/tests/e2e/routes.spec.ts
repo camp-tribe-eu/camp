@@ -250,9 +250,11 @@ test.describe("a route page", () => {
     // 🔴 A typographic apostrophe, because that is what the page
     // renders (&rsquo;). Asserting the ASCII one passes nowhere and
     // looks like a missing paragraph rather than a missing character.
+    // CAMP-463: the sentence no longer calls the hours a "syntax".
     await expect(services).toContainText(
-      "OpenStreetMap’s own syntax, unchanged",
+      "Opening hours are as OpenStreetMap records them",
     );
+    await expect(services).not.toContainText("own syntax");
 
     // 🔴 No invented rating. Nothing in this block may look like one —
     // no stars, no "4.5", no "out of 5".

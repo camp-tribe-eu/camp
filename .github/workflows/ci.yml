@@ -1546,6 +1546,27 @@ jobs:
             | grep -c 'check-no-internal-kitchen self-test:' >/dev/null
           node scripts/ci/check-no-internal-kitchen.mjs
 
+      # CAMP-463 (друга половина). Власник: «Проєкт має бути написаний
+      # людиною для людей». Попередній крок ловить сполуки про стан наших
+      # справ; цей — ще й МАШИННИЙ ФОРМАТ, показаний читачеві (ISO-мітка
+      # часу, сирий тег OSM, сирий синтаксис годин, імʼя програми),
+      # переговорну позицію («routing engine, which is not running») і
+      # сирі URL джерела на місці назви.
+      #
+      # 🔴 МІРЯЄ ЗІБРАНІ СТОРІНКИ І ДРУКУЄ ЗНАМЕННИК: «сторінок
+      # перевірено: N, шаблонів: M». Нуль сторінок — вихід 2, збіг —
+      # вихід 1; «нічого не знайдено» над нулем сторінок не варте нічого.
+      #
+      # 🔴 Самотест перший, і його вивід ГРЕПАЄТЬСЯ — той самий другий
+      # замок, що й у кроку вище: самотест, який не запустився, друкує
+      # те саме, що самотест, який усе пройшов, тобто нічого.
+      - name: The site shows no internal kitchen, machine format or raw source URLs
+        run: |
+          set -o pipefail
+          node scripts/ci/check-no-internal-disclosure.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-no-internal-disclosure self-test:' >/dev/null
+          node scripts/ci/check-no-internal-disclosure.mjs
+
       # 🔴 CAMP-163. The stripper this guard depends on had no rehearsal,
       # and that is how it shipped a pattern that stopped at the first
       # closing tag: a `data-boilerplate` block holding a link kept most

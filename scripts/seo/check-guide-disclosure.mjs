@@ -70,7 +70,14 @@ export function evaluate(slug, html) {
     }
     // And WHICH one — "a machine wrote it" with no answer to "which"
     // discloses nothing anybody can check.
-    if (!/<code>[^<]+<\/code>/.test(html)) {
+    //
+    // 🔴 CAMP-463: ЛИШЕ ДЛЯ ТЕКСТУ, ЯКИЙ ПИСАЛА МОВНА МОДЕЛЬ. Програма, що
+    // рахує записи (`data-generated`), моделі не містить, і її внутрішня
+    // назва (`region-facts@2`) читачеві сторінки про воду нічого не
+    // відповідала. Сторінка все одно мусить сказати словами, що її писала
+    // програма (перевірка вище лишилась) — зникла лише вимога імені.
+    // Сторінка-СТАТТЯ друкує імʼя й надалі (components/guide-article.tsx).
+    if (provenance !== 'data-generated' && !/<code>[^<]+<\/code>/.test(html)) {
       problems.push(`${slug}: does not name the program that produced it`);
     }
   }
@@ -121,6 +128,19 @@ function selfTest() {
     ['g: does not name the program that produced it'],
   );
 
+  // 🔴 CAMP-463: a counting program is named in words, not by its code
+  // name. The page still has to SAY a program wrote it (case above this
+  // one refuses a page that never mentions one), but it need not print
+  // the program's internal name.
+  check(
+    'a program-counted page needs no program name, only the words',
+    evaluate(
+      'g',
+      `<h1>T</h1><aside data-testid="provenance" data-provenance="data-generated">A program wrote this page from our own records.</aside>`,
+    ),
+    [],
+  );
+
   // A human-written page needs no machine disclosure and must not be
   // nagged for one — a guard that cries about correct pages gets muted.
   check(
@@ -136,7 +156,7 @@ function selfTest() {
   // passed" is a line five scripts in this repository printed, so a CI
   // step grepping for it could be satisfied by somebody else's run; and
   // a case that stopped being reached prints what a passing case prints.
-  const EXPECTED_CASES = 5;
+  const EXPECTED_CASES = 6;
   if (cases !== EXPECTED_CASES) {
     console.log(`✗ ${cases} cases ran, expected ${EXPECTED_CASES}`);
     failures++;

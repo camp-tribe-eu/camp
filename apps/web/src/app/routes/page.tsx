@@ -158,10 +158,8 @@ export default async function RoutesIndex() {
                 зробив би це речення неправдою, не зламавши нічого
                 видимого. */}
             There are {spelledCount(routes.length)} rather than fifty on
-            purpose. Fifty would mean one template with the place names swapped,
-            which is the fastest way to make a site that nobody — and no search
-            engine — has any reason to trust. Each of these has something of its
-            own to say.
+            purpose. Fifty would mean one template with the place names
+            swapped. Each of these has something of its own to say.
           </p>
           <p>
             Every route is written stop by stop: {stops} stops across the{" "}
@@ -186,13 +184,12 @@ export default async function RoutesIndex() {
                 route, because this is where somebody comparing routes
                 would look for them. */}
             <strong className="font-semibold text-heading">
-              What is not here yet:
+              What this page does not show:
             </strong>{" "}
             road distances and driving times, a check of any route against the
             height, width or weight of your vehicle, and what the fuel will
-            cost. Each needs our own routing engine, which is not running. We
-            would rather leave the figure out than publish one we cannot stand
-            behind — so the distance on each card is a straight-line distance:
+            cost. We would rather leave a figure out than publish one we cannot
+            stand behind — so the distance on each card is a straight-line distance:
             the sum of the straight lines between its stops, labelled as exactly
             that. The road is always longer, and on the mountain sections much
             longer. For the part of a budget that can be measured,{" "}

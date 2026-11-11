@@ -60,6 +60,7 @@ test.describe('naming the source', () => {
       name: 'OpenStreetMap',
       url: 'https://www.openstreetmap.org/',
       tag: 'motorhome=yes',
+      phrase: 'open to motorhomes',
     });
   });
   test('only a source we can name in words', () => {
@@ -148,7 +149,11 @@ test.describe('the section and the duplicate-page guard', () => {
       return out.trim();
     };
     expect(strip(html(A))).not.toEqual(strip(html(B)));
-    expect(strip(html(A))).toContain('motorhome=yes');
-    expect(strip(html(B))).toContain('motorhome=designated');
+    // 🔴 CAMP-463: the tag is said in words, and never as the raw tag.
+    expect(strip(html(A))).toContain('open to motorhomes');
+    expect(strip(html(B))).toContain('signposted for motorhomes');
+    for (const h of [html(A), html(B)]) {
+      expect(visibleText(h)).not.toMatch(/motorhome=/);
+    }
   });
 });

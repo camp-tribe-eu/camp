@@ -131,7 +131,7 @@ test.describe('a campsite page says the answer outright', () => {
 
   test('allowed: says Allowed, who said it, which tag, and when', async () => {
     const text = await pageText(ALLOWED);
-    expect(text).toContain('Allowed — according to OpenStreetMap (motorhome=yes), read on 12 October 2026.');
+    expect(text).toContain('Allowed — according to OpenStreetMap, which records this site as open to motorhomes. Read on 12 October 2026.');
     expect(text).toContain('not a ruling');
     expect(text).not.toContain('Not allowed');
     expect(text).not.toContain('Not known');
@@ -139,7 +139,7 @@ test.describe('a campsite page says the answer outright', () => {
 
   test('forbidden: says Not allowed with the same three facts', async () => {
     const text = await pageText(FORBIDDEN);
-    expect(text).toContain('Not allowed — according to OpenStreetMap (motorhome=no), read on 12 October 2026.');
+    expect(text).toContain('Not allowed — according to OpenStreetMap, which records this site as closed to motorhomes. Read on 12 October 2026.');
     expect(text).not.toContain('Not known');
   });
 

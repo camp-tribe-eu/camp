@@ -137,7 +137,10 @@ test("🔴 the shipped geometry provider reports unavailable, with a reason", as
   ]);
   expect(result.available).toBe(false);
   if (!result.available) {
-    expect(result.reason).toContain("routing engine");
+    expect(result.reason).toContain("Road distance");
+    // 🔴 CAMP-463: причина читається читачем, тож не розповідає про наш
+    // стан — «routing engine, which is not running» звідти пішло.
+    expect(result.reason).not.toMatch(/engine|not running|yet/i);
   }
 });
 

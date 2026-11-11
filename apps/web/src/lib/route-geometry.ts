@@ -114,7 +114,7 @@ export class NullRouteGeometry implements RouteGeometryProvider {
     return {
       available: false,
       reason:
-        'Road distance and driving time need our own routing engine, which is not running yet.',
+        'Road distance is not shown: the only distance on this page is the straight line between the stops.',
     };
   }
 }

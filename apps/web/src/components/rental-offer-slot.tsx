@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import { AffiliateLink, AffiliateNotice } from '@/components/affiliate-notice';
 import type { Offer } from '@/lib/affiliate';
 import { Block } from '@/components/layout';
@@ -6,26 +5,12 @@ import { Block } from '@/components/layout';
 // CAMP-4 — where a commission link goes, and what stands there until one
 // exists.
 //
-// 🔴 THE EMPTY STATE IS THE FEATURE.
-//
-// There are no affiliate accounts yet (CAMP-98), so `offers` is an empty
-// array on every page of this section in every build made today. The easy
-// thing would be to render nothing at all. This renders the slot, says
-// plainly that it is empty and why, and offers the reader the thing we
-// can actually give them instead — our own campsite data and the fuel
-// calculator, neither of which pays us anything.
-//
-// Three reasons, in order of how much they cost to get wrong:
-//
-//   1. An invented offer is the worst thing this page could contain. No
-//      price, no vehicle, no company and no availability exists here, and
-//      "from €69/day" as a placeholder would be a lie that outlives the
-//      placeholder.
-//   2. A section that silently disappears cannot be reviewed. Visible
-//      emptiness is a to-do that the owner, and any reader, can see.
-//   3. The disclosure has to be part of the template rather than part of
-//      the launch. Wiring it now means the first real link is disclosed
-//      by construction.
+// 🔴 CAMP-463: ПОРОЖНІЙ СТАН БІЛЬШЕ НЕ МАЛЮЄТЬСЯ. Раніше «порожній слот
+// — це фіча»: блок розповідав, що партнера немає, і що ми не вигадуватимемо
+// пропозицій. Власник: на публічних сторінках не має бути нашої кухні й
+// переговорної позиції. Коли пропозицій немає, слот не існує; вигаданої
+// пропозиції від цього не зʼявляється — її не було й раніше, а `offers`
+// читається з конфігурації (lib/affiliate.ts), не з цього файла.
 
 export default function RentalOfferSlot({
   offers,
@@ -35,46 +20,12 @@ export default function RentalOfferSlot({
   /** Named in the empty state, so the reader knows what is missing. */
   where: string;
 }) {
-  if (offers.length === 0) {
-    return (
-      <section
-        data-testid="rental-offer-slot"
-        data-state="empty"
-        aria-labelledby="rental-offers-heading"
-        className="mt-10 rounded-card border border-dashed border-line-2 bg-surface-2 p-5"
-      >
-        <h2
-          id="rental-offers-heading"
-          className="text-xl text-heading"
-        >
-          Where to rent one in {where}
-        </h2>
-        <Block as="p" measure="read" className="mt-3 text-ink-2">
-          We have no rental partner for {where}, so there is nothing here to
-          click. We are not going to fill the gap with a company we have no
-          relationship with, a price nobody quoted us or a vehicle nobody has
-          seen — every other number on this page is one we measured, and a
-          made-up one here would tell you exactly how much the rest is worth.
-        </Block>
-        <Block as="p" measure="read" className="mt-3 text-ink-2">
-          What we can give you today is the part that is ours:{' '}
-          <Link className="underline" href="/search">
-            search
-          </Link>{' '}
-          and{' '}
-          <Link className="underline" href="/map">
-            the map
-          </Link>{' '}
-          cover every campsite we hold, and{' '}
-          <Link className="underline" href="/tools/camper-trip-cost">
-            the trip cost calculator
-          </Link>{' '}
-          prices the fuel from the European Commission&rsquo;s weekly
-          bulletin. None of those pays us anything either.
-        </Block>
-      </section>
-    );
-  }
+  // 🔴 CAMP-463: ПОРОЖНЄ НЕ МАЛЮЄМО. Тут був блок «We have no rental
+  // partner for {where}, so there is nothing here to click…» — розповідь
+  // читачеві про те, що в нас немає партнера й чого ми не робитимемо.
+  // Коротка відповідь, що читач може зробити сьогодні (пошук, мапа,
+  // калькулятор), вже живе в інших секціях цієї сторінки.
+  if (offers.length === 0) return null;
 
   return (
     <section

@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation';
 import { countryName } from '@/lib/api';
 import { byTopic, isTopic, TOPICS } from '@/lib/guide-facets';
 import { CatalogueProvenance } from '@/components/catalogue-provenance';
-import { getGuides, PROVENANCE_LABEL } from '@/lib/guides';
+import { cardProvenanceLabel, getGuides } from '@/lib/guides';
 import { breadcrumbList, collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
 import { Block } from '@/components/layout';
@@ -140,9 +140,11 @@ export default async function GuidesByTopic(props: {
                       {g.summary}
                     </span>
                   )}
-                  <span className="mt-2 block text-xs uppercase tracking-[0.08em] text-ink-2">
-                    {PROVENANCE_LABEL[g.provenance]?.short ?? g.provenance}
-                  </span>
+                  {cardProvenanceLabel(g.provenance) && (
+                    <span className="mt-2 block text-xs uppercase tracking-[0.08em] text-ink-2">
+                      {cardProvenanceLabel(g.provenance)}
+                    </span>
+                  )}
                 </Link>
               </li>
             ))}
