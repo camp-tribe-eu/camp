@@ -70,13 +70,13 @@
       "collection": "pages",
       "hidden": false,
       "singleton": false,
-      "icon": "article"
+      "icon": "web"
     },
     {
       "collection": "page_sections",
       "hidden": false,
       "singleton": false,
-      "icon": "view_module"
+      "icon": "view_agenda"
     },
     {
       "collection": "page_section_translations",
@@ -95,6 +95,12 @@
       "hidden": false,
       "singleton": false,
       "icon": "photo_camera"
+    },
+    {
+      "collection": "problem_reports",
+      "hidden": false,
+      "singleton": false,
+      "icon": "flag"
     },
     {
       "collection": "rental_cities",
@@ -149,7 +155,214 @@
       "hidden": true,
       "singleton": false,
       "icon": ""
+    },
+    {
+      "collection": "users",
+      "hidden": true,
+      "singleton": false,
+      "icon": ""
     }
   ],
-  "fields": []
+  "fields": [
+    {
+      "collection": "pages",
+      "field": "author_name",
+      "interface": "input",
+      "special": "",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "pages",
+      "field": "noindex",
+      "interface": "boolean",
+      "special": "",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "pages",
+      "field": "published_at",
+      "interface": "datetime",
+      "special": "",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "pages",
+      "field": "slug",
+      "interface": "input",
+      "special": "",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "pages",
+      "field": "sort",
+      "interface": "input",
+      "special": "",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "pages",
+      "field": "status",
+      "interface": "select-dropdown",
+      "special": "",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "pages",
+      "field": "type",
+      "interface": "select-dropdown",
+      "special": "",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "page_sections",
+      "field": "cta_href",
+      "interface": "input",
+      "special": "",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "page_sections",
+      "field": "image_url",
+      "interface": "input",
+      "special": "",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "page_sections",
+      "field": "slot",
+      "interface": "input",
+      "special": "",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "page_sections",
+      "field": "sort",
+      "interface": "input",
+      "special": "",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "page_sections",
+      "field": "type",
+      "interface": "select-dropdown",
+      "special": "",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "page_sections",
+      "field": "variant",
+      "interface": "input",
+      "special": "",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "page_sections",
+      "field": "visible",
+      "interface": "boolean",
+      "special": "",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "page_section_translations",
+      "field": "body",
+      "interface": "input-rich-text-md",
+      "special": "",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "page_section_translations",
+      "field": "cta_label",
+      "interface": "input",
+      "special": "",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "page_section_translations",
+      "field": "heading",
+      "interface": "input",
+      "special": "",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "page_section_translations",
+      "field": "image_alt",
+      "interface": "input",
+      "special": "",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "page_section_translations",
+      "field": "items",
+      "interface": "input-code",
+      "special": "",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "page_section_translations",
+      "field": "subheading",
+      "interface": "input",
+      "special": "",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "page_translations",
+      "field": "meta_description",
+      "interface": "input-multiline",
+      "special": "",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "page_translations",
+      "field": "meta_title",
+      "interface": "input",
+      "special": "",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "page_translations",
+      "field": "title",
+      "interface": "input",
+      "special": "",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "site_settings_translations",
+      "field": "footer_note",
+      "interface": "input-multiline",
+      "special": "",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "site_settings_translations",
+      "field": "tagline",
+      "interface": "input",
+      "special": "",
+      "readonly": false,
+      "required": false
+    }
+  ]
 }
