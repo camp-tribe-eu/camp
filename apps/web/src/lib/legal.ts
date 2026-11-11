@@ -221,7 +221,7 @@ export const LEGAL_PAGES: LegalPage[] = [
     // і рахуємо висоту й рельєф самі (CAMP-484). Джерело й ліцензія ті
     // самі, змінився ШЛЯХ — а сторінка атрибуції про шлях і каже.
     version: '1.3',
-    effectiveFrom: '2026-11-08',
+    effectiveFrom: '2026-11-10',
   },
   {
     // CAMP-186. ODbL §4.6 lets us answer with the DESCRIPTION of our
