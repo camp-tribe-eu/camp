@@ -24,10 +24,12 @@
 потрібні смуги, а не лише його «рідна»; інакше він гарантовано дав би
 помилку (так було в CAMP-484 — 1,7% результату).
 
-🔴 ОДИН ЗІПСОВАНИЙ ЗАПИС КОШТУЄ ОДНОГО ЗАПИСУ. Рядок, що не порахувався,
-чи вийшов за межі здорового глузду, лічиться й пропускається; смуга, що не
-завантажилась, коштує свої рядки. Код виходу ненульовий, якщо хоч щось
-пропущено, — юніт падає, і це тривога, а не мовчазне «майже».
+🔴 ОДИН ЗІПСОВАНИЙ ЗАПИС КОШТУЄ ОДНОГО ЗАПИСУ. Рядок, що не порахувався
+(NaN, поза межами здорового глузду) чи чия смуга відсутня у відрі (404),
+іде в карантин на 30 діб: заповнювач його не чіпає, сторож не червоніє,
+але друкує їхню кількість і червоніє за бюджетом. Код виходу 1 — лише за
+НОВУ біду (рядок упав уперше) або коли відро не віддало плитку (мережа):
+рядок, що вже сидів у карантині, мовчки подовжує його.
 """
 import argparse, importlib.util, math, os, sys, time, urllib.request
 
@@ -37,8 +39,26 @@ TILE_URL = os.environ.get(
     'https://openmeteo.s3.amazonaws.com/data/copernicus_dem90/static/lat_{band}.om',
 )
 
-# 🔴 Той самий рядок, що в `check-elevation-coverage.mjs` (MISSING_SQL).
+# 🔴 Ці три умови — слово в слово ті, що рахує сторож
+# `check-elevation-coverage.mjs` (MISSING_SQL, LIVE_SQL, QUARANTINED_SQL).
+# Заповнювач і сторож мусять питати про ОДНУ множину рядків: заповнювач, що
+# добирає мертвих, дає код 1 через кемпінг, якого читач не бачить, а сторож,
+# що рахує інших, червоніє через рядок, якого заповнювач не торкається.
+# Звіряє їх самотест сторожа — а ще й справжня база, не лише текст.
+LIVE = "missing_since IS NULL"
 MISSING = "jsonb_typeof(context->'elevation') IS DISTINCT FROM 'number'"
+# 🔴 КАРАНТИН: рядок, який не порахувався (NaN, поза покриттям плитки), не
+# мусить червоніти щоночі навіки, але й не мусить зникати зі сторожа.
+# Знак у `context.elevation_skipped.until` (секунди epoch) ховає його від
+# заповнювача й від ЧЕРВОНОГО, а сторож усе одно друкує їхню кількість і
+# червоніє, коли їх більше за бюджет. Мине строк — рядок знову «ще не
+# добраний» і його пробують удруге.
+QUARANTINED = (
+    "CASE WHEN jsonb_typeof(context#>'{elevation_skipped,until}') = 'number' "
+    "THEN (context#>>'{elevation_skipped,until}')::numeric > extract(epoch from now()) "
+    "ELSE false END"
+)
+QUARANTINE_DAYS = 30
 
 # Межі здорового глузду — ті самі, що в apply.sh: найвища точка ЄС — Монблан
 # (4 808 м), найнижча суходільна — польдери (≈ −7 м).
@@ -63,8 +83,16 @@ def bands_needed(dem, lat: float, lon: float) -> set:
     return got
 
 
+class TileMissing(Exception):
+    """Відро відповіло 404: цієї смуги немає взагалі, і повтор її не створить."""
+
+
+RETRY_SLEEP = 2  # секунд × номер спроби; тести ставлять 0
+
+
 def fetch_tile(band: int, tiles_dir: str, retries: int = 3) -> str:
     """Качає плитку в `tiles_dir`; готовий файл береться без повторного завантаження."""
+    import urllib.error
     path = os.path.join(tiles_dir, f'lat_{band}.om')
     if os.path.exists(path) and os.path.getsize(path) > 0:
         return path
@@ -83,19 +111,32 @@ def fetch_tile(band: int, tiles_dir: str, retries: int = 3) -> str:
                         break
                     out.write(chunk)
                     size += len(chunk)
-            # 🔴 Обірване завантаження не кидає помилки саме: читач просто
-            # бачить менше байтів. Звіряємо з тим, що відро обіцяло.
-            if want is not None and int(want) != size:
+            # 🔴 ОБІРВАНЕ ЗАВАНТАЖЕННЯ НЕ КИДАЄ ПОМИЛКИ САМЕ: читач просто бачить
+            # менше байтів. Звіряти є з чим лише тоді, коли відро назвало
+            # довжину; без заголовка «обрив» і «ціла плитка» не відрізнити, а
+            # обрізана плитка читається без помилки й дає ЧУЖІ висоти (у
+            # підставці рецензії: 12 м замість 1 234). Тому відповідь без
+            # `Content-Length` — відмова, а не довіра. S3 заголовок шле.
+            if want is None:
+                raise IOError('відповідь без Content-Length: обрив не відрізнити від цілої плитки')
+            if int(want) != size:
                 raise IOError(f'отримано {size} із {want} байтів')
             if size == 0:
                 raise IOError('порожня відповідь')
             os.replace(part, path)
             return path
+        except urllib.error.HTTPError as err:
+            last = err
+            if os.path.exists(part):
+                os.remove(part)
+            if err.code == 404:
+                raise TileMissing(f'смуга {band}: відро відповіло 404') from err
+            time.sleep(RETRY_SLEEP * attempt)
         except Exception as err:  # noqa: BLE001
             last = err
             if os.path.exists(part):
                 os.remove(part)
-            time.sleep(2 * attempt)
+            time.sleep(RETRY_SLEEP * attempt)
     raise RuntimeError(f'смуга {band} не завантажилась: {last}')
 
 
@@ -112,10 +153,69 @@ def drop_tiles_below(dem, tiles_dir: str, keep_from: int) -> None:
 
 
 def count_missing(cur):
+    """(ще не добрано, у карантині, усього живих) — те саме, що міряє сторож."""
     cur.execute(
-        f"SELECT count(*) FILTER (WHERE missing_since IS NULL AND {MISSING}), "
-        f"count(*) FILTER (WHERE missing_since IS NULL) FROM camping_spots")
+        f"SELECT count(*) FILTER (WHERE {LIVE} AND {MISSING} AND NOT ({QUARANTINED})), "
+        f"count(*) FILTER (WHERE {LIVE} AND {MISSING} AND ({QUARANTINED})), "
+        f"count(*) FILTER (WHERE {LIVE}) FROM camping_spots")
     return cur.fetchone()
+
+
+def select_todo(cur, limit: int = 0):
+    """Живі рядки без висоти й не в карантині: (id, lat, lon, був_карантин)."""
+    cur.execute(
+        f"SELECT id::text, ST_Y(location::geometry), ST_X(location::geometry), "
+        f"context ? 'elevation_skipped' FROM camping_spots "
+        f"WHERE {LIVE} AND {MISSING} AND NOT ({QUARANTINED}) ORDER BY 2, 1"
+        + (f' LIMIT {int(limit)}' if limit else ''))
+    return cur.fetchall()
+
+
+def write_rows(cur, rows) -> int:
+    """Дописати висоту. Повертає, скільки рядків база СПРАВДІ змінила.
+
+    🔴 РАХУЄТЬСЯ ТЕ, ЩО ПОВЕРНУВ UPDATE, А НЕ `len(rows)`. Між вибіркою й
+    записом проходить хвилина (качається плитка); якщо за цей час хтось уже
+    записав висоту, умова в UPDATE його пропустить, а лічильник за `len(rows)`
+    усе одно сказав би «добрано N». Такий звіт брехав би рівно там, де
+    друга умова працює або ЗЛАМАНА, і мутація її зняття була б невидимою.
+    """
+    if not rows:
+        return 0
+    from psycopg2.extras import execute_values
+    got = execute_values(cur, f"""
+        UPDATE camping_spots s
+           SET context = (coalesce(s.context, '{{}}'::jsonb) - 'elevation_skipped')
+               || jsonb_build_object(
+                    'elevation', d.ele,
+                    'terrain', jsonb_build_object('relief', d.rel, 'type', d.kind))
+          FROM (VALUES %s) AS d(id, ele, rel, kind)
+         WHERE s.id = d.id::uuid
+           AND {LIVE.replace('missing_since', 's.missing_since')}
+           AND {MISSING.replace('context', 's.context')}
+        RETURNING s.id
+        """, rows, template='(%s, %s::int, %s::int, %s)', fetch=True)
+    return len(got)
+
+
+def quarantine(cur, items) -> int:
+    """Закарантинити рядки, що не порахуються: [(id, чому)]. Лише ще порожні."""
+    if not items:
+        return 0
+    from psycopg2.extras import execute_values
+    until = int(time.time()) + QUARANTINE_DAYS * 86400
+    got = execute_values(cur, f"""
+        UPDATE camping_spots s
+           SET context = coalesce(s.context, '{{}}'::jsonb)
+               || jsonb_build_object('elevation_skipped',
+                    jsonb_build_object('until', {until}, 'why', d.why))
+          FROM (VALUES %s) AS d(id, why)
+         WHERE s.id = d.id::uuid
+           AND {LIVE.replace('missing_since', 's.missing_since')}
+           AND {MISSING.replace('context', 's.context')}
+        RETURNING s.id
+        """, items, template='(%s, %s)', fetch=True)
+    return len(got)
 
 
 def main() -> int:
@@ -136,19 +236,21 @@ def main() -> int:
         return 2
 
     import psycopg2
-    from psycopg2.extras import execute_values
     conn = psycopg2.connect(url)
+    try:
+        return run(conn, args, tiles_dir)
+    finally:
+        conn.close()
+
+
+def run(conn, args, tiles_dir: str) -> int:
     cur = conn.cursor()
 
-    before_missing, before_live = count_missing(cur)
+    pending, parked, live = count_missing(cur)
     conn.commit()
-    print(f'до: {before_missing} без висоти із {before_live} живих кемпінгів')
+    print(f'до: {pending} без висоти (+{parked} у карантині) із {live} живих кемпінгів')
 
-    cur.execute(
-        f"SELECT id::text, ST_Y(location::geometry), ST_X(location::geometry) "
-        f"FROM camping_spots WHERE {MISSING} ORDER BY 2, 1"
-        + (f' LIMIT {int(args.limit)}' if args.limit else ''))
-    todo = cur.fetchall()
+    todo = select_todo(cur, args.limit)
     conn.commit()
     if not todo:
         print('нічого добирати')
@@ -157,30 +259,49 @@ def main() -> int:
     dem = load_dem()
     dem.DEM_DIR = tiles_dir
     by_band: dict = {}
-    for sid, lat, lon in todo:
-        by_band.setdefault(math.floor(lat), []).append((sid, float(lat), float(lon)))
+    for sid, lat, lon, was_parked in todo:
+        by_band.setdefault(math.floor(lat), []).append((sid, float(lat), float(lon), was_parked))
     print(f'до добору: {len(todo)} рядків у {len(by_band)} смугах: '
           f'{sorted(by_band)}')
     if args.dry_run:
         print('СУХИЙ ПРОГІН — нічого не качаю й не пишу')
         return 0
 
-    done = skipped = 0
+    # Три різні долі рядка, і вони не змішуються:
+    #   done      — висоту записано;
+    #   new_bad   — не порахувався ВПЕРШЕ: це новина, код виходу 1 (одна тривога);
+    #   transient — відро не віддало плитку (мережа): лишається «ще не добрано»,
+    #               код 1, сторож червоніє — так і мусить, це не вада рядка.
+    # Рядок, що вже сидів у карантині й знову не порахувався, мовчки продовжує
+    # карантин: інакше один безнадійний рядок давав би лист кожні 30 днів.
+    done = new_bad = known_bad = transient = 0
     for band in sorted(by_band):
         spots = by_band[band]
         drop_tiles_below(dem, tiles_dir, band - 1)
         need = set()
-        for _, lat, lon in spots:
+        for _, lat, lon, _ in spots:
             need |= bands_needed(dem, lat, lon)
+        parked_now = []
         try:
             for b in sorted(need):
                 fetch_tile(b, tiles_dir)
+        except TileMissing as err:
+            # 🔴 404 — це «такої смуги немає», а не «мережа кашляє»: повтор
+            # завтра дасть те саме. Усі рядки смуги — у карантин.
+            print(f'🔴 смуга {band}: {err} — {len(spots)} рядків у карантин', file=sys.stderr)
+            for sid, _, _, was in spots:
+                parked_now.append((sid, 'немає плитки'))
+                known_bad, new_bad = (known_bad + 1, new_bad) if was else (known_bad, new_bad + 1)
+            quarantine(cur, parked_now)
+            conn.commit()
+            continue
         except Exception as err:  # noqa: BLE001
-            print(f'🔴 смуга {band}: {err} — {len(spots)} рядків пропущено', file=sys.stderr)
-            skipped += len(spots)
+            print(f'🔴 смуга {band}: {err} — {len(spots)} рядків лишаються без висоти',
+                  file=sys.stderr)
+            transient += len(spots)
             continue
         rows = []
-        for sid, lat, lon in spots:
+        for sid, lat, lon, was in spots:
             try:
                 centre = dem.elevation(lat, lon)
                 vals = [centre] + [dem.elevation(a, b) for a, b in dem.ring(lat, lon)]
@@ -193,29 +314,23 @@ def main() -> int:
                 # 🔴 Нуль метрів — правдоподібна висота; тихо записати його
                 # замість «не знаю» означало б збрехати правдоподібно.
                 print(f'🔴 {sid}: {str(err)[:80]}', file=sys.stderr)
-                skipped += 1
+                parked_now.append((sid, str(err)[:80]))
+                known_bad, new_bad = (known_bad + 1, new_bad) if was else (known_bad, new_bad + 1)
                 continue
             rows.append((sid, ele, rel, dem.terrain(relief)))
-        if rows:
-            execute_values(cur, f"""
-                UPDATE camping_spots s
-                   SET context = coalesce(s.context, '{{}}'::jsonb)
-                       || jsonb_build_object(
-                            'elevation', d.ele,
-                            'terrain', jsonb_build_object('relief', d.rel, 'type', d.kind))
-                  FROM (VALUES %s) AS d(id, ele, rel, kind)
-                 WHERE s.id = d.id::uuid AND {MISSING.replace('context', 's.context')}
-                """, rows, template='(%s, %s::int, %s::int, %s)')
-            conn.commit()
-            done += len(rows)
-        print(f'смуга {band}: {len(rows)} із {len(spots)}, разом {done}', flush=True)
+        wrote = write_rows(cur, rows)
+        quarantine(cur, parked_now)
+        conn.commit()
+        done += wrote
+        print(f'смуга {band}: записано {wrote} із {len(spots)}, разом {done}', flush=True)
 
     drop_tiles_below(dem, tiles_dir, 10_000)
-    after_missing, after_live = count_missing(cur)
+    pending, parked, live = count_missing(cur)
     conn.commit()
-    print(f'добрано {done}, пропущено {skipped}')
-    print(f'після: {after_missing} без висоти із {after_live} живих кемпінгів')
-    return 0 if skipped == 0 else 1
+    print(f'добрано {done}, нових у карантин {new_bad}, повторно в карантин {known_bad}, '
+          f'не віддала мережа {transient}')
+    print(f'після: {pending} без висоти (+{parked} у карантині) із {live} живих кемпінгів')
+    return 0 if (new_bad == 0 and transient == 0) else 1
 
 
 if __name__ == '__main__':

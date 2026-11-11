@@ -8,9 +8,16 @@
 # 🔴 ЧОМУ ОКРЕМИЙ ЮНІТ, А НЕ `ExecStartPost` заповнювача: для oneshot
 # ExecStartPost не біжить після збою, тобто сторож мовчав би рівно тоді,
 # коли заповнювач зламаний.
+# 🔴 ЧОМУ `After=camptribe-elevation.service`. Обидва таймери `Persistent=true`:
+# після простою машини вони спрацьовують РАЗОМ, і сторож без порядку міряв би
+# базу, поки заповнювач ще качає смуги, — тобто червоніла б хибна тривога.
+# `After=` ставить сторожа в чергу за заповнювачем, і поки той `activating`
+# (перший прогін качає години), сторож чекає. `Wants=` навмисно немає: сторож
+# не мусить сам запускати заповнювач, а при зламаному заповнювачі мусить усе
+# одно виміряти й назвати число.
 [Unit]
 Description=CampTribe elevation coverage check
-After=postgresql.service
+After=postgresql.service camptribe-elevation.service
 OnFailure=camptribe-failed@%n.service
 
 [Service]

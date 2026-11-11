@@ -22,10 +22,25 @@
 // фільтр), і він червоніє окремим реченням.
 //
 // 🔴 «БЕЗ ВИСОТИ» — ЦЕ НЕ «НЕМАЄ КЛЮЧА». `{"elevation": null}` чи рядок
-// `"137"` теж без висоти: читач не побачить ні того, ні іншого. Умова
-// `MISSING_SQL` слово в слово збігається з тією, що вибирає заповнювач
-// (`scripts/elevation/refill.py`); самотест порівнює обидва файли.
-import { execFileSync } from 'node:child_process';
+// `"137"` теж без висоти: читач не побачить ні того, ні іншого. Три умови
+// (`LIVE_SQL`, `MISSING_SQL`, `QUARANTINED_SQL`) — слово в слово ті, що
+// вибирають заповнювач (`scripts/elevation/refill.py`); це доводить тест
+// заповнювача, який бере їх звідси.
+//
+// 🔴 КАРАНТИН (рецензія #544). Рядок, що не порахується ніколи (NaN, смуги
+// немає у відрі), при нормі «рівно 0» давав би дві тривоги щоночі навіки.
+// Заповнювач ставить йому `context.elevation_skipped.until` на 30 діб: він
+// не рахується в червоне число, але ЗАВЖДИ друкується поруч, і сторож
+// червоніє, коли їх більше за `PARKED_BUDGET`. Карантин не вимикає сторожа:
+// він переносить рядок з однієї цифри в іншу, яку теж видно.
+//
+// 🔴 САМОТЕСТ ПІДНІМАЄ СПРАВЖНЮ БАЗУ. Попередня версія перевіряла лише
+// `verdict()` на підставних числах, а SQL звіряла `includes` із власною
+// константою — тобто перевіряла копію саму себе. Шість мутацій (порожній
+// `FILTER`, `[live, missing]` місцями, `AND false` у знаменнику, `process.exit(0)`
+// у вході…) переживали її всі. Тепер тимчасова база з рядками всіх сортів,
+// `readDb` на ній і справжній запуск `--db` підпроцесом.
+import { execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -37,11 +52,24 @@ const ROOT = path.join(HERE, '..', '..');
 
 export const KNOWN_FLAGS = Object.freeze(['--self-test', '--db']);
 
+export const LIVE_SQL = 'missing_since IS NULL';
 export const MISSING_SQL = "jsonb_typeof(context->'elevation') IS DISTINCT FROM 'number'";
+export const QUARANTINED_SQL =
+  "CASE WHEN jsonb_typeof(context#>'{elevation_skipped,until}') = 'number' " +
+  "THEN (context#>>'{elevation_skipped,until}')::numeric > extract(epoch from now()) " +
+  'ELSE false END';
 
-/** Одне число й знаменник — ЖИВІ кемпінги (`missing_since IS NULL`), як на сайті. */
+/** Скільки рядків може сидіти в карантині, не червонячи сторожа (≈ 0,035% від 57 135). */
+export const PARKED_BUDGET = 20;
+
+/**
+ * Три числа: ще не добрано, у карантині, усього ЖИВИХ (знаменник, як на сайті).
+ * Мертві (`missing_since`) не рахуються ніде: читач їх не бачить.
+ */
 export const COUNT_SQL =
-  `SELECT count(*) FILTER (WHERE ${MISSING_SQL}), count(*) FROM camping_spots WHERE missing_since IS NULL`;
+  `SELECT count(*) FILTER (WHERE ${MISSING_SQL} AND NOT (${QUARANTINED_SQL})), ` +
+  `count(*) FILTER (WHERE ${MISSING_SQL} AND (${QUARANTINED_SQL})), ` +
+  `count(*) FROM camping_spots WHERE ${LIVE_SQL}`;
 
 /** Помилка ВЖИВАННЯ — код 2 без стеку. */
 export class UsageError extends Error {}
@@ -54,27 +82,35 @@ export function readDb(dbUrl) {
   } catch (e) {
     throw new Error(`psql не відповів — ${(e.stderr ?? e.message ?? '').toString().trim()}`);
   }
-  const [missing, live] = out.trim().split('|').map(Number);
-  if (!Number.isInteger(missing) || !Number.isInteger(live)) {
+  const [missing, parked, live] = out.trim().split('|').map(Number);
+  if (![missing, parked, live].every(Number.isInteger)) {
     throw new Error(`psql відповів не числами: ${JSON.stringify(out)}`);
   }
-  return { missing, live };
+  return { missing, parked, live };
 }
 
-/** Вирок за двома числами. Повертає { ok, line }. */
-export function verdict({ missing, live }) {
-  const fmt = (n) => n.toLocaleString('uk-UA').replace(/ /g, ' ');
+/** Вирок за трьома числами. Повертає { ok, line }. Знаменник і карантин друкуються завжди. */
+export function verdict({ missing, parked, live }) {
+  const fmt = (n) => n.toLocaleString('uk-UA').replace(/\u00a0/g, ' ');
+  const tail = `у карантині: ${fmt(parked)} (бюджет ${PARKED_BUDGET})`;
   if (live === 0) {
-    return { ok: false, line: `✗ 0 живих кемпінгів у таблиці — сторожу нічого міряти (${fmt(missing)} без висоти із 0)` };
+    return { ok: false, line: `✗ 0 живих кемпінгів у таблиці — сторожу нічого міряти (${fmt(missing)} без висоти із 0; ${tail})` };
   }
-  if (missing === 0) {
-    return { ok: true, line: `✓ без висоти: 0 із ${fmt(live)} живих кемпінгів` };
+  if (missing > 0) {
+    return {
+      ok: false,
+      line: `✗ без висоти: ${fmt(missing)} із ${fmt(live)} живих кемпінгів — норма 0; ${tail}; ` +
+        'заповнювач `camptribe-elevation.service` не добирає (journalctl -u camptribe-elevation)',
+    };
   }
-  return {
-    ok: false,
-    line: `✗ без висоти: ${fmt(missing)} із ${fmt(live)} живих кемпінгів — норма 0; ` +
-      'заповнювач `camptribe-elevation.service` не добирає (journalctl -u camptribe-elevation)',
-  };
+  if (parked > PARKED_BUDGET) {
+    return {
+      ok: false,
+      line: `✗ без висоти: 0 із ${fmt(live)} живих кемпінгів, АЛЕ ${tail}: ` +
+        'рядків, які не порахувались, більше за бюджет — дивись `context.elevation_skipped.why`',
+    };
+  }
+  return { ok: true, line: `✓ без висоти: 0 із ${fmt(live)} живих кемпінгів; ${tail}` };
 }
 
 export function runWith(flags, { env = process.env, log = console, read = readDb } = {}) {
@@ -85,10 +121,16 @@ export function runWith(flags, { env = process.env, log = console, read = readDb
   return v.ok ? 0 : 1;
 }
 
+/** Адмін-підключення до сервера Postgres із оточення (PGHOST/PGUSER/PGPASSWORD). */
+function admin(sql) {
+  return execFileSync('psql', ['-d', 'postgres', '-tAX', '-v', 'ON_ERROR_STOP=1', '-c', sql],
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+}
+
 function selfTest() {
   let p = 0, f = 0;
   const t = (what, got, want) => {
-    if (got === want) { p += 1; console.log(`  ✓ ${what}`); }
+    if (JSON.stringify(got) === JSON.stringify(want)) { p += 1; console.log(`  ✓ ${what}`); }
     else { f += 1; console.error(`  ✗ ${what}: ${JSON.stringify(got)}, мало бути ${JSON.stringify(want)}`); }
   };
   const run = (flags, env, row) => {
@@ -100,25 +142,94 @@ function selfTest() {
     return { rc, text: lines.join('\n') };
   };
   const DB = { DATABASE_URL: 'postgres://x' };
+  const row = (missing, live, parked = 0) => ({ missing, parked, live });
 
-  t('0 із 57 135 — зелене', run(['--db'], DB, { missing: 0, live: 57135 }).rc, 0);
-  t('🔴 зелене друкує знаменник', run(['--db'], DB, { missing: 0, live: 57135 }).text.includes('0 із 57 135'), true);
-  t('🔴 1 без висоти — червоне', run(['--db'], DB, { missing: 1, live: 57135 }).rc, 1);
+  // ── вирок на підставних числах ───────────────────────────────────
+  t('0 із 57 135 — зелене', run(['--db'], DB, row(0, 57135)).rc, 0);
+  t('🔴 зелене друкує знаменник і карантин',
+    [run(['--db'], DB, row(0, 57135)).text.includes('0 із 57 135'),
+      run(['--db'], DB, row(0, 57135)).text.includes('у карантині: 0')], [true, true]);
+  t('🔴 1 без висоти — червоне', run(['--db'], DB, row(1, 57135)).rc, 1);
   t('🔴 червоне називає число й знаменник',
-    run(['--db'], DB, { missing: 3, live: 57135 }).text.includes('3 із 57 135'), true);
-  t('🔴 0 живих — червоне, а не «0 із 0 зелено»', run(['--db'], DB, { missing: 0, live: 0 }).rc, 1);
-  t('без --db — відмова вживання', run([], DB, { missing: 0, live: 5 }).rc, 'usage');
-  t('🔴 --db без DATABASE_URL — відмова, не зелене', run(['--db'], {}, { missing: 0, live: 5 }).rc, 'usage');
+    run(['--db'], DB, row(3, 57135)).text.includes('3 із 57 135'), true);
+  t('🔴 0 живих — червоне, а не «0 із 0 зелено»', run(['--db'], DB, row(0, 0)).rc, 1);
+  t('карантин у межах бюджету не червонить', run(['--db'], DB, row(0, 57135, PARKED_BUDGET)).rc, 0);
+  t('🔴 карантин понад бюджет червонить, і число видно',
+    [run(['--db'], DB, row(0, 57135, PARKED_BUDGET + 1)).rc,
+      run(['--db'], DB, row(0, 57135, PARKED_BUDGET + 1)).text.includes(`${PARKED_BUDGET + 1}`)], [1, true]);
+  t('без --db — відмова вживання', run([], DB, row(0, 5)).rc, 'usage');
+  t('🔴 --db без DATABASE_URL — відмова, не зелене', run(['--db'], {}, row(0, 5)).rc, 'usage');
 
-  // Умова вибірки — та сама, що в заповнювача, і ловить не лише «ключа немає».
-  const py = readFileSync(path.join(ROOT, 'scripts/elevation/refill.py'), 'utf8');
-  t('🔴 заповнювач вибирає тим самим предикатом, що рахує сторож',
-    py.includes(`MISSING = "${MISSING_SQL}"`), true);
-  t('предикат бачить null і нечислове, а не лише відсутній ключ',
-    MISSING_SQL.includes("IS DISTINCT FROM 'number'"), true);
-  t('знаменник — живі кемпінги', COUNT_SQL.includes('WHERE missing_since IS NULL'), true);
+  // ── порядок юнітів: сторож ПІСЛЯ заповнювача ──────────────────────
+  const unit = (n) => readFileSync(path.join(ROOT, 'infra/systemd', n), 'utf8');
+  const afterOf = (txt) => (txt.match(/^After=(.*)$/gm) ?? []).join(' ');
+  t('🔴 сторож стартує ПІСЛЯ заповнювача (After=)',
+    afterOf(unit('camptribe-elevation-check.service')).includes('camptribe-elevation.service'), true);
+  const at = (n) => unit(n).match(/^OnCalendar=\*-\*-\* (\d\d:\d\d)/m)?.[1] ?? '';
+  t('таймер сторожа пізніший за таймер заповнювача',
+    at('camptribe-elevation-check.timer') > at('camptribe-elevation.timer') && at('camptribe-elevation.timer') !== '', true);
 
-  t('🔴 лічильник: усі випадки дійшли до кінця', p + f, 10);
+  // ── справжня база ────────────────────────────────────────────────
+  const name = `camp493_guard_${process.pid}`;
+  let created = false;
+  try {
+    admin(`CREATE DATABASE ${name}`);
+    created = true;
+  } catch (e) {
+    f += 1;
+    console.error('  ✗ самотест потребує справжнього Postgres (PGHOST/PGUSER/PGPASSWORD або локальний сокет); ' +
+      `не підключився: ${(e.stderr ?? e.message).toString().trim()}`);
+  }
+  if (created) {
+    const url = `postgres:///${name}`;
+    const sql = (q) => execFileSync('psql', [url, '-tAX', '-v', 'ON_ERROR_STOP=1', '-c', q],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    const cli = () => {
+      const r = spawnSync(process.execPath, [fileURLToPath(import.meta.url), '--db'],
+        { encoding: 'utf8', env: { ...process.env, DATABASE_URL: url } });
+      return { rc: r.status, text: `${r.stdout}${r.stderr}` };
+    };
+    try {
+      sql('CREATE TABLE camping_spots (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), ' +
+          "context jsonb NOT NULL DEFAULT '{}', missing_since timestamptz)");
+      const ins = (n, ctx, dead = false) => sql(
+        `INSERT INTO camping_spots (context, missing_since) SELECT '${ctx}'::jsonb, ` +
+        `${dead ? 'now()' : 'NULL'} FROM generate_series(1, ${n})`);
+      const soon = Math.floor(Date.now() / 1000) + 86400;
+      const past = Math.floor(Date.now() / 1000) - 86400;
+      ins(3, '{"elevation": 137}');                                   // є висота
+      ins(1, '{}');                                                   // ключа немає
+      ins(1, '{"elevation": null}');                                  // null
+      ins(1, '{"elevation": "137"}');                                 // рядок, не число
+      ins(1, `{"elevation_skipped": {"until": ${past}}}`);            // карантин МИНУВ → знову «не добрано»
+      ins(1, `{"elevation_skipped": {"until": ${soon}}}`);            // карантин триває
+      ins(1, '{"elevation_skipped": {"until": "завтра"}}');           // сміття в мітці — не карантин
+      ins(4, '{}', true);                                             // МЕРТВІ без висоти — не рахуються ніде
+      // живих 3+1+1+1+1+1+1 = 9; без висоти й не в карантині: {}, null, "137", минулий, сміття = 5; у карантині 1.
+      t('🔴 readDb на справжній базі: ще не добрано / карантин / живих',
+        readDb(url), { missing: 5, parked: 1, live: 9 });
+      const red = cli();
+      t('🔴 `--db` підпроцесом на цій базі — червоне', red.rc, 1);
+      t('🔴 і називає число та знаменник', red.text.includes('5 із 9'), true);
+
+      sql(`UPDATE camping_spots SET context = '{"elevation": 1}' WHERE missing_since IS NULL AND ` +
+          `${MISSING_SQL} AND NOT (${QUARANTINED_SQL})`);
+      t('після добору readDb: 0 ще не добрано, карантин лишився', readDb(url), { missing: 0, parked: 1, live: 9 });
+      const green = cli();
+      t('🔴 `--db` підпроцесом після добору — зелене', green.rc, 0);
+      t('🔴 зелене друкує знаменник живих (мертві не в ньому)', green.text.includes('0 із 9'), true);
+
+      ins(PARKED_BUDGET, `{"elevation_skipped": {"until": ${soon}}}`);
+      t('🔴 карантин понад бюджет: `--db` підпроцесом червоне', cli().rc, 1);
+    } catch (e) {
+      f += 1;
+      console.error(`  ✗ тест на базі впав: ${(e.stderr ?? e.message).toString().trim()}`);
+    } finally {
+      try { admin(`DROP DATABASE IF EXISTS ${name}`); } catch { /* база тимчасова, її видалення не обовʼязкове */ }
+    }
+  }
+
+  t('🔴 лічильник: усі випадки дійшли до кінця', p + f, 18);
   console.log(`check-elevation-coverage self-test: ran ${p + f}, passed ${p}, failed ${f}`);
   return f === 0 ? 0 : 1;
 }
