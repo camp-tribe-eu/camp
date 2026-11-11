@@ -33,13 +33,17 @@ attribution page, section "Decorative images" (migration
 haven't verified" was measured and left alone: it says "here", the page
 renders no banner, and a banner shows no place, so it stays true.
 
+## 🔴 Ordering: do not ship attribution 1.4 before the components use `.webp`
+
+🔴 Migration `1796400000000-AttributionBannerImages` (attribution 1.4) must NOT be rolled out until the components reference the `.webp` files. As of 11.11.2026 `apps/web/src` references `.webp` from 0 files and the hand-drawn `.svg` from 9. Shipped earlier, the page says the banners are AI-generated while a reader sees drawn SVGs.
+
 ## Common to all four
 
 | | |
 |---|---|
 | Generator | FAL, model `fal-ai/flux-pro/v1.1-ultra`, `raw` mode, JPEG out, re-encoded to webp |
 | Replaces | a first pass with `fal-ai/flux/schnell` (flat illustrations), rejected by the owner |
-| Rights in the output | no third-party source image or photograph, no author to credit. We hold the output as the party that ran the generation; FAL's and Black Forest Labs' terms for the hosted model govern the service |
+| Rights in the output | 🔴 NOT ESTABLISHED. No third-party source image or photograph was supplied, so there is no author to credit; that is all this file asserts. Read by curl on 11.11.2026: fal.ai Terms of Service (Last Updated September 8, 2026) contain no transfer or grant of rights in the output to the customer; the only ownership line is "Customer owns and retains all right, title, and interest in and to the Customer Input", and they add "Company does not represent, warrant, or covenant that any Output Content will be original, will not infringe rights of any third party". Black Forest Labs' Developer Terms (Revised August 4, 2026) say "you own all right, title, and interest in and to Output" and allow "personal or commercial purposes", but that is BFL's direct contract with its own users, and nothing in the text says whether it reaches a customer of fal. The fal model page carries the label "License: Commercial use enabled via fal partnership", with no text and no link to one. Conclusion: whether we may use the output commercially is an OPEN question. Detail and further gaps: `scripts/seo/legal-review.json`, ATTRIBUTION 1.3 → 1.4 |
 | Reproduce | `FAL_KEY=... node scripts/images/generate-banners.mjs` |
 | Guard | `node scripts/images/check-banners.mjs` |
 | Generated | 11.11.2026 |
