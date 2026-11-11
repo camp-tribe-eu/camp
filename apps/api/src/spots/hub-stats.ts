@@ -1,3 +1,4 @@
+import { publishedCountrySql } from './unpublished-countries';
 import { notSecondarySql } from './links';
 import { overnightStatusSql } from './overnight';
 import { HUB_PRICE_TARIFF_SQL } from './tariffs';
@@ -75,6 +76,7 @@ export const HUB_STATS_SQL = `
          AND ${HUB_PRICE_TARIFF_SQL}
     ) p ON true
    WHERE lower(s.country) = lower($1)
+     AND ${publishedCountrySql('s')}
      AND s.region IS NOT NULL AND s.missing_since IS NULL
      AND ${notSecondarySql('s')}
    GROUP BY s.region

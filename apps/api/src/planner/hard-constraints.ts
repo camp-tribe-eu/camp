@@ -40,6 +40,7 @@
 // Each would be a filter on our own blindness. Add one only with a measured
 // field above the floor, and `assertHardAllowed` will say if it is not.
 
+import { publishedCountrySql } from '../spots/unpublished-countries';
 import * as measured from './coverage.snapshot.json';
 import {
   EU_MEMBER_STATES_AND_SUBDIVISIONS,
@@ -192,7 +193,9 @@ const country: HardRule = {
   rejects: 'structural',
   sql: (req, alias, next) => ({
     // lower() on the column: the list is lower case, the table is not.
-    where: `lower(${alias}.country) = ANY($${next + 1}::text[])`,
+    // CAMP-490: and not one we hold but do not publish.
+    where: `lower(${alias}.country) = ANY($${next + 1}::text[])
+      AND ${publishedCountrySql(alias)}`,
     params: [[...sourceCountryCodes(req.countries)]],
   }),
 };

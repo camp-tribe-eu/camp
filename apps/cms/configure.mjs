@@ -61,6 +61,16 @@ const NOT_REGISTERED = {
   migrations: 'TypeORM bookkeeping. Nobody edits it, nobody reads it here.',
   osm_camping_staging: 'Raw OSM staging, rebuilt weekly by the pipeline.',
   spatial_ref_sys: 'PostGIS internals — Directus does not even detect it.',
+
+  // 🔴 ЗАМІРЯНО 11.11.2026 НА ПРОДІ: у кожної з цих трьох РІВНО НУЛЬ
+  // рядків, і жодна не має споживача на сайті. Три зареєстровані
+  // колекції — це три місця зі стелі Core 25, витрачені на порожнечу.
+  // Власник 11.11 сказав прямо: межу тримати, бо незареєстрована
+  // таблиця в PostgreSQL коштує нуль. Коли фіча зʼявиться РАЗОМ із
+  // даними, колекція повернеться сюди ж, одним рядком.
+  featured_blocks: 'Нуль рядків і нуль споживачів (заміряно 11.11.2026).',
+  rental_cities: 'Нуль рядків: сторінок міст оренди ще немає (CAMP-225).',
+  rental_city_translations: 'Нуль рядків; перекладати нічого.',
 };
 
 /** Editorial collections, with the icon and note an editor actually sees. */
@@ -71,9 +81,6 @@ const CONTENT = {
   legal_page_translations: { icon: 'translate', note: 'Plain-language summary is required (GDPR art. 12).' },
   camper_types: { icon: 'rv_hookup', note: 'Static camper categories. No prices — we have none.' },
   camper_type_translations: { icon: 'translate', note: 'One row per language.' },
-  rental_cities: { icon: 'location_city', note: 'Publishes only past the threshold: 2 routes + 10 campsites + 1 local specific.' },
-  rental_city_translations: { icon: 'translate', note: 'Local tips are the third leg of the publication threshold.' },
-  featured_blocks: { icon: 'push_pin', note: 'Editorial picks for the home page.' },
   languages: { icon: 'language', note: 'A row here is not a launched locale.' },
 
   // ── CAMP-362: сторінки зі СЕКЦІЙ ─────────────────────────────────
@@ -879,12 +886,28 @@ async function main() {
     const over = registered.length - CORE_COLLECTION_CAP;
     const names = registered.sort().join(', ');
     if (licensed) {
-      console.warn(
-        `   ⚠️  ${registered.length} registered collections — ` +
+      // 🔴 ГРАНТ — ЗАПОБІЖНИК, А НЕ ДОЗВІЛ ВИТРАЧАТИ МІСЦЯ. Рішення
+      // власника 11.11.2026: «ти ж маєш ліміт в колекціях 25 і вже
+      // наробив 27… треба тримати межу».
+      //
+      // Попередня редакція тут лише ПОПЕРЕДЖАЛА, бо ключ гранту стелю
+      // підіймає. Саме так 25 непомітно стало 27: кожен прогін друкував
+      // жовтий рядок, прогін лишався успішним, і ніхто не зупинявся.
+      // Попередження, яке нічого не зупиняє, — це не сторож.
+      //
+      // Активацій гранту пʼять, і вони згорають назавжди. Витративши їх
+      // на 27 колекціях, ми втратимо дві в ОДИН день без попередження.
+      console.error(
+        `\n   🔴 ${registered.length} registered collections — ` +
         `${over} over the Core cap of ${CORE_COLLECTION_CAP}.\n` +
-        `      The grant lifts the cap, so this run is fine. But the day\n` +
-        `      the key lapses, ${over} of these stop working:\n        ${names}`,
+        `      Ключ гранту стелю підіймає, але межу тримаємо самі: коли\n` +
+        `      активації скінчаться, ${over} з них перестане працювати\n` +
+        `      в ОДИН день. Зареєстровані:\n        ${names}\n` +
+        `\n      🔴 Місце НЕ звільняють видаленням колекції: вендорський\n` +
+        `      DELETE /collections/:key дропає ТАБЛИЦЮ. Зняти реєстрацію —\n` +
+        `      видалити рядок у directus_collections.`,
       );
+      process.exitCode = 1;
     } else {
       console.error(
         `\n   🔴 ${registered.length} registered collections on an\n` +
