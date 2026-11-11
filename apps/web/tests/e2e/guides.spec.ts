@@ -337,18 +337,53 @@ test.describe("🔴 the disclosure the AI Act requires", () => {
     ).toBeLessThan(bodyBox!.y);
   });
 
-  test('it names the program, not merely "a machine"', async ({
+  // 🔴 CAMP-463: ВИМОГА ЗВУЗИЛАСЬ ДО ТЕКСТУ, ЯКИЙ ПИСАЛА МОВНА МОДЕЛЬ.
+  //
+  // Раніше тест брав БУДЬ-ЯКИЙ гайд із `provenance !== "human"` і вимагав
+  // імені генератора. Під це підпадав і `data-generated` — сторінка, яку
+  // склала програма, що РАХУЄ записи в нашій базі. Її внутрішнє імʼя
+  // (`region-facts@2`) читачеві не відповідало ні на що: власник побачив
+  // його на `/guides/topic/water` і назвав внутрішньою кухнею.
+  //
+  // Ст. 50(2) AI Act вимагає позначати вміст, ЗГЕНЕРОВАНИЙ системою ШІ.
+  // Лічильник записів нею не є, тож імені моделі він не має, і назвати
+  // його означало б сказати читачеві неправду про природу тексту. Для
+  // `ai-generated` і `ai-assisted` вимога лишається й перевіряється тут.
+  test('AI-written guide names the model, not merely "a machine"', async ({
     page,
     request,
   }) => {
     const list = await guides(request);
-    const generated = list.find((g) => g.provenance !== "human" && g.generator);
-    test.skip(!generated, "no machine-made guide with a generator");
+    const generated = list.find(
+      (g) =>
+        (g.provenance === "ai-generated" || g.provenance === "ai-assisted") &&
+        g.generator,
+    );
+    test.skip(!generated, "no AI-written guide with a generator");
 
     await page.goto(`/guides/${generated!.slug}`);
     await expect(page.getByTestId("provenance")).toContainText(
       generated!.generator!,
     );
+  });
+
+  // 🔴 ДРУГИЙ БІК ТІЄЇ Ж МЕЖІ. Знявши вимогу імені для `data-generated`,
+  // легко лишити сторінку, яка не каже про програму ВЗАГАЛІ — а це вже
+  // обман, незалежно від AI Act. Тому тут перевірка на слова.
+  test("a program-counted guide still says a program wrote it", async ({
+    page,
+    request,
+  }) => {
+    const list = await guides(request);
+    const counted = list.find((g) => g.provenance === "data-generated");
+    test.skip(!counted, "no program-counted guide in the fixture");
+
+    await page.goto(`/guides/${counted!.slug}`);
+    const block = page.getByTestId("provenance");
+    await expect(block).toContainText(/program|database|our own records/i);
+    if (counted!.generator) {
+      await expect(block).not.toContainText(counted!.generator);
+    }
   });
 
   // The structured data has to agree with the page. A crawler that is
