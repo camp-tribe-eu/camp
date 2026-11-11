@@ -1,3 +1,4 @@
+import { publishedCountrySql } from './unpublished-countries';
 import { notSecondarySql } from './links';
 
 // CAMP — "Camping in <region>": what a region page may say about its
@@ -124,6 +125,7 @@ export const REGION_INSIGHTS_SQL = `
            AS water_named
     FROM camping_spots s
    WHERE lower(s.country) = lower($1) AND s.region = $2
+     AND ${publishedCountrySql('s')}
      AND s.missing_since IS NULL
      AND ${notSecondarySql('s')}`;
 
@@ -135,6 +137,7 @@ export const REGION_TOP_WATER_SQL = `
          max((s.context -> 'water' ->> 'm')::numeric)::int AS farthest_m
     FROM camping_spots s
    WHERE lower(s.country) = lower($1) AND s.region = $2
+     AND ${publishedCountrySql('s')}
      AND s.missing_since IS NULL
      AND ${notSecondarySql('s')}
      AND s.context -> 'water' ->> 'name' IS NOT NULL

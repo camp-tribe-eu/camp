@@ -21,6 +21,7 @@ import { CountryTicker, pickTickerCountries } from "@/components/country-ticker"
 import { CountryTiles, countryTiles } from "@/components/country-tiles";
 import { countryName, type CountrySummary } from "@/lib/api";
 import { EU_MEMBER_STATES, FLAGGED_CODES, flagSrc } from "@/lib/eu-countries";
+import { isUnpublishedCountry, UNPUBLISHED_COUNTRIES } from "@/lib/unpublished-countries";
 import {
   renderAsyncComponent,
   renderComponent,
@@ -128,11 +129,12 @@ test("🔴 прапор є для кожної з 27 країн (і для Ålan
 });
 
 test("🔴 кожен src прапора у ВІДДАНІЙ розмітці плиток — існуючий файл у public/", () => {
-  // Із порожньою відповіддю API — усі 27 плиток, усі з прапорами.
+  // Із порожньою відповіддю API — усі 26 плиток (27 членів без Кіпру,
+  // CAMP-490), усі з прапорами.
   const html = renderComponent(CountryTiles, { countries: [] });
   const srcs = [...html.matchAll(/<img class="ct-flag" src="([^"]+)"/g)].map((m) => m[1]);
-  expect(srcs.length, "плиток із прапором не 27").toBe(27);
-  expect(new Set(srcs).size, "два коди ведуть на один файл").toBe(27);
+  expect(srcs.length, "плиток із прапором не 26").toBe(26);
+  expect(new Set(srcs).size, "два коди ведуть на один файл").toBe(26);
   const dead = srcs.filter((src) => !existsSync(join(PUBLIC, src)));
   expect(dead, `src без файлу (404 на проді): ${dead.join(", ")}`).toEqual([]);
 });
@@ -143,7 +145,7 @@ test("код з API без прапора в public/ не дає <img>, а по�
   });
   expect(html).not.toContain("/flags/zz.svg");
   expect(html).toContain('ct-flag ct-flag--none" aria-hidden="true">ZZ<');
-  expect(tileCount(html)).toBe(28);
+  expect(tileCount(html)).toBe(27);
 });
 
 // ── Числа ─────────────────────────────────────────────────────────────────
@@ -155,10 +157,13 @@ test("🔴 число в плитці дорівнює числу, яке від
     description: `${API_COUNTRIES.length} rows from /spots/countries, ${tileCount(html)} tiles rendered`,
   });
   expect(API_COUNTRIES.length).toBe(28);
-  expect(tileCount(html)).toBe(28);
+  // CAMP-490: фікстура ще містить рядок `cy` (так було 15.10.2026), але
+  // плитку з нього не малюємо: 28 рядків, 27 плиток.
+  expect(tileCount(html)).toBe(27);
 
   const wrong: string[] = [];
   for (const row of API_COUNTRIES) {
+    if (isUnpublishedCountry(row.country)) continue;
     const text = visibleText(tileHtml(html, row.country));
     const expected =
       `${en(row.spots)} ${row.spots === 1 ? "campsite" : "campsites"} · ` +
@@ -179,28 +184,26 @@ test("однина й множина: 1 campsite · 1 region", () => {
 // ── Без даних ─────────────────────────────────────────────────────────────
 
 test("🔴 плитка без даних не ламає сторінку: країна стоїть, каже «ще немає» і нікуди не веде", async () => {
-  const without = API_COUNTRIES.filter((c) => c.country !== "mt" && c.country !== "cy");
+  const without = API_COUNTRIES.filter((c) => c.country !== "mt");
   const html = await renderCamping(without);
-  expect(tileCount(html), "плиток має бути 27 + ax").toBe(28);
+  expect(tileCount(html), "плиток має бути 26 + ax").toBe(27);
   const text = visibleText(html);
   expect(text).toContain("Malta");
-  expect(text).toContain("Cyprus");
   expect(text).toContain("No campsites listed yet");
   expect(html).not.toContain('href="/camping/mt"');
-  expect(html).not.toContain('href="/camping/cy"');
   // А ті, що з даними, лишаються посиланнями.
   expect(html).toContain('href="/camping/fr"');
 });
 
-test("🔴 API відповів порожнім: 27 плиток, жодного «0 campsites», тікера немає", async () => {
+test("🔴 API відповів порожнім: 26 плиток, жодного «0 campsites», тікера немає", async () => {
   const html = await renderCamping([]);
-  expect(tileCount(html)).toBe(27);
+  expect(tileCount(html)).toBe(26);
   const text = visibleText(html);
   expect(text).toContain("No countries have been imported yet.");
   expect(text).not.toMatch(/\b0 campsites/);
   expect(text).toContain("across 27 countries");
   expect(html).not.toContain('role="marquee"');
-  expect(html.match(/No campsites listed yet/g)?.length).toBe(27);
+  expect(html.match(/No campsites listed yet/g)?.length).toBe(26);
 });
 
 test("зіпсований запис API коштує одного запису: решта плиток на місці", () => {
@@ -210,18 +213,62 @@ test("зіпсований запис API коштує одного запису
     { country: "not-a-code", spots: 9, regions: 1 },
     { country: undefined as unknown as string, spots: 9, regions: 1 },
   ]);
-  expect(tiles.length).toBe(27);
+  expect(tiles.length).toBe(26);
   expect(tiles.find((t) => t.code === "fr")?.data?.spots).toBe(5);
 });
 
-test("порядок: 27 членів за назвою, Åland — після них", () => {
+test("порядок: 26 членів за назвою (без Кіпру), Åland — після них", () => {
   const tiles = countryTiles(API_COUNTRIES);
   const names = tiles.map((t) => t.name);
   expect(names[0]).toBe("Austria");
-  expect(names[26]).toBe("Sweden");
-  expect(names[27]).toBe("Åland Islands");
-  const members = names.slice(0, 27);
+  expect(names[25]).toBe("Sweden");
+  expect(names[26]).toBe("Åland Islands");
+  const members = names.slice(0, 26);
   expect(members).toEqual([...members].sort((a, b) => a.localeCompare(b, "en")));
+});
+
+// ── CAMP-490: країна, яку не показуємо ────────────────────────────────────
+
+test("🔴 Кіпр не намальований на /camping: ні плитки, ні назви, ні посилання, ні прапора — з рядком API і без", async () => {
+  // Дві відповіді: як її віддає фікстура 15.10.2026 (з рядком `cy`), і як
+  // віддає API сьогодні (без нього). Читаємо ВІДДАНИЙ HTML.
+  for (const [label, countries] of [
+    ["API без cy", API_COUNTRIES.filter((c) => c.country !== "cy")],
+    ["API порожній", []],
+  ] as const) {
+    const html = await renderCamping(countries as CountrySummary[]);
+    expect(visibleText(html), `${label}: назва Кіпру`).not.toContain("Cyprus");
+    expect(html, `${label}: посилання`).not.toContain("/camping/cy");
+    expect(html, `${label}: прапор`).not.toContain("/flags/cy.svg");
+  }
+  // Рядок `cy` у відповіді (стара фікстура) плитки теж не дістає. Решта
+  // сторінки — розмітка JSON-LD з рядків API, а справжній API цього рядка
+  // вже не віддає, тож це перевіряє саме плитки.
+  const tiles = renderComponent(CountryTiles, { countries: API_COUNTRIES });
+  expect(visibleText(tiles)).not.toContain("Cyprus");
+  expect(tiles).not.toContain("/camping/cy");
+  expect(tiles).not.toContain("/flags/cy.svg");
+});
+
+test("🔴 решту членів без даних (Malta) цей список не зачепив: плитка «ще немає» на місці", async () => {
+  const html = await renderCamping([]);
+  expect(visibleText(html)).toContain("Malta");
+  expect(html).toContain("/flags/mt.svg");
+});
+
+test("🔴 перелік «не публікуємо» у вебі збігається з API, а Кіпр лишається в області проєкту", () => {
+  const apiSrc = readFileSync(
+    join(ROOT, "apps", "api", "src", "spots", "unpublished-countries.ts"),
+    "utf8",
+  );
+  const m = /UNPUBLISHED_COUNTRIES = \[([^\]]*)\] as const/.exec(apiSrc);
+  expect(m, "перелік не знайдено у файлі API").not.toBeNull();
+  const fromApi = [...m![1].matchAll(/'([a-z]{2})'/g)].map((x) => x[1]).sort();
+  expect(fromApi.length, "перелік API порожній").toBeGreaterThan(0);
+  expect([...UNPUBLISHED_COUNTRIES].sort()).toEqual(fromApi);
+  // «Не показуємо» — не «стерти»: Кіпр далі в переліку області, інакше
+  // drop-non-eu.mjs видалив би його рядки з бази.
+  for (const code of UNPUBLISHED_COUNTRIES) expect(EU_MEMBER_STATES).toContain(code);
 });
 
 // ── Тікер ─────────────────────────────────────────────────────────────────

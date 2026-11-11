@@ -18,6 +18,7 @@
 // take no database, so `region-listing.spec.ts` drives them dry;
 // `region-listing.db.spec.ts` runs the whole thing against real rows.
 
+import { publishedCountrySql } from './unpublished-countries';
 import { AMENITY_KEYS, type AmenityKey } from '../osm/tag-mapping';
 import {
   filterSql,
@@ -154,6 +155,7 @@ export function isFiltering(f: MapFilters): boolean {
 
 /** `WHERE` for the region itself; `$1` country, `$2` region name. */
 const REGION_WHERE = `lower(country) = lower($1) AND region = $2
+          AND ${publishedCountrySql('s')}
           AND missing_since IS NULL
           AND ${notSecondarySql('s')}`;
 

@@ -1,3 +1,4 @@
+import { publishedCountrySql } from './unpublished-countries';
 import { nearestBathingWaterSql } from '../bathing/nearby';
 import { airQualitySql } from '../air/nearby';
 import { nearbyWebcamsSql } from '../webcams/nearby';
@@ -150,4 +151,6 @@ export const SPOT_DETAIL_SQL = `SELECT s.slug, s.name, s.country, s.region, s.ty
            linked_tariffs_withheld: withheldTariffCountSql('x.id'),
          })}
         WHERE s.slug = $1
+          -- CAMP-490: a campsite in a country we do not publish has no page.
+          AND ${publishedCountrySql('s')}
         LIMIT 1`;

@@ -1,3 +1,4 @@
+import { publishedCountrySql } from './unpublished-countries';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -300,7 +301,8 @@ export class SpotsService {
    */
   async nearby(slug: string, limit = 6): Promise<NearbySpot[]> {
     return this.db.query(
-      `WITH me AS (SELECT location FROM camping_spots WHERE slug = $1)
+      `WITH me AS (SELECT location FROM camping_spots s
+                    WHERE s.slug = $1 AND ${publishedCountrySql('s')})
        SELECT s.slug, s.name, s.country, s.region, s.type,
               round(ST_Distance(s.location::geography,
                                 (SELECT location FROM me)::geography)) AS metres
@@ -308,6 +310,11 @@ export class SpotsService {
         WHERE s.slug <> $1
           AND s.region IS NOT NULL
           AND s.missing_since IS NULL
+          -- CAMP-490: no neighbours for a campsite we do not publish, and
+          -- none of them is one. Without the first line the query would
+          -- ORDER BY a NULL distance and return rows anyway.
+          AND EXISTS (SELECT 1 FROM me)
+          AND ${publishedCountrySql('s')}
           -- Otherwise "nearby campsites" opens with the same campsite the
           -- reader is already looking at, 49 m away under another name.
           AND ${notSecondarySql('s')}
@@ -486,6 +493,7 @@ export class SpotsService {
               count(DISTINCT region)::int AS regions
          FROM camping_spots s
         WHERE region IS NOT NULL AND missing_since IS NULL
+          AND ${publishedCountrySql('s')}
           -- 🔴 CAMP-144. "61 557 campsites" counted rows, and 2 986 of
           -- those rows were a second copy of a campsite already counted.
           -- The number on the home page and in every comparison with a
@@ -526,6 +534,7 @@ export class SpotsService {
               to_char(max(last_seen_at), 'YYYY-MM-DD') AS overnight_read_at
          FROM camping_spots s
         WHERE lower(country) = lower($1)
+          AND ${publishedCountrySql('s')}
           AND region IS NOT NULL AND missing_since IS NULL
           AND ${notSecondarySql('s')}
         GROUP BY 1 ORDER BY 2 DESC, 1`,
@@ -647,6 +656,7 @@ export class SpotsService {
          FROM camping_spots s
         WHERE missing_since IS NULL
           AND region IS NOT NULL
+          AND ${publishedCountrySql('s')}
           -- 🔴 The merged name, not s.name. This asks "can we put this
           -- campsite on the home page", and a campsite named only by
           -- DATAtourisme has a name — it is printed on its own page.
@@ -676,6 +686,7 @@ export class SpotsService {
               count(DISTINCT (country, region))::int AS regions
          FROM camping_spots s
         WHERE missing_since IS NULL AND region IS NOT NULL
+          AND ${publishedCountrySql('s')}
           AND ${notSecondarySql('s')}`,
     );
     return row;
@@ -726,6 +737,7 @@ export class SpotsService {
                OR linked.has_description) AS indexable
          FROM camping_spots s${linkedSecondariesJoin()}
         WHERE s.region IS NOT NULL AND s.missing_since IS NULL
+          AND ${publishedCountrySql('s')}
           -- 🔴 CAMP-144. This is the line that stops the second page
           -- existing at all: the static site generates exactly the URLs
           -- this returns.
@@ -779,6 +791,7 @@ export class SpotsService {
               context
          FROM camping_spots s
         WHERE region IS NOT NULL AND missing_since IS NULL
+          AND ${publishedCountrySql('s')}
           AND ${notSecondarySql('s')}
         ORDER BY country, region, slug`,
     );

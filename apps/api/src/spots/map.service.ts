@@ -1,3 +1,4 @@
+import { publishedCountrySql } from './unpublished-countries';
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -231,6 +232,7 @@ export class MapQueryService {
                   count(*)::int AS n
              FROM camping_spots s
             WHERE missing_since IS NULL
+              AND ${publishedCountrySql('s')}
               -- 🔴 CAMP-144. Two pins on one campsite is the second
               -- thing the card names, after the route stop. The chunk
               -- counts printed beside each region have to match the
@@ -307,6 +309,7 @@ export class MapQueryService {
            FROM camping_spots s
           WHERE missing_since IS NULL
             AND lower(country) = lower($1)
+            AND ${publishedCountrySql('s')}
             AND ${notSecondarySql('s')}`,
         [country],
       )
@@ -345,6 +348,7 @@ export class MapQueryService {
          FROM camping_spots s
         WHERE missing_since IS NULL
           AND lower(country) = lower($1)
+          AND ${publishedCountrySql('s')}
           AND ${notSecondarySql('s')}
           AND ${where}
         ORDER BY slug`,
@@ -365,6 +369,7 @@ export class MapQueryService {
       `SELECT ${markerSelect()}
          FROM camping_spots s
         WHERE missing_since IS NULL
+          AND ${publishedCountrySql('s')}
           AND ${notSecondarySql('s')}
           AND location && ST_MakeEnvelope($1, $2, $3, $4, 4326)${f.where}
         -- 🔴 Deterministic, because the cap below may cut the list and
@@ -403,6 +408,7 @@ export class MapQueryService {
 
     const base = `FROM camping_spots s
         WHERE missing_since IS NULL
+          AND ${publishedCountrySql('s')}
           AND ${notSecondarySql('s')}
           AND location && ST_MakeEnvelope($1, $2, $3, $4, 4326)`;
 
@@ -448,6 +454,7 @@ export class MapQueryService {
               MIN(region) AS region
          FROM camping_spots s
         WHERE missing_since IS NULL
+          AND ${publishedCountrySql('s')}
           AND ${notSecondarySql('s')}
           AND location && ST_MakeEnvelope($1, $2, $3, $4, 4326)${f.where}
         GROUP BY ST_SnapToGrid(location::geometry, $${box.length + f.params.length + 1}, $${box.length + f.params.length + 1})
