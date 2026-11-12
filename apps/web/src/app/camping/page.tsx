@@ -71,7 +71,7 @@ export default async function CampingIndex() {
           екран ховав би їх усі за згином. */}
       <LayeredBanner
         headingLevel={1}
-        background={{ src: '/banners/eu-dawn.svg' }}
+        background={{ src: '/banners/eu-dawn.webp' }}
         tickerText="EUROPE"
         heading="Campsites in Europe"
         description={campingLead(total, memberStates)}
@@ -102,13 +102,13 @@ export default async function CampingIndex() {
         className="mt-10"
         items={[
           {
-            image: { src: '/banners/camper.svg' },
+            image: { src: '/banners/camper.webp' },
             heading: 'Rent a camper',
             text: 'Licence classes, weights, tolls and insurance — what hiring a camper commits you to, country by country.',
             cta: { href: '/camper-rental', label: 'Choose a country' },
           },
           {
-            image: { src: '/banners/tent.svg' },
+            image: { src: '/banners/tent.webp' },
             heading: 'Find a campsite',
             text: 'Every campsite in our database on one map, with what is around it.',
             cta: { href: '/map', label: 'Open the map' },
@@ -119,7 +119,7 @@ export default async function CampingIndex() {
       {/* 5. Банер «про нас». */}
       <BoxBanner
         className="mt-10"
-        image={{ src: '/banners/about.svg' }}
+        image={{ src: '/banners/about.webp' }}
         heading="About CampTribe"
         text="What this site is, who makes it, and where every number on it comes from."
         cta={{ href: '/about', label: 'Read about us' }}

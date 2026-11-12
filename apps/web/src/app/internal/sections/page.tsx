@@ -132,7 +132,7 @@ export default function SectionCatalogue() {
 
       <Shelf n={1} name="Layered banner">
         <LayeredBanner
-          background={{ src: "/banners/eu-dawn.svg" }}
+          background={{ src: "/banners/eu-dawn.webp" }}
           tickerText="Campsites across Europe"
           heading="Every campsite, and what is around it"
           description="Pick a country, then a region, then a site."
@@ -151,13 +151,13 @@ export default function SectionCatalogue() {
           headingLevel={3}
           items={[
             {
-              image: { src: "/banners/camper.svg" },
+              image: { src: "/banners/camper.webp" },
               heading: "Rent a camper",
               text: "Licence classes, weights, tolls and insurance.",
               cta: { href: "/camper-rental", label: "Choose a country" },
             },
             {
-              image: { src: "/banners/tent.svg" },
+              image: { src: "/banners/tent.webp" },
               heading: "Find a campsite",
               text: "Every campsite in the database on one map.",
               cta: { href: "/map", label: "Open the map" },
@@ -168,7 +168,7 @@ export default function SectionCatalogue() {
 
       <Shelf n={4} name="Image with text, alternating">
         <ImageWithText
-          image={{ src: "/banners/tent.svg" }}
+          image={{ src: "/banners/tent.webp" }}
           caption="Where to sleep"
           heading="Campsites, not guesses"
           text="Every site comes from OpenStreetMap, refreshed weekly, with the gaps shown as gaps rather than filled in."
@@ -177,7 +177,7 @@ export default function SectionCatalogue() {
         />
         <ImageWithText
           className="mt-3"
-          image={{ src: "/banners/camper.svg" }}
+          image={{ src: "/banners/camper.webp" }}
           imagePosition="right"
           imageWidth={50}
           caption="Getting there"
@@ -238,7 +238,7 @@ export default function SectionCatalogue() {
 
       <Shelf n={11} name="Box banner">
         <BoxBanner
-          image={{ src: "/banners/about.svg" }}
+          image={{ src: "/banners/about.webp" }}
           heading="About CampTribe"
           text="What this site is, and where every number on it comes from."
           cta={{ href: "/about", label: "Read about us" }}

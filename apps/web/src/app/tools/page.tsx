@@ -87,7 +87,7 @@ export default async function ToolsIndex() {
           їх за згином — та сама причина, що на /camping. */}
       <LayeredBanner
         headingLevel={1}
-        background={{ src: "/banners/eu-dawn.svg" }}
+        background={{ src: "/banners/tools.webp" }}
         tickerText="PLANNING"
         heading={page.title}
         description="Free planning tools for camper trips in the EU, built on published data."

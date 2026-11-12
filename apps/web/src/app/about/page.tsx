@@ -65,7 +65,7 @@ export default async function About() {
           твердження тут не зʼявляється. Немає — немає й рядка. */}
       <LayeredBanner
         headingLevel={1}
-        background={{ src: "/banners/about.svg" }}
+        background={{ src: "/banners/about.webp" }}
         tickerText="CAMPTRIBE"
         heading={page.title}
         description={page.metaDescription ?? undefined}

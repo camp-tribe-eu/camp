@@ -15,6 +15,7 @@ import { ThemeChoiceCookies1795100000000 } from '../migrations/1795100000000-The
 import { ThemeChoicePrivacy1795200000000 } from '../migrations/1795200000000-ThemeChoicePrivacy';
 import { PrivacyEventCounts1796800000000 } from '../migrations/1796800000000-PrivacyEventCounts';
 import { AttributionElevationFromBucket1796000000000 } from '../migrations/1796000000000-AttributionElevationFromBucket';
+import { AttributionBannerImages1796600000000 } from '../migrations/1796600000000-AttributionBannerImages';
 
 /**
  * Правові документи такими, якими їх лишають у базі ВСІ міграції разом.
@@ -65,6 +66,8 @@ const UPDATES: ReadonlyArray<SeededLegalPage> = [
   new ThemeChoicePrivacy1795200000000().page,
   // CAMP-484: висота приходить із відра AWS Open Data, а не через API.
   new AttributionElevationFromBucket1796000000000().page,
+  // CAMP-469: декоративні банери згенеровані ШІ; названо модель і сервіс.
+  new AttributionBannerImages1796600000000().page,
   // CAMP-504: сайт лічить перегляди, кліки й порожні пошуки.
   new PrivacyEventCounts1796800000000().page,
 ];
