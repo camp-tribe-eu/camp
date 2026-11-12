@@ -220,8 +220,12 @@ export const LEGAL_PAGES: LegalPage[] = [
     // ми читаємо плитки Copernicus із відкритого відра Open-Meteo на AWS
     // і рахуємо висоту й рельєф самі (CAMP-484). Джерело й ліцензія ті
     // самі, змінився ШЛЯХ — а сторінка атрибуції про шлях і каже.
-    version: '1.3',
-    effectiveFrom: '2026-11-10',
+    // 1.4 (11.11.2026, CAMP-469): декоративні банери згенеровані ШІ —
+    // названо модель (FLUX1.1 [pro] ultra) і сервіс (fal.run), і сказано,
+    // що вони не зображують жодного реального місця. Migration
+    // 1796600000000-AttributionBannerImages.
+    version: '1.4',
+    effectiveFrom: '2026-11-11',
   },
   {
     // CAMP-186. ODbL §4.6 lets us answer with the DESCRIPTION of our

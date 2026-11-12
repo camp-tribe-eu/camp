@@ -107,7 +107,7 @@ export default async function RoutesIndex() {
           те, що правда завжди. */}
       <LayeredBanner
         headingLevel={1}
-        background={{ src: "/banners/eu-dawn.svg" }}
+        background={{ src: "/banners/routes.webp" }}
         tickerText="ROUTES"
         heading={page?.title ?? "Camping routes"}
         description={page?.metaDescription ?? undefined}

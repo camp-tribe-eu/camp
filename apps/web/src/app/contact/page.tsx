@@ -59,7 +59,7 @@ export default async function Contact() {
           вже представляється в пошуку, тож нового твердження тут немає. */}
       <LayeredBanner
         headingLevel={1}
-        background={{ src: "/banners/eu-dawn.svg" }}
+        background={{ src: "/banners/eu-dawn.webp" }}
         tickerText="WRITE TO US"
         heading={page.title}
         description={page.metaDescription ?? undefined}

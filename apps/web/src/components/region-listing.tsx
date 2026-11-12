@@ -207,7 +207,7 @@ export default async function RegionListing({
         <LayeredBanner
           className="mt-4"
           headingLevel={1}
-          background={{ src: '/banners/eu-dawn.svg' }}
+          background={{ src: '/banners/lake.webp' }}
           tickerText={regionName.toUpperCase()}
           heading={`Campsites in ${regionName}`}
           description={lead}

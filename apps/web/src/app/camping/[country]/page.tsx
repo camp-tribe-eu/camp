@@ -174,7 +174,7 @@ export default async function CountryHub(props: { params: Promise<Params> }) {
       <LayeredBanner
         className="mt-4"
         headingLevel={1}
-        background={{ src: '/banners/eu-dawn.svg' }}
+        background={{ src: '/banners/eu-dawn.webp' }}
         foreground={banner ?? undefined}
         tickerText={name.toUpperCase()}
         heading={`Campsites in ${name}`}
@@ -290,13 +290,13 @@ export default async function CountryHub(props: { params: Promise<Params> }) {
         className="mt-10"
         items={[
           {
-            image: { src: '/banners/camper.svg' },
+            image: { src: '/banners/camper.webp' },
             heading: 'Rent a camper',
             text: 'Licence classes, weights, tolls and insurance — what hiring a camper commits you to, country by country.',
             cta: { href: '/camper-rental', label: 'Choose a country' },
           },
           {
-            image: { src: '/banners/tent.svg' },
+            image: { src: '/banners/tent.webp' },
             heading: 'Guides',
             text: 'Packing, driving, overnight rules and the small print of camping in Europe — written from our data, not from brochures.',
             cta: { href: '/guides', label: 'Read the guides' },
@@ -307,7 +307,7 @@ export default async function CountryHub(props: { params: Promise<Params> }) {
       {/* 8. The box banner about us. */}
       <BoxBanner
         className="mt-10"
-        image={{ src: '/banners/about.svg' }}
+        image={{ src: '/banners/about.webp' }}
         heading="About CampTribe"
         text="What this site is, who makes it, and where every number on it comes from."
         cta={{ href: '/about', label: 'Read about us' }}
