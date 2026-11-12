@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 
 import { blockedByRobots, parseRobots, renderedRobots } from "./robots-reading";
@@ -48,6 +50,16 @@ test.describe("robots.txt: усіх ШІ-ботів пущено — явно, �
       expect(g!.disallow.slice().sort(), agent).toEqual(star!.disallow.slice().sort());
       expect(g!.disallow, agent).not.toContain("/");
       expect(blockedByRobots(true, "/camping/fr", agent), agent).toBe(false);
+    }
+  });
+
+  test("кожен бот має рядок із джерелом у docs/robots-ai-sources.md", () => {
+    const doc = readFileSync(
+      join(__dirname, "..", "..", "..", "..", "docs", "robots-ai-sources.md"),
+      "utf8",
+    );
+    for (const agent of [...SEARCH, ...TRAINING]) {
+      expect(doc, agent).toMatch(new RegExp(`\\| ${agent} \\|.*https://`));
     }
   });
 

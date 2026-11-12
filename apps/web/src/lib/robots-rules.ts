@@ -46,29 +46,30 @@ export function robotsFor(open: boolean): MetadataRoute.Robots {
   // одним рядком непомітно, а явний блок видно в diff (CAMP-431).
   //
   // Імена й призначення прочитано з офіційних сторінок вендорів 12.11.2026
-  // (curl). Вендор сам каже, що налаштування незалежні одне від одного.
+  // (curl); повні адреси — у docs/robots-ai-sources.md (тут їх нема навмисно:
+  // сторож атрибуції ловить кожен зовнішній хост у виробничому коді). Вендор сам каже, що налаштування незалежні одне від одного.
   //
   // Пошукові / за запитом людини:
   const aiSearchCrawlers = [
     // OpenAI: «surface websites in search results in ChatGPT's search
     // features»; закритий сайт не потрапляє у відповіді ChatGPT Search.
-    // https://platform.openai.com/docs/bots (12.11.2026)
+    // OpenAI bots page (full URL: docs/robots-ai-sources.md) (12.11.2026)
     "OAI-SearchBot",
     // OpenAI: відвідини за дією користувача в ChatGPT / Custom GPT.
-    // https://platform.openai.com/docs/bots (12.11.2026)
+    // OpenAI bots page (full URL: docs/robots-ai-sources.md) (12.11.2026)
     "ChatGPT-User",
     // Anthropic: «improve search result quality for users».
-    // https://support.claude.com/en/articles/8896518 (12.11.2026)
+    // Anthropic crawler help article (full URL: docs/robots-ai-sources.md) (12.11.2026)
     "Claude-SearchBot",
     // Anthropic: людина питає Claude, і той відкриває сайт.
-    // https://support.claude.com/en/articles/8896518 (12.11.2026)
+    // Anthropic crawler help article (full URL: docs/robots-ai-sources.md) (12.11.2026)
     "Claude-User",
     // Perplexity: «surface and link websites in search results»; сам
     // вендор пише, що для навчання фундаментальних моделей він НЕ
-    // використовується. https://docs.perplexity.ai/guides/bots (12.11.2026)
+    // використовується. Perplexity bots guide (full URL: docs/robots-ai-sources.md) (12.11.2026)
     "PerplexityBot",
     // Perplexity: дія користувача в Perplexity.
-    // https://docs.perplexity.ai/guides/bots (12.11.2026)
+    // Perplexity bots guide (full URL: docs/robots-ai-sources.md) (12.11.2026)
     "Perplexity-User",
   ];
 
@@ -77,21 +78,21 @@ export function robotsFor(open: boolean): MetadataRoute.Robots {
   const aiTrainingCrawlers = [
     // OpenAI: «crawl content that may be used in training our generative
     // AI foundation models»; Disallow = не для навчання.
-    // https://platform.openai.com/docs/bots (12.11.2026)
+    // OpenAI bots page (full URL: docs/robots-ai-sources.md) (12.11.2026)
     "GPTBot",
     // Anthropic: збір вмісту, що «could potentially contribute to their
-    // training». https://support.claude.com/en/articles/8896518 (12.11.2026)
+    // training». Anthropic crawler help article (full URL: docs/robots-ai-sources.md) (12.11.2026)
     "ClaudeBot",
     // Google: токен керує тим, чи може вміст іти на навчання Gemini та
     // grounding. На звичайну видачу Google Search НЕ впливає (Googlebot).
-    // https://developers.google.com/crawling/docs/crawlers-fetchers/google-common-crawlers (12.11.2026)
+    // Google common crawlers page (full URL: docs/robots-ai-sources.md) (12.11.2026)
     "Google-Extended",
     // Apple: «opt-out from having their content used to train generative
-    // foundation models». https://support.apple.com/en-us/119829 (12.11.2026)
+    // foundation models». Apple Applebot page (full URL: docs/robots-ai-sources.md) (12.11.2026)
     "Applebot-Extended",
     // Common Crawl: відкритий корпус, з якого вчаться інші; сам вендор
     // публікує `User-agent: CCBot / Disallow: /` як спосіб відмови.
-    // https://commoncrawl.org/ccbot (12.11.2026)
+    // Common Crawl CCBot page (full URL: docs/robots-ai-sources.md) (12.11.2026)
     "CCBot",
   ];
 
