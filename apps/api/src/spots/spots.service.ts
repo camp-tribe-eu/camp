@@ -47,6 +47,11 @@ import {
   readCampServices,
   type CampServicesPayload,
 } from './camp-services';
+import {
+  DISTURBANCE_RADIUS_M,
+  readDisturbance,
+  type DisturbancePayload,
+} from './disturbance';
 export type { BathingWaterView } from '../bathing/nearby';
 // CAMP-164: the EEA air quality index — facts only, freshness is decided
 // where it is shown.
@@ -191,6 +196,8 @@ export interface SpotView {
   bathingWater: BathingWaterView | null;
   /** CAMP-503: fuel, EV charging, water, dump, gas — on site and nearby. `[]` = draw nothing. */
   campServices: CampServicesPayload;
+  /** CAMP-502: distances to motorway / railway line / airport. Never a noise measurement. */
+  disturbance: DisturbancePayload;
   /**
    * CAMP-164: what we hold about the air here — the nearest station's
    * latest reported hour, the 1 km modelled index where no station is
@@ -1005,6 +1012,12 @@ export function toView(row: Record<string, unknown>): SpotView {
       nearbyM: NEARBY_RADIUS_M,
       onSiteM: ONSITE_RADIUS_M,
       items: readCampServices(row.camp_services),
+    },
+    // 🔴 CAMP-502. A query that did not select the column reads as `[]`: no
+    // computed distance, so no block — never "unknown".
+    disturbance: {
+      radiusM: DISTURBANCE_RADIUS_M,
+      items: readDisturbance(row.disturbance),
     },
     // 🔴 CAMP-164. `?? { kind: 'none' }` says "we hold no station and no
     // model value for this place", which is true of any query that did

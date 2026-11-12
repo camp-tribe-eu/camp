@@ -6,7 +6,7 @@
 #
 # 🔴 PASS EVERY REGION YOU WANT, EVERY TIME.
 #
-# ogr2ogr runs with -overwrite, so each run REPLACES the three tables
+# ogr2ogr runs with -overwrite, so each run REPLACES the context tables
 # rather than adding to them. Loading France on its own would silently
 # drop Slovenia and Croatia, and the next compute-context run would
 # measure their campsites against a country that is no longer there —
@@ -27,7 +27,7 @@
 # when they change. compute-context refuses to run while the column is
 # missing or has untagged rows.
 #
-# Three layers, because a campsite is described by different things:
+# Four layers, because a campsite is described by different things:
 #
 #   water   lakes, reservoirs, rivers and the coastline. 🔴 NOT streams:
 #           the Slovenian extract holds 26,654 streams against 338 lakes,
@@ -40,6 +40,15 @@
 #           "1.2 km from a hamlet of forty people" helps nobody.
 #   poi     supermarkets and railway stations — the two errands that
 #           decide whether a site works without a car.
+#   hazard  CAMP-502: motorways and trunk roads, railway LINES, airports —
+#           what a campsite page reports as "possible disturbance". 🔴 A
+#           railway LINE (`railway=rail`), never a station: a station is
+#           already in `poi` and is something a traveller WANTS near.
+#           Yards, sidings, spurs (`service=*`) and tunnels are dropped at
+#           QUERY time (disturbance.ts), not here, so the layer stays a plain
+#           copy of what OSM says. Airports are `aeroway=aerodrome`; the
+#           query keeps those with an `iata` code (scheduled flights), not
+#           every grass strip.
 #
 # The filters keep ways and relations, not just nodes, because a lake is
 # a polygon and distance to its shore is the number that matters.
@@ -88,7 +97,7 @@ cd "$WORK_DIR"
 #
 # Two runs sharing one WORK_DIR corrupt each other two ways: both write
 # the same .osm.pbf (one’s fresh download lands under the other’s
-# osmium), and both `ogr2ogr -overwrite` the same three tables while
+# osmium), and both `ogr2ogr -overwrite` the same context tables while
 # each checks the row count against its own export. Measured: two
 # concurrent Malta runs ended with `osm_ctx_water holds 5078 rows but
 # the export had 2539` — exactly twice, two loads into one table. That
@@ -113,7 +122,7 @@ echo $$ > "$LOCK_DIR/pid"
 # Released on every exit, including the `exit 1`s below and a Ctrl-C.
 trap 'rm -rf "$LOCK_DIR"' EXIT INT TERM
 
-MERGE_WATER=() MERGE_PLACE=() MERGE_POI=()
+MERGE_WATER=() MERGE_PLACE=() MERGE_POI=() MERGE_HAZARD=()
 
 # 🔴 Size and mtime of a file, printed as "<bytes> <epoch>".
 #
@@ -348,10 +357,13 @@ for REGION in "${REGIONS[@]}"; do
   osmium tags-filter "$SLUG.osm.pbf" -o "$SLUG.poi.pbf" --overwrite \
     n/shop=supermarket w/shop=supermarket \
     n/railway=station n/railway=halt
+  osmium tags-filter "$SLUG.osm.pbf" -o "$SLUG.hazard.pbf" --overwrite \
+    w/highway=motorway,trunk w/railway=rail nwr/aeroway=aerodrome
 
   MERGE_WATER+=("$SLUG.water.pbf")
   MERGE_PLACE+=("$SLUG.place.pbf")
   MERGE_POI+=("$SLUG.poi.pbf")
+  MERGE_HAZARD+=("$SLUG.hazard.pbf")
 done
 
 load_layer() {
@@ -405,6 +417,7 @@ load_layer() {
     water) TAGS='"name","natural","waterway","water"' ;;
     place) TAGS='"name","place"' ;;
     poi)   TAGS='"name","shop","railway"' ;;
+    hazard) TAGS='"name","highway","railway","aeroway","iata","service","tunnel"' ;;
     *)     echo "::error::no tag list for layer $name" >&2; exit 1 ;;
   esac
   printf '{"include_tags":[%s]}\n' "$TAGS" > "export-$name.json"
@@ -453,6 +466,7 @@ echo "→ loading layers"
 load_layer water "${MERGE_WATER[@]}"
 load_layer place "${MERGE_PLACE[@]}"
 load_layer poi   "${MERGE_POI[@]}"
+load_layer hazard "${MERGE_HAZARD[@]}"
 
 echo "✓ context layers ready — now run:"
 echo "    cd apps/api && npx ts-node src/osm/compute-context.ts"

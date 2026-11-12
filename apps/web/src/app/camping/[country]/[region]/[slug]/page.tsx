@@ -33,6 +33,8 @@ import SourceNote from '@/components/source-note';
 import TariffTable from '@/components/tariff-table';
 import BathingWaterNote from '@/components/bathing-water';
 import CampServices from '@/components/camp-services';
+import CampDisturbance from '@/components/camp-disturbance';
+import { DISTURBANCE_PAGE, disturbanceView } from '@/lib/disturbance';
 import { CAMP_SERVICES_PAGE, servicesView } from '@/lib/camp-services';
 import { pageContent } from '@/lib/page-content';
 import AirQualityNote from '@/components/air-quality';
@@ -319,6 +321,9 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
   // 🔴 CAMP-503: the block's words. A CMS that cannot answer costs the block,
   // not the campsite page (the fault's reach stays the size of the fault).
   const servicesPage = await pageContent(CAMP_SERVICES_PAGE).catch(() => null);
+  // CAMP-502: the same for the disturbance block; a missing page costs the block.
+  const disturbancePage = await pageContent(DISTURBANCE_PAGE).catch(() => null);
+  const disturbance = disturbanceView(spot.disturbance, disturbancePage?.sections ?? null);
   const name = spot.name;
   const setting = settingParagraph(spot.context);
   const known = Object.values(spot.amenities).filter(
@@ -545,6 +550,7 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
             type={spot.type}
             label={name ?? `${SPOT_TYPE_LABEL[spot.type]} near ${spot.region}`}
             outline={spot.outline ?? null}
+            disturbance={disturbance?.markers ?? []}
           />
         </div>
       </div>
@@ -616,6 +622,7 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
           point lies in range (the card's decision), and nothing when the
           CMS words are missing. Words come from the CMS page, not JSX. */}
       <CampServices view={servicesView(spot.campServices, spot.hookup, servicesPage?.sections ?? null)} />
+      <CampDisturbance view={disturbance} />
 
       {/* 🔴 CAMP-164: what the EEA's air quality index says here.
 

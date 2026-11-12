@@ -16,6 +16,7 @@ import dynamic from 'next/dynamic';
  * пререндер сторінки.
  */
 import type { Outline } from '@/lib/outline';
+import type { DisturbanceMarker } from '@/lib/disturbance';
 
 const SiteMap = dynamic(() => import('@/components/site-map'), {
   ssr: false,
@@ -30,6 +31,7 @@ export default function SiteMapEmbed(props: {
   type: string;
   label: string;
   outline?: Outline | null;
+  disturbance?: readonly DisturbanceMarker[];
 }) {
   return <SiteMap {...props} />;
 }

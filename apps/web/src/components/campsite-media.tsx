@@ -1,5 +1,6 @@
 import SiteMapEmbed from './site-map-embed';
 import type { Outline } from '@/lib/outline';
+import type { DisturbanceMarker } from '@/lib/disturbance';
 
 /**
  * Медіаслот сторінки кемпінгу (CAMP-344).
@@ -80,6 +81,7 @@ export function CampsiteMedia({
   type,
   label,
   outline = null,
+  disturbance = [],
 }: {
   photos: readonly Photo[];
   lat: number;
@@ -87,6 +89,8 @@ export function CampsiteMedia({
   type: string;
   label: string;
   outline?: Outline | null;
+  /** CAMP-502: pins for the nearest motorway / railway line / airport. */
+  disturbance?: readonly DisturbanceMarker[];
 }) {
   const chosen = choosePhoto(photos);
 
@@ -123,6 +127,7 @@ export function CampsiteMedia({
           type={type}
           label={label}
           outline={outline}
+          disturbance={disturbance}
         />
       </div>
       <figcaption className="mt-2 text-xs text-ink-2" data-outline={outline ? 'yes' : 'no'}>
