@@ -80,7 +80,7 @@ export default async function GuidesIndex() {
           читають першим. */}
       <LayeredBanner
         headingLevel={1}
-        background={{ src: '/banners/eu-dawn.svg' }}
+        background={{ src: '/banners/guides.webp' }}
         tickerText="GUIDES"
         heading={page?.title ?? 'Guides'}
         description={page?.metaDescription ?? undefined}

@@ -52,7 +52,7 @@ async function countryHtml(
 const foregroundImgs = (html: string): string[] =>
   html.match(/<img\b[^>]*class="ct-banner__media-img"[^>]*>/g) ?? [];
 
-const BACKGROUND = 'src="/banners/eu-dawn.svg"';
+const BACKGROUND = 'src="/banners/eu-dawn.webp"';
 
 test('🔴 країна БЕЗ зображення: банер такий, як був — фон є, переднього фото й обгортки немає', async () => {
   const html = await countryHtml(null);

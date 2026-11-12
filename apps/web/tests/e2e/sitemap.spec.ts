@@ -203,6 +203,9 @@ test.describe('llms.txt', () => {
     // will not invent them. Being explicit about gaps is the point.
     const body = await (await request.get('/llms.txt')).text();
     expect(body).toMatch(/No photographs/i);
+    // CAMP-469: the banners look like photographs, so the file says they
+    // are not. Same three words scripts/images/check-banners.mjs requires.
+    expect(body).toMatch(/decorative[^.]*AI-generated[^.]*no real place/i);
     expect(body).toMatch(/No reviews and no ratings/i);
     expect(body).toMatch(/not recorded/i);
   });

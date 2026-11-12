@@ -210,6 +210,18 @@ jobs:
       - name: No secrets in tracked files
         run: node scripts/security/check-secrets.mjs
 
+      # 🔴 CAMP-469. The decorative banners are AI-generated and look like
+      # photographs; llms.txt must say they show no real place whenever a
+      # raster file sits in public/banners. Same two steps as everywhere:
+      # first prove the guard still goes red, then believe the clean run.
+      - name: Banner guard still catches a missing disclosure
+        run: |
+          set -o pipefail
+          node scripts/images/check-banners.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-banners self-test:' >/dev/null
+      - name: Banners are bounded, recorded and disclosed in llms.txt
+        run: node scripts/images/check-banners.mjs
+
       # CAMP-353. Копія безпекового журналу живе на ноутбуці власника, а
       # не в репозиторії; у її рядках справжні адреси читачів. Сторож
       # дивиться в ІНДЕКС git, бо `.gitignore` описує намір, а не стан.
