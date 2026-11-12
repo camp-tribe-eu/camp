@@ -27,7 +27,7 @@
 // stamps disagree is itself reported: that disagreement is how the blind
 // spot opens in the first place.
 
-import { readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -204,15 +204,27 @@ export function gatherOthers({ repo, remote, rel, self, prsJson }) {
   const others = [];
   let unread = 0;
   const failure = [];
+  // 🔴 CAMP-497b: NEVER FETCH INTO THE USER'S OWN REPOSITORY. A
+  // `--depth=1` fetch of a head that is not local writes shallow
+  // boundaries into the repo it runs in: the first version did that and
+  // turned a developer's clone shallow (28 boundaries), after which
+  // `git pull --ff-only` refused and `git log origin/main` showed two
+  // commits, which looked like a rewritten main. The heads are fetched
+  // into a throwaway bare repo instead; the working repo is only asked
+  // for its remote's URL.
+  const scratch = mkdtempSync(join(tmpdir(), 'migstamp-fetch-'));
+  spawnSync('git', ['init', '--bare', '-q', scratch]);
+  const url = git(repo, ['remote', 'get-url', remote]);
+  const remoteUrl = url.status === 0 ? url.stdout.trim() : remote;
   const fetchRead = (label, refspec, local) => {
-    const f = git(repo, ['fetch', '--no-tags', '--depth=1', '--quiet', remote, `+${refspec}:${local}`]);
+    const f = git(scratch, ['fetch', '--no-tags', '--depth=1', '--quiet', remoteUrl, `+${refspec}:${local}`]);
     if (f.status !== 0) {
       unread += 1;
       failure.push(`${label}: ${f.stderr.trim().split('\n')[0]}`);
       return;
     }
     try {
-      others.push({ label, entries: readEntriesFromRef(repo, local, rel) });
+      others.push({ label, entries: readEntriesFromRef(scratch, local, rel) });
     } catch (e) {
       unread += 1;
       failure.push(`${label}: ${e.message}`);
@@ -230,6 +242,7 @@ export function gatherOthers({ repo, remote, rel, self, prsJson }) {
   for (const pr of prs) {
     fetchRead(`PR #${pr.number} ${pr.headRefName}`, `refs/pull/${pr.number}/head`, `refs/camp-stamps/pr-${pr.number}`);
   }
+  rmSync(scratch, { recursive: true, force: true });
   return { others, unread, failure, listError, total: prs.length + (self !== 'main' ? 1 : 0) };
 }
 
@@ -461,6 +474,12 @@ function selfTest() {
   // A branch that is merely behind: the SAME class on main and here is one migration.
   const behind = parallelScenario('par-behind', { mainFiles: [OLD, B], mainLater: [['1796700000000-Later.ts', 'Later1796700000000']], prFiles: [], mine: [C] });
   expect('a branch that carries main\'s own migration is not a collision', behind.status, 0);
+  // 🔴 CAMP-497b: the guard must leave the repo it ran in exactly as it
+  // found it — not shallow, and without the refs it fetched.
+  const shallow = spawnSync('git', ['-C', join(root, 'par-clean', 'work'), 'rev-parse', '--is-shallow-repository'], { encoding: 'utf8' }).stdout.trim();
+  expect('the working repo is NOT shallow after a run (is-shallow-repository = false)', shallow, 'false');
+  const strayRefs = spawnSync('git', ['-C', join(root, 'par-clean', 'work'), 'for-each-ref', 'refs/camp-stamps'], { encoding: 'utf8' }).stdout.trim();
+  expect('no refs/camp-stamps left in the working repo', strayRefs, '');
   // Unreachable remote: loud, separate line, not the green one, not red.
   const blind = spawnSync(
     process.execPath,
@@ -476,7 +495,7 @@ function selfTest() {
 
   // 🔴 CAMP-286: counted, because a scenario that stopped being
   // rehearsed prints exactly what a passing one prints — nothing.
-  const EXPECTED_CASES = 11;
+  const EXPECTED_CASES = 13;
   if (cases !== EXPECTED_CASES) {
     console.error(`✗ ${cases} scenarios ran, expected ${EXPECTED_CASES}`);
     rc = 1;
