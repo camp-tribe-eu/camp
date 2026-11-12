@@ -145,6 +145,29 @@ export function renameRegion(
   return `/${parts.join('/')}`;
 }
 
+// CAMP-490 — 301 для країни, яка перестала бути окремою.
+//
+// 🔴 ПРАВИЛО НА КРАЇНУ, А НЕ ПАРА НА СТОРІНКУ. Åland (`ax`) — автономний
+// регіон Фінляндії; його 19 кемпінгів тепер у `fi` під тими самими
+// сегментами регіону й кемпінга (slug кемпінга глобально унікальний,
+// перетинів із Фінляндією 0). Тож `/camping/ax/<решта>` → `/camping/fi/<решта>`
+// одним правилом, ~20 байт у бандлі замість 19+ пар у 81%-му ліміті.
+// Кіпр так не робили (його не показуємо, 404 чесніший), а тут сторінки
+// переїхали, а не зникли, — отже 301.
+export const COUNTRY_MOVES: ReadonlyMap<string, string> = new Map([['ax', 'fi']]);
+
+export function moveCountry(
+  pathname: string,
+  moves: ReadonlyMap<string, string> = COUNTRY_MOVES,
+): string | null {
+  const parts = normalisePath(pathname).split('/').filter(Boolean);
+  if (parts.length < 2 || parts[0] !== 'camping') return null;
+  const to = moves.get(parts[1]);
+  if (to === undefined) return null;
+  parts[1] = to;
+  return `/${parts.join('/')}`;
+}
+
 export function redirectFor(
   pathname: string,
   search: string,
@@ -179,6 +202,7 @@ export function route(
   redirects: ReadonlyMap<string, string>,
   gone: ReadonlySet<string>,
   renames: ReadonlyMap<string, string> = RENAMES,
+  moves: ReadonlyMap<string, string> = COUNTRY_MOVES,
 ) {
   const origin = publicOrigin(request.headers, request.nextUrl.origin);
 
@@ -186,8 +210,11 @@ export function route(
   // переїхав, а кемпінг на новій адресі ще й склеєний з іншим, читач
   // мав би два послідовні 301. Ми рахуємо новий шлях, питаємо карту
   // саме про нього — і віддаємо одну відповідь із кінцевою адресою.
-  const renamed = renameRegion(request.nextUrl.pathname, renames);
-  const effective = renamed ?? request.nextUrl.pathname;
+  // CAMP-490: країна переїхала першою — вона найлівіший сегмент.
+  const movedCountry = moveCountry(request.nextUrl.pathname, moves);
+  const base = movedCountry ?? request.nextUrl.pathname;
+  const renamed = renameRegion(base, renames) ?? movedCountry;
+  const effective = renamed ?? base;
 
   const redirect = redirectFor(effective, request.nextUrl.search, origin, redirects);
   if (redirect) return redirect;

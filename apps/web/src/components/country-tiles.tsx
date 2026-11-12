@@ -3,7 +3,7 @@ import Link from "next/link";
 import type { CountrySummary } from "@/lib/api";
 import { countryName } from "@/lib/api";
 import { EU_MEMBER_STATES, isEuMemberState } from "@/lib/eu-countries";
-import { isUnpublishedCountry } from "@/lib/unpublished-countries";
+import { isUnpublishedCountry, publishedCountries } from "@/lib/unpublished-countries";
 import { Flag } from "./flag";
 
 /**
@@ -87,7 +87,8 @@ const looksLikeCode = (code: unknown): code is string =>
 /** Усі плитки в порядку показу: 27 членів за назвою, потім решта кодів API. */
 export function countryTiles(countries: readonly CountrySummary[]): CountryTile[] {
   const byCode = new Map<string, CountrySummary>();
-  for (const c of countries) {
+  // CAMP-490: `ax` зливається з `fi`, прихований код відпадає ще тут.
+  for (const c of publishedCountries(countries)) {
     if (!looksLikeCode(c?.country)) continue;
     byCode.set(c.country.trim().toLowerCase(), c);
   }

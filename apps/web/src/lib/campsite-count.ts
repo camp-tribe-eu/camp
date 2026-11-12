@@ -1,4 +1,5 @@
 import { getSummary } from './api';
+import { SUBDIVISION_OF } from './unpublished-countries';
 
 // CAMP-308 — a campsite count in a sentence that a search engine reads.
 //
@@ -120,7 +121,7 @@ export function heroLead(spots: number | null, regions: number | null): string {
  * emitting a 29th code makes the number rise rather than vanish: the test
  * compares the folded set with the EU-27 file and fails on either side.
  */
-const SUBDIVISION_OF: Readonly<Record<string, string>> = { ax: 'fi' };
+// Таблиця живе в `unpublished-countries.ts` (CAMP-490): одна, а не дві.
 
 export const memberState = (code: string): string => {
   const c = code.trim().toLowerCase();

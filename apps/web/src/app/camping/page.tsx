@@ -1,12 +1,11 @@
 import type { Metadata } from 'next';
 import { countryName, getCountries } from '@/lib/api';
-import { campingLead, memberStateCount, printable } from '@/lib/campsite-count';
-import { EU_MEMBER_STATES } from '@/lib/eu-countries';
+import { campingLead, printable } from '@/lib/campsite-count';
 import { collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
 import { Block, PageShell } from '@/components/layout';
 import { LayeredBanner } from '@/components/layered-banner';
-import { CountryTiles } from '@/components/country-tiles';
+import { CountryTiles, countryTiles } from '@/components/country-tiles';
 import { CountryTicker } from '@/components/country-ticker';
 import { GridBanner } from '@/components/grid-banner';
 import { BoxBanner } from '@/components/box-banner';
@@ -41,15 +40,12 @@ export const metadata: Metadata = {
 export default async function CampingIndex() {
   const countries = await getCountries();
   const total = printable(countries.reduce((n, c) => n + c.spots, 0));
-  // 🔴 CAMP-240. `memberStateCount`, not `countries.length`:
-  // `/spots/countries` answers with the codes the rows carry, and `ax`
-  // (Åland, a region of Finland) is one of them. A count of COUNTRIES on
-  // a site scoped to the EU-27 cannot say 28. And when the API answered
-  // nothing, the sentence says 27 — the Union's size, not our data's.
-  const memberStates =
-    countries.length > 0
-      ? memberStateCount(countries.map((c) => c.country))
-      : EU_MEMBER_STATES.length;
+  // 🔴 CAMP-490. ЧИСЛО В ТЕКСТІ — ЦЕ ЧИСЛО ПЛИТОК, ІЗ ОДНОГО ДЖЕРЕЛА.
+  // Раніше воно йшло з `memberStateCount` (країни з даними, а на порожній
+  // відповіді — 27), а плитки малював інший код: 27 плиток під текстом «26»
+  // і 26 під текстом «27». Тепер число — довжина того самого масиву, що
+  // малює плитки; Åland у ньому злитий із Фінляндією, Кіпру немає.
+  const memberStates = countryTiles(countries).length;
 
   return (
     <PageShell rhythm="tight">

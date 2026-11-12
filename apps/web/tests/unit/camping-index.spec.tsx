@@ -157,13 +157,19 @@ test("🔴 число в плитці дорівнює числу, яке від
     description: `${API_COUNTRIES.length} rows from /spots/countries, ${tileCount(html)} tiles rendered`,
   });
   expect(API_COUNTRIES.length).toBe(28);
-  // CAMP-490: фікстура ще містить рядок `cy` (так було 15.10.2026), але
-  // плитку з нього не малюємо: 28 рядків, 27 плиток.
-  expect(tileCount(html)).toBe(27);
+  // CAMP-490: фікстура ще містить рядки `cy` і `ax` (так було 15.10.2026).
+  // `cy` плитки не дістає, `ax` — не країна: 28 рядків, 26 плиток.
+  expect(tileCount(html)).toBe(26);
 
   const wrong: string[] = [];
-  for (const row of API_COUNTRIES) {
-    if (isUnpublishedCountry(row.country)) continue;
+  const aland = API_COUNTRIES.find((c) => c.country === "ax")!;
+  for (const src of API_COUNTRIES) {
+    if (isUnpublishedCountry(src.country) || src.country === "ax") continue;
+    // Åland рахується під Фінляндією: його кемпінги й регіони додаються до `fi`.
+    const row =
+      src.country === "fi"
+        ? { ...src, spots: src.spots + aland.spots, regions: src.regions + aland.regions }
+        : src;
     const text = visibleText(tileHtml(html, row.country));
     const expected =
       `${en(row.spots)} ${row.spots === 1 ? "campsite" : "campsites"} · ` +
@@ -186,7 +192,7 @@ test("однина й множина: 1 campsite · 1 region", () => {
 test("🔴 плитка без даних не ламає сторінку: країна стоїть, каже «ще немає» і нікуди не веде", async () => {
   const without = API_COUNTRIES.filter((c) => c.country !== "mt");
   const html = await renderCamping(without);
-  expect(tileCount(html), "плиток має бути 26 + ax").toBe(27);
+  expect(tileCount(html), "плиток має бути 26").toBe(26);
   const text = visibleText(html);
   expect(text).toContain("Malta");
   expect(text).toContain("No campsites listed yet");
@@ -201,7 +207,7 @@ test("🔴 API відповів порожнім: 26 плиток, жодног�
   const text = visibleText(html);
   expect(text).toContain("No countries have been imported yet.");
   expect(text).not.toMatch(/\b0 campsites/);
-  expect(text).toContain("across 27 countries");
+  expect(text).toContain("across 26 countries");
   expect(html).not.toContain('role="marquee"');
   expect(html.match(/No campsites listed yet/g)?.length).toBe(26);
 });
@@ -217,14 +223,12 @@ test("зіпсований запис API коштує одного запису
   expect(tiles.find((t) => t.code === "fr")?.data?.spots).toBe(5);
 });
 
-test("порядок: 26 членів за назвою (без Кіпру), Åland — після них", () => {
-  const tiles = countryTiles(API_COUNTRIES);
-  const names = tiles.map((t) => t.name);
+test("порядок: 26 членів за назвою (без Кіпру), після них нічого", () => {
+  const names = countryTiles(API_COUNTRIES).map((t) => t.name);
+  expect(names.length).toBe(26);
   expect(names[0]).toBe("Austria");
   expect(names[25]).toBe("Sweden");
-  expect(names[26]).toBe("Åland Islands");
-  const members = names.slice(0, 26);
-  expect(members).toEqual([...members].sort((a, b) => a.localeCompare(b, "en")));
+  expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b, "en")));
 });
 
 // ── CAMP-490: країна, яку не показуємо ────────────────────────────────────
@@ -355,8 +359,42 @@ test("🔴 банери ведуть на наші сторінки вибору
 
 test("речення під заголовком банера несе число з API, і воно збігається із сумою рядків", async () => {
   const html = await renderCamping(API_COUNTRIES);
-  const total = API_COUNTRIES.reduce((n, c) => n + c.spots, 0);
+  // Сума без Кіпру (не публікуємо); 19 кемпінгів Åland лишаються в сумі під Фінляндією.
+  const total = API_COUNTRIES.filter((c) => c.country !== "cy").reduce((n, c) => n + c.spots, 0);
   expect(visibleText(html)).toContain(
-    `${en(total)} campsites, motorhome parks and camper stops across 27 countries`,
+    `${en(total)} campsites, motorhome parks and camper stops across 26 countries`,
   );
+});
+
+// ── CAMP-490: Åland не окрема країна ──────────────────────────────────────
+
+test("🔴 /camping: число країн у тексті = число плиток, і `ax` серед них немає — на відданому HTML", async () => {
+  // Дві відповіді API: стара (з рядком `ax`, як у фікстурі) і нова (після
+  // міграції, `ax` злитий у `fi`). Читач має бачити те саме.
+  const merged = API_COUNTRIES.filter((c) => c.country !== "ax").map((c) =>
+    c.country === "fi"
+      ? { ...c, spots: c.spots + 19, regions: c.regions + 6 }
+      : c,
+  );
+  for (const [label, countries] of [
+    ["API зі старим ax", API_COUNTRIES],
+    ["API без ax", merged],
+    ["API порожній", []],
+  ] as const) {
+    const html = await renderCamping(countries as CountrySummary[]);
+    const text = visibleText(html);
+    const said = /across (\d+) countries/.exec(text);
+    expect(said, `${label}: речення «across N countries» не знайдено`).not.toBeNull();
+    const tiles = tileCount(html);
+    expect(Number(said![1]), `${label}: у тексті ${said![1]}, плиток ${tiles}`).toBe(tiles);
+    // Коди плиток — з відданого HTML, а не з константи.
+    const codes = [...html.matchAll(/\/flags\/([a-z]{2})\.svg/g)].map((m) => m[1]);
+    expect(codes, `${label}: код \`ax\` серед плиток`).not.toContain("ax");
+    expect(html, `${label}: посилання на ax`).not.toContain("/camping/ax");
+    expect(text, `${label}: назва Åland`).not.toContain("Åland");
+  }
+  // Кемпінги Åland не викинуті: у плитці Фінляндії їхні 19 додано до її рядка.
+  const fi = API_COUNTRIES.find((c) => c.country === "fi")!;
+  const html = await renderCamping(API_COUNTRIES);
+  expect(visibleText(tileHtml(html, "fi"))).toContain(`${en(fi.spots + 19)} campsites`);
 });
