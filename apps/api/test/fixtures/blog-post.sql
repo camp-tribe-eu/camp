@@ -71,14 +71,29 @@ SELECT id, 'en', 'Scheduled and not yet due', 'Must not be visible anywhere.'
   FROM pages
  WHERE slug = 'scheduled-and-not-yet-due' AND type = 'post';
 
+-- 🔴 СТОРОЖ РАХУЄ ЛИШЕ СВОЇ ЗАПИСИ, А НЕ ВСІ ДОПИСИ В ТАБЛИЦІ. Раніше
+-- тут стояло «рівно 2 допису в базі» — і воно впало, щойно міграція
+-- `SeedTestBlogPosts` поклала власні п'ять. Жорстке число зламалося б
+-- знову на шостому. Те, що фікстура мусить довести, — що ЇЇ два рядки
+-- посаджено: один видимий, один із майбутньою датою. Чужі дописи тут
+-- не заважають і не рятують: рахунок іде за слагами цього файлу.
 DO $$
 DECLARE n int;
+DECLARE future int;
 BEGIN
-  SELECT count(*) INTO n FROM pages WHERE type = 'post';
+  SELECT count(*) INTO n FROM pages
+   WHERE type = 'post'
+     AND slug IN ('what-the-data-does-not-say', 'scheduled-and-not-yet-due');
   IF n <> 2 THEN
-    RAISE EXCEPTION 'CI fixture: expected exactly 2 posts, got %', n;
+    RAISE EXCEPTION 'CI fixture: expected its own 2 posts, found %', n;
   END IF;
-  RAISE NOTICE 'CI fixture: 2 posts seeded, 1 of them dated in the future';
+  SELECT count(*) INTO future FROM pages
+   WHERE type = 'post' AND slug = 'scheduled-and-not-yet-due'
+     AND published_at > now();
+  IF future <> 1 THEN
+    RAISE EXCEPTION 'CI fixture: the scheduled post is not dated in the future';
+  END IF;
+  RAISE NOTICE 'CI fixture: its own 2 posts seeded, 1 of them dated in the future';
 END $$;
 
 COMMIT;
