@@ -57,8 +57,22 @@ test.describe('межа власника: записуване = читане', 
     expect(write).toEqual(read);
   });
 
-  test('і це саме name та amenities', () => {
-    expect(writableInApi()).toEqual(['amenities', 'name']);
+  test('і це саме name, amenities та hookup (CAMP-503)', () => {
+    expect(writableInApi()).toEqual(['amenities', 'hookup', 'name']);
+  });
+
+  test('🔴 hookup власника доходить до сторінки, а сміття — ні (CAMP-503)', () => {
+    const base = { name: 'x', amenities: {}, ownerOverrides: {} } as unknown as Parameters<typeof withOwnerOverrides>[0];
+    const ok = withOwnerOverrides({
+      ...base,
+      ownerOverrides: { hookup: { voltageV: 230, powerKw: 3.7, evil: 1 } },
+    } as typeof base);
+    expect(ok.hookup).toEqual({ voltageV: 230, powerKw: 3.7 });
+    const bad = withOwnerOverrides({
+      ...base,
+      ownerOverrides: { hookup: { voltageV: 'x', powerKw: -1 } },
+    } as typeof base);
+    expect(bad.hookup).toBeUndefined();
   });
 
   test('🔴 правка справді доходить до сторінки, а не лише до колонки', () => {

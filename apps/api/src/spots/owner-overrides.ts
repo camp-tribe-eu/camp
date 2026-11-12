@@ -14,7 +14,23 @@ import { AmenityValue, type AmenityKey } from '../osm/tag-mapping';
  * Тому список один, він експортується, і тест читає ОБИДВА боки й падає,
  * якщо вони розійшлись.
  */
-export const WRITABLE = Object.freeze(['name', 'amenities'] as const);
+export const WRITABLE = Object.freeze(['name', 'amenities', 'hookup'] as const);
+
+/**
+ * CAMP-503: the pitch's mains hookup — what a CAMPER plugs into. OSM has none
+ * of these on a campsite, so they start EMPTY and only the owner fills them.
+ * 🔴 Not EV charging: that is a public charger for electric cars, found by
+ * distance (camp-services.ts), and nothing here describes it.
+ */
+export const HOOKUP_FIELDS = Object.freeze({
+  voltageV: { min: 100, max: 480, whole: true },
+  powerKw: { min: 0.1, max: 50, whole: false },
+  priceEurPerNight: { min: 0, max: 100, whole: false },
+} as const);
+export type HookupKey = keyof typeof HOOKUP_FIELDS;
+export const HOOKUP_KEYS = Object.freeze(
+  Object.keys(HOOKUP_FIELDS) as HookupKey[],
+);
 
 export const AMENITY_KEYS = Object.freeze([
   'electricity',
@@ -37,6 +53,7 @@ export const MAX_NAME = 120;
 export type OverridePatch = {
   name?: string | null;
   amenities?: Partial<Record<AmenityKey, string | null>> | null;
+  hookup?: Partial<Record<HookupKey, number | null>> | null;
 };
 
 /**
@@ -94,6 +111,36 @@ export function faults(patch: unknown): string[] {
       }
     }
   }
+  if ('hookup' in p && p.hookup !== null) {
+    const h = p.hookup;
+    if (h === null || typeof h !== 'object' || Array.isArray(h)) {
+      out.push('hookup має бути об’єктом або null');
+    } else {
+      const hm = h as Record<string, unknown>;
+      const names = Object.keys(hm);
+      if (names.length === 0)
+        out.push('hookup порожній — надішли null, щоб прибрати');
+      for (const k of names) {
+        if (!(HOOKUP_KEYS as readonly string[]).includes(k)) {
+          out.push(`hookup: поля «${k}» не існує`);
+          continue;
+        }
+        const v = hm[k];
+        if (v === null) continue;
+        const f = HOOKUP_FIELDS[k as HookupKey];
+        if (
+          typeof v !== 'number' ||
+          !Number.isFinite(v) ||
+          v < f.min ||
+          v > f.max ||
+          (f.whole && !Number.isInteger(v))
+        )
+          out.push(
+            `hookup.${k}: ${String(v)} — число від ${f.min} до ${f.max}${f.whole ? ', ціле' : ''} або null`,
+          );
+      }
+    }
+  }
   return out;
 }
 
@@ -144,6 +191,24 @@ export function merge(
       // `amenities: {}` нічого не означає й лише плутає читача дампу.
       if (Object.keys(after).length === 0) delete next.amenities;
       else next.amenities = after;
+    }
+  }
+
+  if ('hookup' in patch) {
+    if (patch.hookup === null) {
+      delete next.hookup;
+    } else {
+      // Той самий принцип, що для зручностей: ключі лише зі СВОГО переліку.
+      const before = (next.hookup ?? {}) as Record<string, unknown>;
+      const after: Record<string, unknown> = { ...before };
+      const given = (patch.hookup ?? {}) as Record<string, unknown>;
+      for (const k of HOOKUP_KEYS) {
+        if (!Object.prototype.hasOwnProperty.call(given, k)) continue;
+        if (given[k] === null) delete after[k];
+        else after[k] = given[k];
+      }
+      if (Object.keys(after).length === 0) delete next.hookup;
+      else next.hookup = after;
     }
   }
 
