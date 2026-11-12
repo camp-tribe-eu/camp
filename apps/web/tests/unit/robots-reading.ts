@@ -33,9 +33,68 @@ export function agentsNamed(open: boolean): string[] {
     .filter((a) => a !== "*");
 }
 
-/** Чи закриває robots.txt цей шлях — для БУДЬ-ЯКОГО з названих агентів. */
-export function blockedByRobots(open: boolean, path: string): boolean {
-  return groups(open).some((g) =>
+/**
+ * Чи закриває robots.txt цей шлях для ОДНОГО агента.
+ *
+ * 🔴 CAMP-509: раніше тут питали «чи закриває хоч один блок». Відколи
+ * навчальні боти закриті цілком (`Disallow: /`), така відповідь була б
+ * завжди «так» для будь-якого шляху. Робот читає власний блок, а якщо його
+ * немає — блок `*`; так і тут. Блоки пошукових ШІ-ботів звіряє з `*`
+ * окремий тест у robots-ai-crawlers.spec.ts.
+ */
+export function blockedByRobots(
+  open: boolean,
+  path: string,
+  agent = "*",
+): boolean {
+  const all = groups(open);
+  const own = all.filter((g) => [g?.userAgent ?? []].flat().includes(agent));
+  const used = own.length > 0 ? own : all.filter((g) => g?.userAgent === "*");
+  return used.some((g) =>
     [g?.disallow ?? []].flat().some((d) => d !== "" && path.startsWith(d)),
   );
+}
+
+/**
+ * robots.txt ТАК, ЯК ЙОГО ВІДДАЄ NEXT: тим самим серіалізатором, що відповідає
+ * на `GET /robots.txt`, а не читанням нашої структури. Тест, що дивиться на
+ * структуру, не помітив би, що поле не дійшло до тексту.
+ */
+export function renderedRobots(open: boolean): string {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { resolveRobots } = require(
+    "next/dist/build/webpack/loaders/metadata/resolve-route-data",
+  ) as { resolveRobots: (d: MetadataRoute.Robots) => string };
+  return resolveRobots(robotsFor(open));
+}
+
+/** Відданий текст → `{агент: {allow[], disallow[]}}`, лише читання рядків. */
+export function parseRobots(
+  text: string,
+): Map<string, { allow: string[]; disallow: string[] }> {
+  const out = new Map<string, { allow: string[]; disallow: string[] }>();
+  let current: string[] = [];
+  let lastWasAgent = false;
+  for (const raw of text.split("\n")) {
+    const m = /^([A-Za-z-]+):\s*(.*)$/.exec(raw.trim());
+    if (!m) {
+      lastWasAgent = false;
+      continue;
+    }
+    const key = m[1].toLowerCase();
+    const val = m[2];
+    if (key === "user-agent") {
+      if (!lastWasAgent) current = [];
+      current.push(val);
+      if (!out.has(val)) out.set(val, { allow: [], disallow: [] });
+      lastWasAgent = true;
+      continue;
+    }
+    lastWasAgent = false;
+    for (const a of current) {
+      if (key === "allow") out.get(a)!.allow.push(val);
+      if (key === "disallow") out.get(a)!.disallow.push(val);
+    }
+  }
+  return out;
 }

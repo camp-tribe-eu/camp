@@ -35,30 +35,64 @@ export function robotsFor(open: boolean): MetadataRoute.Robots {
     };
   }
 
-  // 🔴 ШІ-КРАВЛЕРИ НАЗВАНІ ПОІМЕННО, ХОЧ `*` ЇХ І ТАК ПУСКАЄ.
+  // 🔴 ШІ-КРАВЛЕРИ: УСІМ ДОЗВОЛЕНО, КОЖЕН НАЗВАНИЙ ПОІМЕННО.
   //
-  // Заміряно 03.11.2026: у цьому файлі не було жодного з них, тобто вони
-  // проходили за замовчуванням — не за рішенням. Різниця не косметична.
-  // Відповідні машини (ChatGPT, Perplexity, Claude, Gemini) цитують те,
-  // що має джерело й дату; наш провенанс кожного факту — це рівно те, за
-  // що вони винагороджують, і це наш найдешевший канал проти конкурента,
-  // більшого в рази (CAMP-109, CAMP-431).
+  // Рішення власника 12.11.2026 (CAMP-509), остаточне: «щоб усі пошукові
+  // роботи, агенти й ШІ-помічники знали наш сайт і посилалися на нього».
+  // Спершу того ж дня було обрано «навчальних закрити» — скасовано:
+  // robots.txt нічого не ховає, усе на сторінках і так публічне, а секрет
+  // бізнесу живе в API, не в тексті сторінок. Видимість важливіша.
+  // Явний блок на кожного лишається навмисно: замовчування `*` стирають
+  // одним рядком непомітно, а явний блок видно в diff (CAMP-431).
   //
-  // Без цього запису перший, хто захоче «про всяк випадок закритись від
-  // ШІ», допише сюди Disallow — і вимкне канал, якого ми свідомо хотіли.
-  // Тепер, щоб його вимкнути, доведеться стерти рішення, а не додати
-  // рядок до порожнечі.
+  // Імена й призначення прочитано з офіційних сторінок вендорів 12.11.2026
+  // (curl); повні адреси — у docs/robots-ai-sources.md (тут їх нема навмисно:
+  // сторож атрибуції ловить кожен зовнішній хост у виробничому коді). Вендор сам каже, що налаштування незалежні одне від одного.
   //
-  // `Google-Extended` керує показом у Gemini й оглядах ШІ й НЕ впливає на
-  // звичайну видачу: заборона тут не дала б жодного виграшу в SEO.
-  const aiCrawlers = [
-    "GPTBot",
+  // Пошукові / за запитом людини:
+  const aiSearchCrawlers = [
+    // OpenAI: «surface websites in search results in ChatGPT's search
+    // features»; закритий сайт не потрапляє у відповіді ChatGPT Search.
+    // OpenAI bots page (full URL: docs/robots-ai-sources.md) (12.11.2026)
     "OAI-SearchBot",
+    // OpenAI: відвідини за дією користувача в ChatGPT / Custom GPT.
+    // OpenAI bots page (full URL: docs/robots-ai-sources.md) (12.11.2026)
     "ChatGPT-User",
+    // Anthropic: «improve search result quality for users».
+    // Anthropic crawler help article (full URL: docs/robots-ai-sources.md) (12.11.2026)
+    "Claude-SearchBot",
+    // Anthropic: людина питає Claude, і той відкриває сайт.
+    // Anthropic crawler help article (full URL: docs/robots-ai-sources.md) (12.11.2026)
+    "Claude-User",
+    // Perplexity: «surface and link websites in search results»; сам
+    // вендор пише, що для навчання фундаментальних моделей він НЕ
+    // використовується. Perplexity bots guide (full URL: docs/robots-ai-sources.md) (12.11.2026)
     "PerplexityBot",
+    // Perplexity: дія користувача в Perplexity.
+    // Perplexity bots guide (full URL: docs/robots-ai-sources.md) (12.11.2026)
+    "Perplexity-User",
+  ];
+
+  // Навчальні — теж дозволені (рішення власника 12.11.2026: видимість
+  // важливіша, секрет — в API):
+  const aiTrainingCrawlers = [
+    // OpenAI: «crawl content that may be used in training our generative
+    // AI foundation models»; Disallow = не для навчання.
+    // OpenAI bots page (full URL: docs/robots-ai-sources.md) (12.11.2026)
+    "GPTBot",
+    // Anthropic: збір вмісту, що «could potentially contribute to their
+    // training». Anthropic crawler help article (full URL: docs/robots-ai-sources.md) (12.11.2026)
     "ClaudeBot",
+    // Google: токен керує тим, чи може вміст іти на навчання Gemini та
+    // grounding. На звичайну видачу Google Search НЕ впливає (Googlebot).
+    // Google common crawlers page (full URL: docs/robots-ai-sources.md) (12.11.2026)
     "Google-Extended",
+    // Apple: «opt-out from having their content used to train generative
+    // foundation models». Apple Applebot page (full URL: docs/robots-ai-sources.md) (12.11.2026)
     "Applebot-Extended",
+    // Common Crawl: відкритий корпус, з якого вчаться інші; сам вендор
+    // публікує `User-agent: CCBot / Disallow: /` як спосіб відмови.
+    // Common Crawl CCBot page (full URL: docs/robots-ai-sources.md) (12.11.2026)
     "CCBot",
   ];
 
@@ -88,7 +122,7 @@ export function robotsFor(open: boolean): MetadataRoute.Robots {
         allow: "/",
         disallow: CLOSED,
       },
-      ...aiCrawlers.map((userAgent) => ({
+      ...[...aiSearchCrawlers, ...aiTrainingCrawlers].map((userAgent) => ({
         userAgent,
         allow: "/",
         disallow: CLOSED,
