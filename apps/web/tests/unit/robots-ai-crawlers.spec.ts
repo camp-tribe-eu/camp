@@ -1,89 +1,79 @@
 import { expect, test } from "@playwright/test";
 
-import { robotsFor } from "@/lib/robots-rules";
-import { agentsNamed, blockedByRobots } from "./robots-reading";
+import { blockedByRobots, parseRobots, renderedRobots } from "./robots-reading";
 
-// 🔴 CAMP-431 (пункт 2). ЩО САМЕ ТУТ СТЕРЕЖЕТЬСЯ — І ЧОМУ ЦЕ НЕ КОСМЕТИКА.
+// 🔴 CAMP-509 (рішення власника 12.11.2026): «продаємо лише НАШЕ, дані —
+// секрет бізнесу». Пошукові й за-запитом-людини ШІ-боти — ДОЗВОЛЕНО (нам
+// потрібен трафік із ШІ-пошуку), навчальні — ЗАБОРОНЕНО.
 //
-// Відповідні машини (ChatGPT, Perplexity, Claude, Gemini) цитують те, що
-// має джерело й дату. Наш провенанс кожного факту — рівно те, за що вони
-// винагороджують, і це найдешевший канал проти конкурента, більшого в
-// рази. До 03.11.2026 жоден із цих обхідників не був названий у
-// robots.txt: вони проходили за `*`, тобто за замовчуванням, а не за
-// рішенням. Різниця в тому, що замовчування стирають одним рядком і не
-// помічають.
-//
-// Тому тест перевіряє ДВІ різні речі, і кожна падає окремо:
-//   1. агента названо поіменно — стерти його з переліку стає видно;
-//   2. названому агенту не закрито сайт — дописати йому Disallow стає
-//      видно теж. Без другого перелік імен був би ярликом: вісім блоків
-//      із `Disallow: /` виглядали б у цьому тесті так само добре.
+// Тест читає ВІДДАНИЙ текст robots.txt (серіалізатором самого Next), а не
+// нашу структуру й не константу з коду, і вимагає ЯВНИЙ блок на кожного
+// названого бота: замовчування `*` пускало б усіх — і мовчки.
+// Перелік нижче виписано тут окремо від коду навмисно: стерти бота з коду
+// і з тесту одним рухом не вийде.
 
-/** Обхідники, присутність яких тут — рішення, а не випадковість. */
-const WANTED = [
-  "GPTBot", // ChatGPT — навчання і цитування
-  "OAI-SearchBot", // ChatGPT Search — показ у видачі асистента
-  "ChatGPT-User", // перехід за посиланням на запит людини
+const SEARCH = [
+  "OAI-SearchBot",
+  "ChatGPT-User",
+  "Claude-SearchBot",
+  "Claude-User",
   "PerplexityBot",
+  "Perplexity-User",
+];
+const TRAINING = [
+  "GPTBot",
   "ClaudeBot",
-  "Google-Extended", // Gemini й огляди ШІ; на звичайну видачу НЕ впливає
+  "Google-Extended",
   "Applebot-Extended",
-  "CCBot", // Common Crawl — корпус, з якого вчаться всі інші
+  "CCBot",
 ];
 
-test.describe("robots.txt: ШІ-обхідники пущені рішенням, а не замовчуванням", () => {
-  test("🔴 кожного названо поіменно у відкритій збірці", () => {
-    const named = agentsNamed(true);
-    // Щоб порожнє читання не пройшло за «усі на місці».
-    expect(named.length).toBeGreaterThanOrEqual(WANTED.length);
-    for (const agent of WANTED) expect(named, agent).toContain(agent);
-  });
+test.describe("robots.txt: пошукових ШІ пущено, навчальних закрито — явно", () => {
+  const rendered = parseRobots(renderedRobots(true));
 
-  test("🔴 жодному з них не закрито те, заради чого його пустили", () => {
-    const rules = robotsFor(true).rules;
-    expect(Array.isArray(rules)).toBe(true);
-    const groups = (Array.isArray(rules) ? rules : [rules]).filter((g) =>
-      WANTED.includes(String(g?.userAgent)),
-    );
-    expect(groups.length).toBe(WANTED.length);
-    for (const g of groups) {
-      const disallow = [g?.disallow ?? []].flat();
-      expect([g?.allow ?? []].flat(), String(g?.userAgent)).toContain("/");
-      // Закрити можна рівно те саме, що й усім: особисті поїздки, API
-      // і наші службові адреси.
-      expect(disallow.sort(), String(g?.userAgent)).toEqual([
-        "/api/",
-        "/internal/",
-        "/trips/",
-      ]);
+  test("🔴 КОЖЕН названий бот має власний явний блок у відданому тексті", () => {
+    // Щоб порожнє читання не пройшло за «усі на місці».
+    expect(rendered.size).toBeGreaterThanOrEqual(SEARCH.length + TRAINING.length + 1);
+    for (const agent of [...SEARCH, ...TRAINING]) {
+      expect(rendered.has(agent), `немає блоку для ${agent}`).toBe(true);
     }
   });
 
-  /**
-   * 🔴 РІВНІСТЬ ДВОХ ПЕРЕЛІКІВ, А НЕ ДВА ОДНАКОВІ ЗРАЗКИ.
-   *
-   * Тест вище звіряє кожну групу зі сталою, виписаною в ньому ж. Якщо
-   * колись закриють новий шлях лише для `*`, доведеться правити і цей
-   * тест — і правити його для ШІ-групи забудуть так само, як забули б
-   * у коді. Тому окремо питаємо інше: чи однакові ці два переліки МІЖ
-   * СОБОЮ, хай там що в них лежить.
-   */
-  test("🔴 ШІ-кравлерам закрито рівно те саме, що й усім", () => {
-    const rules = robotsFor(true).rules;
-    const groups = (Array.isArray(rules) ? rules : [rules]) as Array<{
-      userAgent?: unknown;
-      disallow?: unknown;
-    }>;
-    const listOf = (g: { disallow?: unknown }) =>
-      [g?.disallow ?? []].flat().map(String).sort();
-    const star = groups.find((g) => String(g?.userAgent) === "*");
-    expect(star, "група для «*» зникла").toBeTruthy();
-    const everyone = listOf(star!);
-    expect(everyone.length).toBeGreaterThan(0);
-    for (const agent of WANTED) {
-      const g = groups.find((x) => String(x?.userAgent) === agent);
+  test("🔴 пошукові: Allow / і закрито рівно те саме, що й `*`", () => {
+    const star = rendered.get("*");
+    expect(star, "блок `*` зник").toBeTruthy();
+    expect(star!.disallow.length).toBeGreaterThan(0);
+    for (const agent of SEARCH) {
+      const g = rendered.get(agent);
       expect(g, agent).toBeTruthy();
-      expect(listOf(g!), agent).toEqual(everyone);
+      expect(g!.allow, agent).toContain("/");
+      expect(g!.disallow.slice().sort(), agent).toEqual(star!.disallow.slice().sort());
+      expect(g!.disallow, agent).not.toContain("/");
+    }
+  });
+
+  test("🔴 навчальні: Disallow / і жодного Allow", () => {
+    for (const agent of TRAINING) {
+      const g = rendered.get(agent);
+      expect(g, agent).toBeTruthy();
+      expect(g!.disallow, agent).toEqual(["/"]);
+      expect(g!.allow, agent).toEqual([]);
+      expect(blockedByRobots(true, "/camping/fr", agent), agent).toBe(true);
+    }
+    for (const agent of SEARCH) {
+      expect(blockedByRobots(true, "/camping/fr", agent), agent).toBe(false);
+    }
+  });
+
+  test("🔴 правила для Googlebot і Bing не зачеплені: окремих блоків нема, діє `*`", () => {
+    expect(rendered.has("Googlebot")).toBe(false);
+    expect(rendered.has("Bingbot")).toBe(false);
+    const star = rendered.get("*")!;
+    expect(star.allow).toEqual(["/"]);
+    expect(star.disallow.slice().sort()).toEqual(["/api/", "/internal/", "/trips/"]);
+    for (const agent of ["Googlebot", "Bingbot"]) {
+      expect(blockedByRobots(true, "/camping/fr", agent), agent).toBe(false);
+      expect(blockedByRobots(true, "/trips/abc", agent), agent).toBe(true);
     }
   });
 
@@ -105,7 +95,8 @@ test.describe("robots.txt: ШІ-обхідники пущені рішенням
   });
 
   test("🔴 закрита збірка не пускає нікого — і ШІ теж", () => {
-    expect(agentsNamed(false)).toEqual([]);
+    const closed = parseRobots(renderedRobots(false));
+    expect([...closed.keys()]).toEqual(["*"]);
     for (const path of ["/camping/fr", "/camper-rental/providers", "/"]) {
       expect(blockedByRobots(false, path), path).toBe(true);
     }

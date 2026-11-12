@@ -35,30 +35,61 @@ export function robotsFor(open: boolean): MetadataRoute.Robots {
     };
   }
 
-  // 🔴 ШІ-КРАВЛЕРИ НАЗВАНІ ПОІМЕННО, ХОЧ `*` ЇХ І ТАК ПУСКАЄ.
+  // 🔴 ШІ-КРАВЛЕРИ: ПОШУКОВІ ПУСКАЄМО, НАВЧАЛЬНІ ЗАКРИВАЄМО — ПОІМЕННО.
   //
-  // Заміряно 03.11.2026: у цьому файлі не було жодного з них, тобто вони
-  // проходили за замовчуванням — не за рішенням. Різниця не косметична.
-  // Відповідні машини (ChatGPT, Perplexity, Claude, Gemini) цитують те,
-  // що має джерело й дату; наш провенанс кожного факту — це рівно те, за
-  // що вони винагороджують, і це наш найдешевший канал проти конкурента,
-  // більшого в рази (CAMP-109, CAMP-431).
+  // Рішення власника 12.11.2026 (CAMP-509): «продаємо лише НАШЕ, дані —
+  // секрет бізнесу». Нам потрібен трафік із ШІ-пошуку (ChatGPT, Claude,
+  // Perplexity цитують те, що має джерело й дату — це наш провенанс,
+  // CAMP-109, CAMP-431); корпус для навчання чужих моделей — не потрібен.
+  // До 12.11 усі вісім проходили за замовчуванням-дозволом (CAMP-431);
+  // тепер кожен названий і має власний блок, тож зміна видна в diff.
   //
-  // Без цього запису перший, хто захоче «про всяк випадок закритись від
-  // ШІ», допише сюди Disallow — і вимкне канал, якого ми свідомо хотіли.
-  // Тепер, щоб його вимкнути, доведеться стерти рішення, а не додати
-  // рядок до порожнечі.
+  // Імена й призначення прочитано з офіційних сторінок вендорів 12.11.2026
+  // (curl). Вендор сам каже, що налаштування незалежні одне від одного.
   //
-  // `Google-Extended` керує показом у Gemini й оглядах ШІ й НЕ впливає на
-  // звичайну видачу: заборона тут не дала б жодного виграшу в SEO.
-  const aiCrawlers = [
-    "GPTBot",
+  // Пошукові / за запитом людини — ДОЗВОЛЕНО:
+  const aiSearchCrawlers = [
+    // OpenAI: «surface websites in search results in ChatGPT's search
+    // features»; закритий сайт не потрапляє у відповіді ChatGPT Search.
+    // https://platform.openai.com/docs/bots (12.11.2026)
     "OAI-SearchBot",
+    // OpenAI: відвідини за дією користувача в ChatGPT / Custom GPT.
+    // https://platform.openai.com/docs/bots (12.11.2026)
     "ChatGPT-User",
+    // Anthropic: «improve search result quality for users».
+    // https://support.claude.com/en/articles/8896518 (12.11.2026)
+    "Claude-SearchBot",
+    // Anthropic: людина питає Claude, і той відкриває сайт.
+    // https://support.claude.com/en/articles/8896518 (12.11.2026)
+    "Claude-User",
+    // Perplexity: «surface and link websites in search results»; сам
+    // вендор пише, що для навчання фундаментальних моделей він НЕ
+    // використовується. https://docs.perplexity.ai/guides/bots (12.11.2026)
     "PerplexityBot",
+    // Perplexity: дія користувача в Perplexity.
+    // https://docs.perplexity.ai/guides/bots (12.11.2026)
+    "Perplexity-User",
+  ];
+
+  // Навчальні — ЗАБОРОНЕНО (`Disallow: /`):
+  const aiTrainingCrawlers = [
+    // OpenAI: «crawl content that may be used in training our generative
+    // AI foundation models»; Disallow = не для навчання.
+    // https://platform.openai.com/docs/bots (12.11.2026)
+    "GPTBot",
+    // Anthropic: збір вмісту, що «could potentially contribute to their
+    // training». https://support.claude.com/en/articles/8896518 (12.11.2026)
     "ClaudeBot",
+    // Google: токен керує тим, чи може вміст іти на навчання Gemini та
+    // grounding. На звичайну видачу Google Search НЕ впливає (Googlebot).
+    // https://developers.google.com/crawling/docs/crawlers-fetchers/google-common-crawlers (12.11.2026)
     "Google-Extended",
+    // Apple: «opt-out from having their content used to train generative
+    // foundation models». https://support.apple.com/en-us/119829 (12.11.2026)
     "Applebot-Extended",
+    // Common Crawl: відкритий корпус, з якого вчаться інші; сам вендор
+    // публікує `User-agent: CCBot / Disallow: /` як спосіб відмови.
+    // https://commoncrawl.org/ccbot (12.11.2026)
     "CCBot",
   ];
 
@@ -88,10 +119,14 @@ export function robotsFor(open: boolean): MetadataRoute.Robots {
         allow: "/",
         disallow: CLOSED,
       },
-      ...aiCrawlers.map((userAgent) => ({
+      ...aiSearchCrawlers.map((userAgent) => ({
         userAgent,
         allow: "/",
         disallow: CLOSED,
+      })),
+      ...aiTrainingCrawlers.map((userAgent) => ({
+        userAgent,
+        disallow: "/",
       })),
     ],
     sitemap: `${siteUrl}/sitemap.xml`,
