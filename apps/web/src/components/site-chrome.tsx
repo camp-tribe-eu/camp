@@ -4,6 +4,7 @@ import { CookieSettingsLink } from "./cookie-consent";
 import { CurrentYear } from "./current-year";
 import { SiteNavDrawer } from "./site-nav-drawer";
 import ThemeToggle from "./theme-toggle";
+import PersonaToggle, { type PersonaLabels } from "./persona-toggle";
 import { NavDropdown } from "./site-nav-dropdown";
 import { SiteHeaderFrame } from "./site-header-frame";
 import type { NavItem } from "@/lib/navigation";
@@ -29,7 +30,14 @@ import { Block } from "@/components/layout";
 // пропом, лишаючись чистою: тоді юніт-тест малює її без мережі й без
 // бази, а єдине місце, яке знає про API, — макет. Запит там один на
 // весь сайт, бо шапка одна.
-export function SiteHeader({ nav }: { nav: NavItem[] }) {
+export function SiteHeader({
+  nav,
+  persona = null,
+}: {
+  nav: NavItem[];
+  /** Підписи перемикача із CMS; `null` — перемикач не малюється. */
+  persona?: PersonaLabels | null;
+}) {
   return (
     /* 🔴 CAMP-374 — `sticky`, А НЕ `fixed`, І ЦЕ СВІДОМО ІНАКШЕ, НІЖ У
        ТЕМІ.
@@ -237,6 +245,7 @@ export function SiteHeader({ nav }: { nav: NavItem[] }) {
             але дотягнутись до неї міг лише той, у кого вона стоїть у
             системі. Кнопка віддає цей вибір читачеві й уміє повернути
             його системі назад. */}
+        {persona && <PersonaToggle labels={persona} />}
         <ThemeToggle />
 
         <SiteNavDrawer items={nav} />

@@ -231,7 +231,10 @@ function Hero({
             of them behind a click, and the mock-up's own note (CAMP-81) is
             that an inactive tab is not an entrance. */}
         <div className="mt-8 grid grid-cols-1 items-start gap-4 md:grid-cols-2">
-          <div className="rounded-card border border-line-2 bg-bg p-5">
+          <div
+            data-persona-first="owner"
+            className="rounded-card border border-line-2 bg-bg p-5"
+          >
             {/* 🔴 ТЕКСТ ІЗ CMS, ПЕРЕЛІК КРАЇН — НІ. Якщо власник прибрав
                 секцію, зникає підпис, а не навігація: посилання на країни
                 це дані, а не контент (CAMP-365 п.4). */}
@@ -260,7 +263,10 @@ function Hero({
           {/* 🔴 The second funnel is named and honestly empty rather than
               hidden. Removing it would misrepresent what the site is for;
               inventing a rental listing would misrepresent what it has. */}
-          <div className="rounded-card border border-dashed border-line bg-transparent p-5">
+          <div
+            data-persona-first="renter"
+            className="rounded-card border border-dashed border-line bg-transparent p-5"
+          >
             {drive?.heading && (
               <h2 className="text-xl md:text-[25px]">{drive.heading}</h2>
             )}

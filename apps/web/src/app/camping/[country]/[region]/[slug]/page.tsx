@@ -351,7 +351,10 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
   const hasPhotos = photos.length > 0;
 
   return (
-    <main className="mx-auto max-w-wrap px-4 py-8 xl:px-6">
+    <main
+      data-persona-zone
+      className="mx-auto max-w-wrap px-4 py-8 xl:px-6"
+    >
       {/* CAMP-37. Separate blocks rather than one @graph: Google reads
           them all, and a breakage in one does not take the others down
           with it.
@@ -615,7 +618,16 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
           nearby. UNLIKE the sections around it this draws NOTHING when no
           point lies in range (the card's decision), and nothing when the
           CMS words are missing. Words come from the CMS page, not JSX. */}
-      <CampServices view={servicesView(spot.campServices, spot.hookup, servicesPage?.sections ?? null)} />
+      {/* CAMP-501: власник кемпера питає насамперед про злив, газ, струм. */}
+      <div data-persona-first="owner">
+        <CampServices
+          view={servicesView(
+            spot.campServices,
+            spot.hookup,
+            servicesPage?.sections ?? null,
+          )}
+        />
+      </div>
 
       {/* 🔴 CAMP-164: what the EEA's air quality index says here.
 
@@ -723,7 +735,7 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
         <RecordEdited osmEditedAt={spot.osmRecordEditedAt} sources={spot.sources} />
       </Section>
 
-      <Section title="Getting there">
+      <Section title="Getting there" personaFirst="renter">
         <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
           {spot.context.station && (
             <>
@@ -1207,12 +1219,15 @@ function NearbyCard({ spot }: { spot: NearbySpot }) {
 function Section({
   title,
   children,
+  personaFirst,
 }: {
   title: string;
   children: React.ReactNode;
+  /** CAMP-501: кому цей блок підіймається першим (див. globals.css). */
+  personaFirst?: 'owner' | 'renter';
 }) {
   return (
-    <section className="mt-8">
+    <section className="mt-8" data-persona-first={personaFirst}>
       <h2 className="text-xl md:text-[25px]">{title}</h2>
       <div className="mt-3">{children}</div>
     </section>
