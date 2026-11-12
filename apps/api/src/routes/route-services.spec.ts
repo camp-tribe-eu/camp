@@ -481,8 +481,14 @@ describe('CAMP-258: gas_exchange is stored and not served', () => {
       'rest_area',
       'service_area',
       'gas_exchange',
+      'pharmacy',
+      'car_repair',
     ]);
-    expect([...STORED_ONLY_KINDS]).toEqual(['gas_exchange']);
+    expect([...STORED_ONLY_KINDS]).toEqual([
+      'gas_exchange',
+      'pharmacy',
+      'car_repair',
+    ]);
     expect([...ROUTE_POI_KINDS]).not.toContain('gas_exchange');
     expect(isRoutePoiKind('gas_exchange')).toBe(false);
   });
@@ -592,12 +598,17 @@ describe('the migrations’ KINDS lists are the kinds the endpoint serves', () =
   // loader classifies, once. MUTATION: take 'gas_exchange' out of the new
   // migration's KINDS — and note that a LIST is not an index; the catalog
   // check in route-services.db.spec.ts is the one that sees the index.
-  it('the three migrations between them list every kind the table holds, once', () => {
+  it('the four migrations between them list every kind the table holds, once', () => {
     const first = declaredIn('1790572800000-RoutePoi.ts');
     const second = declaredIn('1791400000000-RoutePoiFacilities.ts');
     const third = declaredIn('1791700000000-RoutePoiGas.ts');
-    expect(third).toEqual([...STORED_ONLY_KINDS]);
-    expect([...first, ...second, ...third]).toEqual([...STORED_POI_KINDS]);
+    const fourth = declaredIn('1797000000000-RoutePoiHelp.ts');
+    // CAMP-506: the fourth migration indexes the two kinds the third did not.
+    expect(third).toEqual(['gas_exchange']);
+    expect(fourth).toEqual(['pharmacy', 'car_repair']);
+    expect([...first, ...second, ...third, ...fourth]).toEqual([
+      ...STORED_POI_KINDS,
+    ]);
   });
 });
 

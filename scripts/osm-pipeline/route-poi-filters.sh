@@ -55,6 +55,8 @@ FILTERS=(
   tourism=motel
   tourism=hostel
   tourism=guest_house
+  amenity=pharmacy
+  shop=car_repair
 )
 
 TAG_ARGS=()

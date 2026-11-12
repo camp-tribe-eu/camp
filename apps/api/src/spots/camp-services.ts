@@ -51,15 +51,51 @@
 export const NEARBY_RADIUS_M = 10_000;
 export const ONSITE_RADIUS_M = 150;
 
-/** Closed list, page order. `ev_charging` — see the note above. */
-export const CAMP_SERVICE_KINDS = [
+// CAMP-506: THE KINDS ARE GROUPED BY WHAT THE TRAVELLER NEEDS, NOT BY OSM TAG.
+//
+//   before  — before arriving: fuel, groceries (supermarket / convenience),
+//             EV charging, gas bottle swap. A thing you buy on the way.
+//   stay    — at the campsite: drinking water, waste-water dump. (The pitch
+//             mains socket is the owner's `hookup`, shown below the list.)
+//   trouble — when something goes wrong: pharmacy, car repair.
+//
+// Group order and the kinds inside each are the page order. A kind belongs to
+// exactly one group (spec). The words of the group headings are CMS slots
+// `group-<group>`, never JSX.
+//
+// 🔴 `pharmacy` is `amenity=pharmacy`, `car_repair` is `shop=car_repair`; both
+// are stored-only kinds of osm_route_poi (osm/route-poi.ts) and exist in the
+// table only after the weekly import that carries this card. Until then the
+// two simply have no rows and the page draws nothing for them. Nothing in
+// OSM marks a repair shop as one that works on campervans / RVs
+// (`shop=caravan` is a dealer), so the label says "car repair" and no more.
+
+export const CAMP_SERVICE_GROUPS = [
+  { group: 'before', kinds: ['fuel', 'groceries', 'ev_charging', 'gas'] },
+  { group: 'stay', kinds: ['water', 'dump'] },
+  { group: 'trouble', kinds: ['pharmacy', 'car_repair'] },
+] as const;
+export type CampServiceGroup = (typeof CAMP_SERVICE_GROUPS)[number]['group'];
+
+/** Closed list, page order (groups flattened). `ev_charging` — see above. */
+export const CAMP_SERVICE_KINDS = CAMP_SERVICE_GROUPS.flatMap(
+  (g) => g.kinds,
+) as unknown as readonly [
   'fuel',
+  'groceries',
   'ev_charging',
+  'gas',
   'water',
   'dump',
-  'gas',
-] as const;
+  'pharmacy',
+  'car_repair',
+];
 export type CampServiceKind = (typeof CAMP_SERVICE_KINDS)[number];
+
+export const groupOf = (kind: CampServiceKind): CampServiceGroup =>
+  CAMP_SERVICE_GROUPS.find((g) =>
+    (g.kinds as readonly string[]).includes(kind),
+  )!.group;
 
 /**
  * The row filter per kind. The kind is a LITERAL in the text on purpose:
@@ -70,19 +106,29 @@ export type CampServiceKind = (typeof CAMP_SERVICE_KINDS)[number];
  */
 const FILTER: Record<CampServiceKind, string> = {
   fuel: `p.kind = 'fuel'`,
+  groceries: `p.kind = 'groceries'`,
   ev_charging: `p.kind = 'charging'`,
   water: `p.kind = 'water'`,
   dump: `p.kind = 'dump'`,
   gas: `p.cylinder_swap = 'yes'`,
+  pharmacy: `p.kind = 'pharmacy'`,
+  car_repair: `p.kind = 'car_repair'`,
 };
 
 export interface CampServicePoint {
   name: string | null;
   /** Straight-line metres from the campsite's point. */
   metres: number;
+  /**
+   * CAMP-506: the day OUR import last saw this object (`last_seen_at`, UTC,
+   * `YYYY-MM-DD`) — "OpenStreetMap, imported on …". Not the mapper's edit
+   * date, which the table does not hold. `null` when unreadable.
+   */
+  seen: string | null;
 }
 export interface CampServiceView {
   kind: CampServiceKind;
+  group: CampServiceGroup;
   /** Nearest point inside the campsite, or null. */
   onSite: CampServicePoint | null;
   /** Nearest point outside it, within NEARBY_RADIUS_M, or null. */
@@ -125,7 +171,8 @@ export function campServicesSql(
                    END)`;
   const metres = `round(ST_Distance(${spotLocationExpr}::geography, p.location::geography))::int`;
   const point = (kind: CampServiceKind, where: string): string => `(
-        SELECT jsonb_build_object('name', p.name, 'metres', ${metres})
+        SELECT jsonb_build_object('name', p.name, 'metres', ${metres},
+                 'seen', to_char(p.last_seen_at AT TIME ZONE 'UTC', 'YYYY-MM-DD'))
           FROM osm_route_poi p
          WHERE ${FILTER[kind]}
            AND ${where}
@@ -166,6 +213,10 @@ export function readCampServices(raw: unknown): CampServiceView[] {
     return {
       name: typeof o.name === 'string' && o.name.trim() !== '' ? o.name : null,
       metres: o.metres,
+      seen:
+        typeof o.seen === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(o.seen)
+          ? o.seen
+          : null,
     };
   };
   const out: CampServiceView[] = [];
@@ -177,7 +228,8 @@ export function readCampServices(raw: unknown): CampServiceView[] {
     const onSite = point(o.onSite);
     const nearby = point(o.nearby);
     if (onSite === null && nearby === null) continue;
-    out.push({ kind: o.kind as CampServiceKind, onSite, nearby });
+    const kind = o.kind as CampServiceKind;
+    out.push({ kind, group: groupOf(kind), onSite, nearby });
   }
   return out;
 }

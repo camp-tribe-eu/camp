@@ -6,6 +6,7 @@ import { FuelStationPrices1790662801000 } from '../migrations/1790662801000-Fuel
 import { RoutePoi1790572800000 } from '../migrations/1790572800000-RoutePoi';
 import { RoutePoiFacilities1791400000000 } from '../migrations/1791400000000-RoutePoiFacilities';
 import { RoutePoiGas1791700000000 } from '../migrations/1791700000000-RoutePoiGas';
+import { RoutePoiHelp1797000000000 } from '../migrations/1797000000000-RoutePoiHelp';
 import { ROUTE_POI_KINDS, STORED_POI_KINDS } from '../osm/route-poi';
 import {
   buildServicesSql,
@@ -77,6 +78,7 @@ beforeAll(async () => {
   await new FuelStationPrices1790662801000().up(runner());
   await new RoutePoiFacilities1791400000000().up(runner());
   await new RoutePoiGas1791700000000().up(runner());
+  await new RoutePoiHelp1797000000000().up(runner());
 
   // The query point is (lon 14, lat 45). Distances below are written by
   // hand from the coordinates: 0.01° of latitude is about 1.11 km, and
@@ -422,7 +424,7 @@ describe('CAMP-258: every kind the table holds has its partial GiST index', () =
       (STORED_POI_KINDS as readonly string[]).filter(
         (k) => !(ROUTE_POI_KINDS as readonly string[]).includes(k),
       ),
-    ).toEqual(['gas_exchange']);
+    ).toEqual(['gas_exchange', 'pharmacy', 'car_repair']);
     const missing = STORED_POI_KINDS.filter((kind) => !byKind.has(kind));
     expect(missing).toEqual([]);
   });

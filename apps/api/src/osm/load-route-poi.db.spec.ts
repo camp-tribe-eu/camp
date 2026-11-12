@@ -79,6 +79,9 @@ const OBJECTS: { id: string; tags: Record<string, string> }[] = [
   { id: 'n10', tags: { shop: 'gas', name: 'Plin' } },
   // a forecourt that is ALSO a gas shop: a fuel station that swaps cylinders
   { id: 'n11', tags: { amenity: 'fuel', shop: 'gas', name: 'Hypermarket' } },
+  // CAMP-506: the two kinds of the campsite page's "if something goes wrong"
+  { id: 'n12', tags: { amenity: 'pharmacy', name: 'Lekarna' } },
+  { id: 'n13', tags: { shop: 'car_repair', name: 'Avtoservis' } },
 ];
 
 async function stageObject(
@@ -243,6 +246,17 @@ describe('the loader, run as a program (CAMP-258)', () => {
       ).rows,
     ).toEqual([{ osm_ref: 'n10' }]);
     expect(run.out).toMatch(/gas_exchange\s+1 rows \/ 1 objects\n/);
+    // CAMP-506: the pharmacy and the repair shop were loaded, under their kinds
+    expect(
+      (
+        await db.query(
+          `SELECT osm_ref, kind FROM osm_route_poi WHERE kind IN ('pharmacy', 'car_repair') ORDER BY 1`,
+        )
+      ).rows,
+    ).toEqual([
+      { osm_ref: 'n12', kind: 'pharmacy' },
+      { osm_ref: 'n13', kind: 'car_repair' },
+    ]);
     // 🔴 THE GAS LAYER, as the loader prints it and as a map would read it:
     // kind=gas_exchange (n10) OR cylinder_swap=yes on another kind (n11, w950,
     // a1900). Four rows, THREE objects — n10, n11 and the one closed way.

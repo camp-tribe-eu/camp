@@ -218,14 +218,15 @@ describe('the oracle and the loader, on the same tags', () => {
     // Both answers occur, in numbers: two implementations that said "nothing"
     // for everything would agree. Counted by hand from the shapes, not from
     // the run: six of the thirteen shapes are NOT lists of ours (`x_v`, `v_x`,
-    // `key=v`, `v,bench`, `bench,v`, `v bench`), and there are 18 values, so
-    // 108 single-word objects are refused; the other seven shapes are taken,
-    // and so is every one of the 18 × 18 combinations (a word of ours is in
-    // each). 18 × 13 + 18 × 18 = 558 objects.
+    // `key=v`, `v,bench`, `bench,v`, `v bench`), and there are 20 values
+    // (CAMP-506: 18 + pharmacy + car_repair), so 120 single-word objects are
+    // refused; the other seven shapes are taken, and so is every one of the
+    // 20 × 20 combinations (a word of ours is in each).
+    // 20 × 13 + 20 × 20 = 660 objects.
     const taken = oracle.filter((k) => k !== null);
-    expect(TAG_SETS).toHaveLength(558);
-    expect(oracle.length - taken.length).toBe(108);
-    expect(taken.length).toBe(450);
+    expect(TAG_SETS).toHaveLength(660);
+    expect(oracle.length - taken.length).toBe(120);
+    expect(taken.length).toBe(540);
     expect(new Set(taken).size).toBe(STORED_POI_KINDS.length);
   });
 
@@ -251,6 +252,8 @@ describe('the oracle and the loader, on the same tags', () => {
       rest_area: 1,
       service_area: 1,
       gas_exchange: 1,
+      pharmacy: 1,
+      car_repair: 1,
     };
     for (const r of rows) {
       expect(`${r.kind} missed ${r.missed} extra ${r.extra}`).toBe(

@@ -68,6 +68,10 @@ export const RULES = [
   ['rest_area', 'highway', ['rest_area'], false],
   ['service_area', 'highway', ['services'], false],
   ['gas_exchange', 'shop', ['gas'], true],
+  // CAMP-506: new kinds; nothing was loaded for them before, so the "before"
+  // reading is the plain one.
+  ['pharmacy', 'amenity', ['pharmacy'], false],
+  ['car_repair', 'shop', ['car_repair'], false],
 ];
 
 export const KINDS = [...new Set(RULES.map((r) => r[0]))];

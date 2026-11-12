@@ -6,6 +6,10 @@ import {
   CAMP_SERVICES_SECTIONS,
   CAMP_SERVICES_SLUG,
 } from '../migrations/1796900000000-CampServicesText';
+import {
+  CAMP_SERVICES_ADDED_SECTIONS,
+  NEW_INTRO_HEADING,
+} from '../migrations/1797000100000-CampServicesGroups';
 
 // CAMP-503 — the block's words are in the CMS after the migrations, and
 // are exactly the slots the page reads. Every migration runs, in order,
@@ -74,9 +78,13 @@ test('the page exists, is published, and holds exactly the slots the page reads'
       ORDER BY s.sort`,
     [CAMP_SERVICES_SLUG],
   );
-  expect(rows.map((r) => r.slot)).toEqual(
-    CAMP_SERVICES_SECTIONS.map((s) => s.slot),
+  expect(rows.map((r) => r.slot).sort()).toEqual(
+    [...CAMP_SERVICES_SECTIONS, ...CAMP_SERVICES_ADDED_SECTIONS]
+      .map((s) => s.slot)
+      .sort(),
   );
+  expect(rows.find((r) => r.slot === 'intro').heading).toBe(NEW_INTRO_HEADING);
+  expect(rows.find((r) => r.slot === 'source').heading).toContain('{{date}}');
   for (const r of rows) expect(String(r.heading).trim()).not.toBe('');
   expect(rows.find((r) => r.slot === 'kind-ev_charging').body).toMatch(
     /not a mains hookup/,
@@ -100,4 +108,26 @@ test("re-running leaves an editor's words alone", async () => {
     [CAMP_SERVICES_SLUG],
   );
   expect(rows).toEqual([{ heading: 'Edited' }]);
+});
+
+test("🔴 CAMP-506: the top-up leaves an editor's intro heading and adds nothing twice", async () => {
+  await db.query(
+    `UPDATE page_section_translations SET heading = 'My intro'
+      WHERE section_id IN (SELECT s.id FROM page_sections s JOIN pages p ON p.id = s.page_id
+                            WHERE p.slug = $1 AND s.slot = 'intro')`,
+    [CAMP_SERVICES_SLUG],
+  );
+  const { CampServicesGroups1797000100000: M } =
+    await import('../migrations/1797000100000-CampServicesGroups');
+  await new M().up(runnerOf(db));
+  const { rows } = await db.query(
+    `SELECT s.slot, st.heading FROM page_sections s JOIN pages p ON p.id = s.page_id
+       JOIN page_section_translations st ON st.section_id = s.id
+      WHERE p.slug = $1 AND s.slot IN ('intro', 'group-before')`,
+    [CAMP_SERVICES_SLUG],
+  );
+  expect(rows.sort((a, b) => a.slot.localeCompare(b.slot))).toEqual([
+    { slot: 'group-before', heading: 'Before you arrive' },
+    { slot: 'intro', heading: 'My intro' },
+  ]);
 });

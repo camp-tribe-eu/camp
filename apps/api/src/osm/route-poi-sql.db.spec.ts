@@ -146,6 +146,11 @@ const LIST_CASES: readonly [string, Tags, string][] = [
   // …and where the first branch of the SAME key is not the first word:
   // `highway=rest_area;services` is a rest area, as the rule order says
   ['n75', { highway: 'services;rest_area' }, 'rest_area'],
+  // CAMP-506: the two kinds that join, each written inside a list, and one
+  // behind a first branch (a forecourt that repairs cars stays fuel).
+  ['n76', { amenity: 'bench; Pharmacy' }, 'pharmacy'],
+  ['n77', { shop: 'tyres;car_repair' }, 'car_repair'],
+  ['n78', { amenity: 'fuel', shop: 'car_repair' }, 'fuel'],
 ];
 
 /**
@@ -1460,6 +1465,8 @@ describe('the import statement, against a real PostgreSQL', () => {
           'fuel',
           'gas_exchange',
           'groceries',
+          'pharmacy',
+          'car_repair',
           'rest_area',
           'service_area',
           'shelter',

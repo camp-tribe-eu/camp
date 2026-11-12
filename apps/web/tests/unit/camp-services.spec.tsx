@@ -1,10 +1,22 @@
 import { expect, test } from '@playwright/test';
 import { renderComponent } from './render-component';
 import CampServices from '@/components/camp-services';
-import { SLOTS, servicesView } from '@/lib/camp-services';
+import { GROUPS, SLOTS, servicesView } from '@/lib/camp-services';
 import type { CampServicesPayload } from '@/lib/api';
 import type { SectionView } from '@/lib/page-content';
-import { CAMP_SERVICES_SECTIONS } from '../../../api/src/migrations/1796900000000-CampServicesText';
+import { CAMP_SERVICES_SECTIONS as V1 } from '../../../api/src/migrations/1796900000000-CampServicesText';
+import {
+  CAMP_SERVICES_ADDED_SECTIONS,
+  NEW_INTRO_HEADING,
+} from '../../../api/src/migrations/1797000100000-CampServicesGroups';
+import { CAMP_SERVICE_GROUPS } from '../../../api/src/spots/camp-services';
+
+// What the page holds after BOTH migrations: the first seed with the intro
+// heading the second one gives it, plus the slots it adds.
+const CAMP_SERVICES_SECTIONS = [
+  ...V1.map((s) => (s.slot === 'intro' ? { ...s, heading: NEW_INTRO_HEADING } : s)),
+  ...CAMP_SERVICES_ADDED_SECTIONS,
+];
 
 // CAMP-503 — the services block, read out of the RENDERED HTML.
 //
@@ -21,9 +33,10 @@ const payload: CampServicesPayload = {
   nearbyM: 10_000,
   onSiteM: 150,
   items: [
-    { kind: 'water', onSite: { name: 'Tap by the gate', metres: 73 }, nearby: { name: 'Village fountain', metres: 773 } },
-    { kind: 'ev_charging', onSite: null, nearby: { name: 'Ionity Zell', metres: 4210 } },
-    { kind: 'gas', onSite: null, nearby: { name: null, metres: 5558 } },
+    { kind: 'water', onSite: { name: 'Tap by the gate', metres: 73, seen: '2026-11-05' }, nearby: { name: 'Village fountain', metres: 773, seen: '2026-11-05' } },
+    { kind: 'ev_charging', onSite: null, nearby: { name: 'Ionity Zell', metres: 4210, seen: '2026-11-05' } },
+    { kind: 'gas', onSite: null, nearby: { name: null, metres: 5558, seen: null } },
+    { kind: 'pharmacy', onSite: null, nearby: { name: 'Lekarna Bled', metres: 2310, seen: '2026-11-12' } },
   ],
 };
 
@@ -80,6 +93,37 @@ test('🔴 no CMS page, or a slot missing from it, draws nothing — not a block
   expect(await html(payload, undefined as never, noEv)).toBe('');
 });
 
-test('the slots the page reads are exactly the slots the migration seeds', () => {
-  expect([...SLOTS]).toEqual(CAMP_SERVICES_SECTIONS.map((s) => s.slot));
+test('the slots the page reads are exactly the slots the migrations seed', () => {
+  expect([...SLOTS].sort()).toEqual(CAMP_SERVICES_SECTIONS.map((s) => s.slot).sort());
+});
+
+test('the page groups by the same list the API does', () => {
+  expect(GROUPS.map((g) => ({ group: g.group, kinds: [...g.kinds] }))).toEqual(
+    CAMP_SERVICE_GROUPS.map((g) => ({ group: g.group, kinds: [...g.kinds] })),
+  );
+});
+
+test('🔴 groups come in the order of the need, each with its own CMS heading, and only the ones with points', async () => {
+  const h = await html(payload);
+  const groups = [...h.matchAll(/data-group="(\w+)"/g)].map((m) => m[1]);
+  // no fuel/groceries/water-less group is invented: before (EV, gas), stay (water), trouble (pharmacy)
+  expect(groups).toEqual(['before', 'stay', 'trouble']);
+  const t = text(h);
+  expect(t.indexOf('Before you arrive')).toBeLessThan(t.indexOf('At the campsite'));
+  expect(t.indexOf('At the campsite')).toBeLessThan(t.indexOf('If something goes wrong'));
+  const trouble = h.match(/data-group="trouble".*?<\/div>\s*<\/div>|data-group="trouble".*?<\/section>/s)![0];
+  expect(text(trouble)).toContain('Pharmacy');
+  expect(text(trouble)).toContain('Lekarna Bled, 2.3 km');
+  // an empty group is not drawn
+  const only = await html({ ...payload, items: [payload.items[3]] });
+  expect([...only.matchAll(/data-group="(\w+)"/g)].map((m) => m[1])).toEqual(['trouble']);
+});
+
+test('🔴 the date we know it from is read out of the payload, per point, in the CMS words', async () => {
+  const t = text(await html(payload));
+  expect(t).toContain('Lekarna Bled, 2.3 km OpenStreetMap, imported 2026-11-12');
+  expect(t).toContain('Ionity Zell, 4.2 km OpenStreetMap, imported 2026-11-05');
+  // a point with no known day says no day — nothing invented
+  expect(t).toContain('Not named in OpenStreetMap, 5.6 km');
+  expect(t).not.toMatch(/Not named in OpenStreetMap, 5\.6 km\s+OpenStreetMap, imported/);
 });
