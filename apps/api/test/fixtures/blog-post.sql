@@ -52,6 +52,22 @@ A guess looks exactly like a fact once it is printed.',
   JOIN pages p ON p.id = s.page_id
  WHERE p.slug = 'what-the-data-does-not-say' AND p.type = 'post';
 
+-- Примітка про походження тексту: `check-post-provenance` вимагає її в
+-- КОЖНОМУ зібраному дописі, фікстурний не виняток.
+INSERT INTO page_sections (page_id, sort, type, variant, visible)
+SELECT id, 1, 'prose', 'provenance', true
+  FROM pages
+ WHERE slug = 'what-the-data-does-not-say' AND type = 'post';
+
+INSERT INTO page_section_translations (section_id, language_code, body, items)
+SELECT s.id, 'en',
+       'This article was composed by AI. It is general background, not a statement about any particular campsite.',
+       '[]'::jsonb
+  FROM page_sections s
+  JOIN pages p ON p.id = s.page_id
+ WHERE p.slug = 'what-the-data-does-not-say' AND p.type = 'post'
+   AND s.variant = 'provenance';
+
 -- 🔴 І ЩЕ ОДИН — МАЙБУТНЬОЮ ДАТОЮ. Він не сміє зʼявитись ні в блозі,
 -- ні в карті сайту, ні як згенерована адреса. Без нього твердження
 -- «запланований допис не видно» можна було б написати тільки над
