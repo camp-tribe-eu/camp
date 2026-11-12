@@ -2,15 +2,13 @@ import { expect, test } from "@playwright/test";
 
 import { blockedByRobots, parseRobots, renderedRobots } from "./robots-reading";
 
-// 🔴 CAMP-509 (рішення власника 12.11.2026): «продаємо лише НАШЕ, дані —
-// секрет бізнесу». Пошукові й за-запитом-людини ШІ-боти — ДОЗВОЛЕНО (нам
-// потрібен трафік із ШІ-пошуку), навчальні — ЗАБОРОНЕНО.
+// 🔴 CAMP-509 (рішення власника 12.11.2026, остаточне): ВСІ ШІ-боти —
+// пошукові й навчальні — ДОЗВОЛЕНО. robots.txt нічого не ховає, секрет
+// живе в API; видимість важливіша.
 //
-// Тест читає ВІДДАНИЙ текст robots.txt (серіалізатором самого Next), а не
-// нашу структуру й не константу з коду, і вимагає ЯВНИЙ блок на кожного
-// названого бота: замовчування `*` пускало б усіх — і мовчки.
-// Перелік нижче виписано тут окремо від коду навмисно: стерти бота з коду
-// і з тесту одним рухом не вийде.
+// Тест читає ВІДДАНИЙ текст robots.txt (серіалізатором самого Next) і
+// вимагає ЯВНИЙ блок на кожного: замовчування `*` пускало б усіх — і мовчки.
+// Перелік виписано тут окремо від коду навмисно.
 
 const SEARCH = [
   "OAI-SearchBot",
@@ -28,7 +26,7 @@ const TRAINING = [
   "CCBot",
 ];
 
-test.describe("robots.txt: пошукових ШІ пущено, навчальних закрито — явно", () => {
+test.describe("robots.txt: усіх ШІ-ботів пущено — явно, кожного окремо", () => {
   const rendered = parseRobots(renderedRobots(true));
 
   test("🔴 КОЖЕН названий бот має власний явний блок у відданому тексті", () => {
@@ -39,28 +37,16 @@ test.describe("robots.txt: пошукових ШІ пущено, навчаль�
     }
   });
 
-  test("🔴 пошукові: Allow / і закрито рівно те саме, що й `*`", () => {
+  test("🔴 кожному: Allow / і закрито рівно те саме, що й `*`", () => {
     const star = rendered.get("*");
     expect(star, "блок `*` зник").toBeTruthy();
     expect(star!.disallow.length).toBeGreaterThan(0);
-    for (const agent of SEARCH) {
+    for (const agent of [...SEARCH, ...TRAINING]) {
       const g = rendered.get(agent);
       expect(g, agent).toBeTruthy();
       expect(g!.allow, agent).toContain("/");
       expect(g!.disallow.slice().sort(), agent).toEqual(star!.disallow.slice().sort());
       expect(g!.disallow, agent).not.toContain("/");
-    }
-  });
-
-  test("🔴 навчальні: Disallow / і жодного Allow", () => {
-    for (const agent of TRAINING) {
-      const g = rendered.get(agent);
-      expect(g, agent).toBeTruthy();
-      expect(g!.disallow, agent).toEqual(["/"]);
-      expect(g!.allow, agent).toEqual([]);
-      expect(blockedByRobots(true, "/camping/fr", agent), agent).toBe(true);
-    }
-    for (const agent of SEARCH) {
       expect(blockedByRobots(true, "/camping/fr", agent), agent).toBe(false);
     }
   });

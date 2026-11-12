@@ -35,19 +35,20 @@ export function robotsFor(open: boolean): MetadataRoute.Robots {
     };
   }
 
-  // 🔴 ШІ-КРАВЛЕРИ: ПОШУКОВІ ПУСКАЄМО, НАВЧАЛЬНІ ЗАКРИВАЄМО — ПОІМЕННО.
+  // 🔴 ШІ-КРАВЛЕРИ: УСІМ ДОЗВОЛЕНО, КОЖЕН НАЗВАНИЙ ПОІМЕННО.
   //
-  // Рішення власника 12.11.2026 (CAMP-509): «продаємо лише НАШЕ, дані —
-  // секрет бізнесу». Нам потрібен трафік із ШІ-пошуку (ChatGPT, Claude,
-  // Perplexity цитують те, що має джерело й дату — це наш провенанс,
-  // CAMP-109, CAMP-431); корпус для навчання чужих моделей — не потрібен.
-  // До 12.11 усі вісім проходили за замовчуванням-дозволом (CAMP-431);
-  // тепер кожен названий і має власний блок, тож зміна видна в diff.
+  // Рішення власника 12.11.2026 (CAMP-509), остаточне: «щоб усі пошукові
+  // роботи, агенти й ШІ-помічники знали наш сайт і посилалися на нього».
+  // Спершу того ж дня було обрано «навчальних закрити» — скасовано:
+  // robots.txt нічого не ховає, усе на сторінках і так публічне, а секрет
+  // бізнесу живе в API, не в тексті сторінок. Видимість важливіша.
+  // Явний блок на кожного лишається навмисно: замовчування `*` стирають
+  // одним рядком непомітно, а явний блок видно в diff (CAMP-431).
   //
   // Імена й призначення прочитано з офіційних сторінок вендорів 12.11.2026
   // (curl). Вендор сам каже, що налаштування незалежні одне від одного.
   //
-  // Пошукові / за запитом людини — ДОЗВОЛЕНО:
+  // Пошукові / за запитом людини:
   const aiSearchCrawlers = [
     // OpenAI: «surface websites in search results in ChatGPT's search
     // features»; закритий сайт не потрапляє у відповіді ChatGPT Search.
@@ -71,7 +72,8 @@ export function robotsFor(open: boolean): MetadataRoute.Robots {
     "Perplexity-User",
   ];
 
-  // Навчальні — ЗАБОРОНЕНО (`Disallow: /`):
+  // Навчальні — теж дозволені (рішення власника 12.11.2026: видимість
+  // важливіша, секрет — в API):
   const aiTrainingCrawlers = [
     // OpenAI: «crawl content that may be used in training our generative
     // AI foundation models»; Disallow = не для навчання.
@@ -119,14 +121,10 @@ export function robotsFor(open: boolean): MetadataRoute.Robots {
         allow: "/",
         disallow: CLOSED,
       },
-      ...aiSearchCrawlers.map((userAgent) => ({
+      ...[...aiSearchCrawlers, ...aiTrainingCrawlers].map((userAgent) => ({
         userAgent,
         allow: "/",
         disallow: CLOSED,
-      })),
-      ...aiTrainingCrawlers.map((userAgent) => ({
-        userAgent,
-        disallow: "/",
       })),
     ],
     sitemap: `${siteUrl}/sitemap.xml`,
