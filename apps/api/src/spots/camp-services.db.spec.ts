@@ -1,0 +1,187 @@
+import { Client } from 'pg';
+import type { QueryRunner } from 'typeorm';
+import { RoutePoi1790572800000 } from '../migrations/1790572800000-RoutePoi';
+import { RoutePoiFacilities1791400000000 } from '../migrations/1791400000000-RoutePoiFacilities';
+import { RoutePoiGas1791700000000 } from '../migrations/1791700000000-RoutePoiGas';
+import {
+  CAMP_SERVICE_KINDS,
+  campServicesSql,
+  NEARBY_RADIUS_M,
+  ONSITE_RADIUS_M,
+  readCampServices,
+} from './camp-services';
+
+// CAMP-503 — the campsite's services block, run against a REAL PostgreSQL.
+//
+// 🔴 Every expected number is written by hand from the coordinates (1 degree
+// of latitude is 111.3 km; of longitude at 46 N, 77.3 km) — never computed by
+// the SQL under test, never read from the payload it judges.
+//
+// 🔴 TOUCHES NOTHING THAT IS NOT ITS OWN: a schema made for this process,
+// first on the search_path, dropped afterwards. An unreachable database is a
+// FAILING spec, not a skipped one.
+//
+// MUTATION (done, see the PR): delete `AND ST_DWithin(… ${nearbyM})` from the
+// `around` branch → the fuel point 11.8 km away (inside the search box, outside
+// the radius) appears and "no fuel" goes red. Delete the on-site distance test
+// (`ST_DWithin(… ${onSiteM})`) → the 400 m tap becomes "on site".
+
+jest.setTimeout(120_000);
+const URL =
+  process.env.CI_DATABASE_URL ??
+  process.env.DATABASE_URL ??
+  'postgres://localhost:5432/camptribe_dev';
+const SCHEMA = `camp503_spec_${process.pid}`;
+
+let db: Client;
+
+const poi = (
+  ref: string,
+  kind: string,
+  name: string | null,
+  lon: number,
+  lat: number,
+  swap = 'no',
+) =>
+  db.query(
+    `INSERT INTO osm_route_poi (osm_ref, kind, name, location, country, cylinder_swap)
+     VALUES ($1, $2, $3, ST_SetSRID(ST_MakePoint($4, $5), 4326), 'SI', $6)`,
+    [ref, kind, name, lon, lat, swap],
+  );
+
+const run = async (spot: 'a' | 'b' | 'c' | 'd' | 'e') => {
+  const r = await db.query(
+    `SELECT ${campServicesSql('s.location', 's.outline')} AS v FROM spots s WHERE s.id = $1`,
+    [spot],
+  );
+  return readCampServices(r.rows[0].v);
+};
+const of = (v: ReturnType<typeof readCampServices>, k: string) =>
+  v.find((e) => e.kind === k);
+
+beforeAll(async () => {
+  db = new Client({ connectionString: URL });
+  await db.connect();
+  await db.query('CREATE EXTENSION IF NOT EXISTS postgis');
+  await db.query(`CREATE SCHEMA ${SCHEMA}`);
+  await db.query(`SET search_path = ${SCHEMA}, public`);
+  const qr = { query: (sql: string) => db.query(sql) } as unknown as QueryRunner;
+  await new RoutePoi1790572800000().up(qr);
+  await new RoutePoiFacilities1791400000000().up(qr);
+  await new RoutePoiGas1791700000000().up(qr);
+  await db.query(
+    `CREATE TABLE spots (id text PRIMARY KEY, location geometry(Point,4326), outline geometry(MultiPolygon,4326))`,
+  );
+  // a: no outline, at 14.0 / 46.0.  b: outline 14.1-14.106 x 46.0-46.002.
+  // c: nothing anywhere near.
+  await db.query(`INSERT INTO spots VALUES
+    ('a', ST_SetSRID(ST_MakePoint(14.0, 46.0), 4326), NULL),
+    ('b', ST_SetSRID(ST_MakePoint(14.1005, 46.0005), 4326),
+          ST_Multi(ST_MakeEnvelope(14.1, 46.0, 14.106, 46.002, 4326))),
+    ('c', ST_SetSRID(ST_MakePoint(16.5, 46.5), 4326), NULL),
+    ('d', ST_SetSRID(ST_MakePoint(20.0, 46.0), 4326), NULL),
+    ('e', ST_SetSRID(ST_MakePoint(12.0, 58.4), 4326), NULL)`);
+
+  // spot a
+  await poi('n1', 'water', 'Tap A near', 14.001, 46.0); // 77 m  -> on site
+  await poi('n2', 'water', 'Tap A far', 14.01, 46.0); // 773 m -> nearby
+  await poi('n3', 'water', 'Tap A out', 14.2, 46.0); // 15.5 km -> nothing
+  await poi('n4', 'water', 'Tap 400', 14.0, 46.0036); // 401 m: not on site
+  await poi('n5', 'charging', 'EV A', 14.0, 46.0015); // 167 m -> nearby
+  await poi('n6', 'dump', 'Dump A', 14.02, 46.0); // 1 546 m
+  // spot d's only fuel: the search-box corner, inside ±0.129 deg yet 11.8 km
+  // away — only the exact distance test can refuse it
+  await poi('n7', 'fuel', 'Fuel corner', 20.1, 46.08);
+  // gas: a fuel station that swaps bottles, 5.6 km north
+  await poi('n8', 'fuel', 'Fuel+gas', 14.0, 46.05, 'yes');
+  // spot e, 58.4 N: planar (degree) distance and metres DISAGREE. East-west
+  // 0.0975 deg + north-south 0.0388 deg is 7.14 km; 0.0756 + 0.066 is 8.6 km —
+  // but in degrees the second is the nearer. Hand-computed: 4.32 km north-south,
+  // 0.0975 * 111.32 * cos(58.4) = 5.68 km east-west.
+  await poi('n11', 'dump', 'Dump true nearest', 11.9025, 58.3612);
+  await poi('n12', 'dump', 'Dump planar nearest', 11.9244, 58.334);
+  // spot b: inside the outline but 390 m from the point; and just outside
+  await poi('n9', 'water', 'Tap inside', 14.1055, 46.001);
+  await poi('n10', 'water', 'Tap outside', 14.1075, 46.001);
+});
+
+afterAll(async () => {
+  await db.query('RESET search_path');
+  await db.query(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE`);
+  await db.end();
+});
+
+test('the constants are the ones the comment measured', () => {
+  expect(NEARBY_RADIUS_M).toBe(10_000);
+  expect(ONSITE_RADIUS_M).toBe(150);
+  expect(CAMP_SERVICE_KINDS).toEqual(['fuel', 'ev_charging', 'water', 'dump', 'gas']);
+});
+
+test('spot a: nearest on site and nearest nearby, with names and metres', async () => {
+  const v = await run('a');
+  const w = of(v, 'water')!;
+  expect(w.onSite).toEqual({ name: 'Tap A near', metres: expect.any(Number) });
+  expect(Math.abs(w.onSite!.metres - 77)).toBeLessThanOrEqual(3);
+  // 🔴 the 400 m tap is NOT on site and the nearest "nearby" is the 401 m one,
+  // not the 773 m one: nearest means nearest.
+  expect(w.nearby!.name).toBe('Tap 400');
+  expect(Math.abs(w.nearby!.metres - 401)).toBeLessThanOrEqual(4);
+});
+
+test('🔴 the distance filter: nothing beyond the radius is "nearby"', async () => {
+  const v = await run('a');
+  // the only fuel row inside the search box is 11.8 km away; the 5.6 km one
+  // is also gas — so fuel is the 5.6 km one and the far one never wins
+  const f = of(v, 'fuel')!;
+  expect(f.onSite).toBeNull();
+  expect(f.nearby!.name).toBe('Fuel+gas');
+  expect(Math.abs(f.nearby!.metres - 5565)).toBeLessThanOrEqual(30);
+  // remove the fuel+gas row's competitor: a kind whose only point is out of
+  // range does not appear at all — checked on spot c below and here by water
+  expect(v.map((e) => e.nearby?.name)).not.toContain('Tap A out');
+});
+
+test('🔴 a point inside the search box but past 10 km is not "nearby"', async () => {
+  // spot d has exactly one POI: 11.8 km away. Nothing to say, so nothing.
+  expect(await run('d')).toEqual([]);
+});
+
+test('🔴 EV charging is its own kind and never the hookup', async () => {
+  const v = await run('a');
+  const c = of(v, 'ev_charging')!;
+  expect(c.onSite).toBeNull();
+  expect(c.nearby!.name).toBe('EV A');
+  expect(Math.abs(c.nearby!.metres - 167)).toBeLessThanOrEqual(3);
+  expect(v.map((e) => e.kind)).not.toContain('charging');
+  expect(v.map((e) => e.kind)).not.toContain('electricity');
+  expect(campServicesSql('s.location', 's.outline')).not.toMatch(/electricity|hookup/i);
+});
+
+test('gas is cylinder_swap, not a kind of its own row', async () => {
+  const g = of(await run('a'), 'gas')!;
+  expect(g.nearby!.name).toBe('Fuel+gas');
+  expect(g.onSite).toBeNull();
+});
+
+test('dump has only a nearby point, in the right place in the list', async () => {
+  const v = await run('a');
+  expect(of(v, 'dump')!.nearby!.name).toBe('Dump A');
+  expect(v.map((e) => e.kind)).toEqual(['fuel', 'ev_charging', 'water', 'dump', 'gas']);
+});
+
+test('spot b: with an outline, "on site" means inside it, whatever the distance', async () => {
+  const w = of(await run('b'), 'water')!;
+  expect(w.onSite!.name).toBe('Tap inside'); // 390 m from the point, > 150
+  expect(Math.abs(w.onSite!.metres - 390)).toBeLessThanOrEqual(6);
+  expect(w.nearby!.name).toBe('Tap outside');
+});
+
+test('🔴 spot c: nothing in range is an empty list, so the page draws nothing', async () => {
+  expect(await run('c')).toEqual([]);
+});
+
+test('🔴 nearest is nearest in METRES, not in degrees (58.4 N)', async () => {
+  const d = of(await run('e'), 'dump')!;
+  expect(d.nearby!.name).toBe('Dump true nearest');
+  expect(Math.abs(d.nearby!.metres - 7140)).toBeLessThanOrEqual(40);
+});

@@ -41,6 +41,12 @@ import type { TariffView } from './tariffs';
 export type { TariffView } from './tariffs';
 // CAMP-168: the official bathing water classification for the season.
 import type { BathingWaterView } from '../bathing/nearby';
+import {
+  NEARBY_RADIUS_M,
+  ONSITE_RADIUS_M,
+  readCampServices,
+  type CampServicesPayload,
+} from './camp-services';
 export type { BathingWaterView } from '../bathing/nearby';
 // CAMP-164: the EEA air quality index — facts only, freshness is decided
 // where it is shown.
@@ -183,6 +189,8 @@ export interface SpotView {
    * case, and silence there would read as reassurance.
    */
   bathingWater: BathingWaterView | null;
+  /** CAMP-503: fuel, EV charging, water, dump, gas — on site and nearby. `[]` = draw nothing. */
+  campServices: CampServicesPayload;
   /**
    * CAMP-164: what we hold about the air here — the nearest station's
    * latest reported hour, the 1 km modelled index where no station is
@@ -991,6 +999,13 @@ export function toView(row: Record<string, unknown>): SpotView {
     // the column produces a page that says there is none nearby, which
     // is a visible, reportable wrong answer rather than a silent one.
     bathingWater: (row.bathing_water as BathingWaterView) ?? null,
+    // 🔴 The radii travel WITH the answer: the page prints them, and a copy
+    // typed in the web would drift from the one the query used.
+    campServices: {
+      nearbyM: NEARBY_RADIUS_M,
+      onSiteM: ONSITE_RADIUS_M,
+      items: readCampServices(row.camp_services),
+    },
     // 🔴 CAMP-164. `?? { kind: 'none' }` says "we hold no station and no
     // model value for this place", which is true of any query that did
     // not select the column — and visible on the page as a sentence, not

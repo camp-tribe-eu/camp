@@ -144,8 +144,8 @@ describe('накладання правки', () => {
     expect(before).toEqual({ name: 'A', amenities: { shower: 'yes' } });
   });
 
-  it('WRITABLE — рівно два поля, і це саме ті, що зливає сторінка', () => {
-    expect([...WRITABLE]).toEqual(['name', 'amenities']);
+  it('WRITABLE — рівно три поля, і це саме ті, що зливає сторінка', () => {
+    expect([...WRITABLE]).toEqual(['name', 'amenities', 'hookup']);
   });
 
   // 🔴 merge() БЕЗПЕЧНА САМА ПО СОБІ, А НЕ ЗА ДОМОВЛЕНІСТЮ З ВИКЛИКАЧЕМ.
@@ -176,5 +176,25 @@ describe('накладання правки', () => {
       unknown
     >;
     expect(merge({}, { amenities: inherited } as never)).toEqual({});
+  });
+});
+
+describe('CAMP-503: hookup (живлення кемпера на стоянці, не заряджання авто)', () => {
+  it('приймає число в межах і зберігає його', () => {
+    const patch = { hookup: { voltageV: 230, powerKw: 3.7, priceEurPerNight: 4.5 } };
+    expect(faults(patch)).toEqual([]);
+    expect(merge({}, patch).hookup).toEqual(patch.hookup);
+  });
+  it('відхиляє поза межами, не число, нецілу напругу й чуже поле', () => {
+    expect(faults({ hookup: { voltageV: 12 } })).toHaveLength(1);
+    expect(faults({ hookup: { voltageV: 230.5 } })).toHaveLength(1);
+    expect(faults({ hookup: { powerKw: '3' } })).toHaveLength(1);
+    expect(faults({ hookup: { priceEurPerNight: -1 } })).toHaveLength(1);
+    expect(faults({ hookup: { chargerKw: 11 } })).toHaveLength(1);
+  });
+  it('null прибирає поле, а останнє прибране забирає весь обʼєкт', () => {
+    const one = merge({}, { hookup: { voltageV: 230, powerKw: 3 } });
+    expect(merge(one, { hookup: { voltageV: null } }).hookup).toEqual({ powerKw: 3 });
+    expect(merge(one, { hookup: null }).hookup).toBeUndefined();
   });
 });

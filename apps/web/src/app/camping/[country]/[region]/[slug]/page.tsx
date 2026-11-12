@@ -32,6 +32,9 @@ import RecordEdited from '@/components/record-edited';
 import SourceNote from '@/components/source-note';
 import TariffTable from '@/components/tariff-table';
 import BathingWaterNote from '@/components/bathing-water';
+import CampServices from '@/components/camp-services';
+import { CAMP_SERVICES_PAGE, servicesView } from '@/lib/camp-services';
+import { pageContent } from '@/lib/page-content';
 import AirQualityNote from '@/components/air-quality';
 import { DroughtPanel } from '@/components/drought-panel';
 import { WarningsForSpot } from '@/components/warnings-for-spot';
@@ -313,6 +316,9 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
   if (!data) notFound();
 
   const spot = withOwnerOverrides(data.spot);
+  // 🔴 CAMP-503: the block's words. A CMS that cannot answer costs the block,
+  // not the campsite page (the fault's reach stays the size of the fault).
+  const servicesPage = await pageContent(CAMP_SERVICES_PAGE).catch(() => null);
   const name = spot.name;
   const setting = settingParagraph(spot.context);
   const known = Object.values(spot.amenities).filter(
@@ -604,6 +610,12 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
           campsite whose bathing water failed to import indistinguishable
           from one that genuinely has none. */}
       <BathingWaterNote bathingWater={spot.bathingWater} />
+
+      {/* 🔴 CAMP-503: fuel, EV charging, water, dump, gas — on site and
+          nearby. UNLIKE the sections around it this draws NOTHING when no
+          point lies in range (the card's decision), and nothing when the
+          CMS words are missing. Words come from the CMS page, not JSX. */}
+      <CampServices view={servicesView(spot.campServices, spot.hookup, servicesPage?.sections ?? null)} />
 
       {/* 🔴 CAMP-164: what the EEA's air quality index says here.
 

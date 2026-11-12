@@ -447,6 +447,14 @@ export interface Spot {
    */
   bathingWater?: BathingWater | null;
   /**
+   * CAMP-503: fuel, EV charging, water, dump, gas — on site and nearby. The
+   * radii are the ones the query used. Optional: the API deploys separately,
+   * and a payload without it must draw nothing, not throw.
+   */
+  campServices?: CampServicesPayload;
+  /** CAMP-503: the owner's pitch hookup. Absent unless the owner filled it. */
+  hookup?: Hookup;
+  /**
    * CAMP-164: the nearest EEA air quality station's latest reported hour,
    * the 1 km modelled index where no station is near, or `none`.
    *
@@ -740,6 +748,37 @@ export function countryName(code: string, locale = 'en'): string {
   }
 }
 
+export interface CampServicesPayload {
+  nearbyM: number;
+  onSiteM: number;
+  items: {
+    kind: string;
+    onSite: { name: string | null; metres: number } | null;
+    nearby: { name: string | null; metres: number } | null;
+  }[];
+}
+
+/** CAMP-503: what the OWNER says about the pitch's mains socket. */
+export interface Hookup {
+  voltageV?: number;
+  powerKw?: number;
+  priceEurPerNight?: number;
+}
+
+const HOOKUP_KEYS = ['voltageV', 'powerKw', 'priceEurPerNight'] as const;
+
+/** Only finite numbers survive: the page prints these as figures. */
+export function readHookup(raw: unknown): Hookup | undefined {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const o = raw as Record<string, unknown>;
+  const out: Hookup = {};
+  for (const k of HOOKUP_KEYS) {
+    const v = o[k];
+    if (typeof v === 'number' && Number.isFinite(v) && v >= 0) out[k] = v;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 /** Owner corrections win over OSM at read time (CAMP-86). */
 export function withOwnerOverrides(spot: Spot): Spot {
   const o = spot.ownerOverrides ?? {};
@@ -747,6 +786,7 @@ export function withOwnerOverrides(spot: Spot): Spot {
   return {
     ...spot,
     ...(typeof o.name === 'string' ? { name: o.name } : {}),
+    ...(readHookup(o.hookup) ? { hookup: readHookup(o.hookup) } : {}),
     amenities: { ...spot.amenities, ...((o.amenities as Partial<Amenities>) ?? {}) },
   };
 }

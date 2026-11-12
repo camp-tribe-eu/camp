@@ -1,6 +1,7 @@
 import { publishedCountrySql } from './unpublished-countries';
 import { nearestBathingWaterSql } from '../bathing/nearby';
 import { airQualitySql } from '../air/nearby';
+import { campServicesSql } from './camp-services';
 import { nearbyWebcamsSql } from '../webcams/nearby';
 import { linkedSecondariesJoin } from './links';
 import { tariffsSql, withheldTariffCountSql } from './tariffs';
@@ -134,6 +135,11 @@ export const SPOT_DETAIL_SQL = `SELECT s.slug, s.name, s.country, s.region, s.ty
               -- is chosen by geography, and the linked secondary would
               -- return the same station.
               ${airQualitySql('s.location', 's.id')} AS air_quality,
+              -- 🔴 CAMP-503, primary row only (geography again): fuel, EV
+              -- charging, water, dump, gas — on site and nearby. See
+              -- camp-services.ts for the radii and why EV charging is not
+              -- the camper's hookup.
+              ${campServicesSql('s.location', 's.outline')} AS camp_services,
               -- 🔴 CAMP-190, primary row only, for the reason above the
               -- bathing water: a camera is chosen by geography, and the
               -- linked secondary is the same campsite a few dozen metres
