@@ -6,6 +6,7 @@ import { Test } from '@nestjs/testing';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { EventsService } from './events/events.service';
 import { PlanController } from './plan/plan.controller';
 import { PlanService } from './plan/plan.service';
 import { MapQueryService } from './spots/map.service';
@@ -102,6 +103,11 @@ async function boot(env: { token?: string; trustProxy?: boolean } = {}) {
       { provide: SpotsService, useValue: stubSpots },
       { provide: MapQueryService, useValue: stubMap },
       { provide: PlanService, useValue: stubPlan },
+      // CAMP-504: the plan route counts the campsites it proposes; not under test here.
+      {
+        provide: EventsService,
+        useValue: { recordRouteInclusion: async () => 0 },
+      },
       { provide: APP_GUARD, useClass: ApiThrottlerGuard },
     ],
   }).compile();

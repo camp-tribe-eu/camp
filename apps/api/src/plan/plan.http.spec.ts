@@ -2,6 +2,7 @@ import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { PlanRequest } from './plan-request';
 import type { PlanResponse } from './plan-response';
+import { EventsService } from '../events/events.service';
 import { PlanController } from './plan.controller';
 import { PlanService, PlanTimedOut, type PlanResult } from './plan.service';
 
@@ -43,6 +44,11 @@ beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({
     controllers: [PlanController],
     providers: [
+      {
+        // CAMP-504: рахунок кемпінгів у маршруті; тут він нічого не пише.
+        provide: EventsService,
+        useValue: { recordRouteInclusion: async () => 0 },
+      },
       {
         provide: PlanService,
         useValue: {

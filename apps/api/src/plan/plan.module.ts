@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { EventsModule } from '../events/events.module';
 import { PlanController } from './plan.controller';
 import { PlanService } from './plan.service';
 
@@ -6,6 +7,7 @@ import { PlanService } from './plan.service';
 // `planner/` and imports nothing from Nest; this module is the whole of what
 // is Nest about it — a controller, and one service that owns the transaction.
 @Module({
+  imports: [EventsModule],
   controllers: [PlanController],
   providers: [PlanService],
 })
