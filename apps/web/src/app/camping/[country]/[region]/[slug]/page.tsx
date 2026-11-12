@@ -43,6 +43,8 @@ import { CampsiteMedia, type Photo } from '@/components/campsite-media';
 import { ScaleTrack, SpotFactsLine } from '@/components/spot-facts';
 import { aroundRows, cleanContext, spotFacts } from '@/lib/spot-facts';
 import ReportProblem from '@/components/report-problem';
+import SpotEvents from '@/components/spot-events';
+import { websiteHref } from '@/lib/events';
 import { Block } from '@/components/layout';
 
 // CAMP-34 — the campsite page.
@@ -229,8 +231,10 @@ function Contact({ spot }: { spot: Spot }) {
           <>
             <dt className="text-sm text-ink-2">Website</dt>
             <dd className="text-sm">
+              {/* CAMP-504: через наш редирект, який веде лише на адресу з
+                  бази за slug (`/out/<slug>`); без налаштованого API — прямо. */}
               <a
-                href={site}
+                href={websiteHref(spot.slug, site)}
                 rel="nofollow ugc noopener"
                 target="_blank"
                 className="underline underline-offset-2"
@@ -251,6 +255,7 @@ function Contact({ spot }: { spot: Spot }) {
                   and review found 157 live rows doing that. */}
               <a
                 href={`tel:${phone.split(';')[0].replace(/[^+\d]/g, '')}`}
+                data-ct-event="phone_click"
                 className="underline underline-offset-2"
               >
                 {phone}
@@ -553,6 +558,9 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
           import graph). Always rendered, photos or not: a wrong pin is
           wrong whether or not there is a picture above it. */}
       <ReportProblem slug={spot.slug} />
+
+      {/* CAMP-504: перегляд картки й клік на телефон. Нічого не малює. */}
+      <SpotEvents slug={spot.slug} />
 
       <ClaimListing spot={spot} />
 

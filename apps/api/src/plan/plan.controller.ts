@@ -4,9 +4,12 @@ import {
   HttpCode,
   HttpException,
   Post,
+  Headers,
+  Req,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { PLAN_LIMIT } from '../throttle';
+import { EventsService } from '../events/events.service';
+import { clientKey, PLAN_LIMIT } from '../throttle';
 import { parsePlanRequest, type PlanProblem } from './plan-request';
 import type { PlanResponse } from './plan-response';
 import { PlanService, PlanTimedOut } from './plan.service';
@@ -45,7 +48,10 @@ export function invalid(problems: PlanProblem[]): HttpException {
 // either — and answers 200, not 201, because nothing was created.
 @Controller('plan')
 export class PlanController {
-  constructor(private readonly plans: PlanService) {}
+  constructor(
+    private readonly plans: PlanService,
+    private readonly events: EventsService,
+  ) {}
 
   /**
    *   POST /plan
@@ -67,7 +73,11 @@ export class PlanController {
   @Post()
   @HttpCode(200)
   @Throttle(PLAN)
-  async plan(@Body() body: unknown): Promise<PlanResponse> {
+  async plan(
+    @Body() body: unknown,
+    @Headers('user-agent') userAgent: string | undefined,
+    @Req() req: { ip?: string; headers?: Record<string, unknown> },
+  ): Promise<PlanResponse> {
     const parsed = parsePlanRequest(body);
     // `=== false`, not `!ok`: this package builds without strictNullChecks, where
     // only a comparison narrows a union on a boolean.
@@ -75,6 +85,7 @@ export class PlanController {
     try {
       const result = await this.plans.plan(parsed.request);
       if (result.ok === false) throw invalid(result.problems);
+      await this.countInclusions(result.response, req, userAgent);
       return result.response;
     } catch (err) {
       if (err instanceof PlanTimedOut) {
@@ -88,6 +99,29 @@ export class PlanController {
         );
       }
       throw err;
+    }
+  }
+
+  /**
+   * CAMP-504: кемпінги, що потрапили в згенерований маршрут, рахуються
+   * ПІСЛЯ того, як планувальник закрив свою read-only транзакцію, окремим
+   * запитом до окремої таблиці лічильників. Сам запит маршруту (точки, дні)
+   * не зберігається, як і раніше. Збій рахунку не ламає відповідь.
+   */
+  private async countInclusions(
+    response: PlanResponse,
+    req: { ip?: string; headers?: Record<string, unknown> },
+    userAgent: string | undefined,
+  ): Promise<void> {
+    if (response.status !== 'ok') return;
+    const slugs = response.days.flatMap((d) => (d.night ? [d.night.slug] : []));
+    try {
+      await this.events.recordRouteInclusion([...new Set(slugs)], {
+        ip: clientKey(req.headers ?? {}, req.ip ?? 'unknown'),
+        userAgent,
+      });
+    } catch {
+      // Лічильник — побічна справа; відповідь планувальника важливіша.
     }
   }
 }

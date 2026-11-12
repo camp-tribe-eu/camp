@@ -38,6 +38,7 @@ import {
   type SpotProperties as FilterProperties,
 } from "@/lib/map-filter";
 import MapFilters, { MapCount } from "./map-filters";
+import ZeroResultBeacon from "./zero-result-beacon";
 import {
   HAZARD_COLOUR,
   MARKER_STROKE,
@@ -2538,6 +2539,13 @@ export default function CampsiteMap() {
           dataState={dataState}
           state={filters}
           overnight={tally.inViewOvernight}
+        />
+
+        <ZeroResultBeacon
+          ready={dataState.kind === "ready"}
+          shown={tally.inViewShown}
+          total={tally.inViewTotal}
+          state={filters}
         />
 
         <MapFilters

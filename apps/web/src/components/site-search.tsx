@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { sendZeroResult } from '@/lib/events';
 import { countryName, formatDistance } from '@/lib/api';
 import {
   search,
@@ -187,6 +188,21 @@ export default function SiteSearch({ initialQuery }: { initialQuery: string }) {
   // rest are still coming would be a number that shrinks the reader's
   // idea of the site every time they arrive early.
   const total = progress.total;
+
+  // 🔴 CAMP-504. Пошук, що нічого не знайшов — і лише коли індекс ПОВНИЙ:
+  // поки частини ще йдуть, «нічого» може означати «ще не дійшло». Текст
+  // запиту НЕ надсилається (людина могла вписати імʼя) — лише факт, що
+  // порожньо; у цьому пошуку фільтрів немає.
+  const zeroQuery =
+    state.status === 'ready' &&
+    progress.done &&
+    query.trim().length >= 3 &&
+    hits.length === 0;
+  useEffect(() => {
+    if (!zeroQuery) return;
+    const timer = setTimeout(() => sendZeroResult('search', []), 2000);
+    return () => clearTimeout(timer);
+  }, [zeroQuery, query]);
 
   return (
     // 🔴 The state, on the element, so a test can wait for readiness

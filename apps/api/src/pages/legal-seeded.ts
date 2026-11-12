@@ -13,6 +13,7 @@ import { AttributionFlags1794800000000 } from '../migrations/1794800000000-Attri
 import { DatabaseUndatedPrices1794900000000 } from '../migrations/1794900000000-DatabaseUndatedPrices';
 import { ThemeChoiceCookies1795100000000 } from '../migrations/1795100000000-ThemeChoiceCookies';
 import { ThemeChoicePrivacy1795200000000 } from '../migrations/1795200000000-ThemeChoicePrivacy';
+import { PrivacyEventCounts1796800000000 } from '../migrations/1796800000000-PrivacyEventCounts';
 import { AttributionElevationFromBucket1796000000000 } from '../migrations/1796000000000-AttributionElevationFromBucket';
 
 /**
@@ -64,6 +65,8 @@ const UPDATES: ReadonlyArray<SeededLegalPage> = [
   new ThemeChoicePrivacy1795200000000().page,
   // CAMP-484: висота приходить із відра AWS Open Data, а не через API.
   new AttributionElevationFromBucket1796000000000().page,
+  // CAMP-504: сайт лічить перегляди, кліки й порожні пошуки.
+  new PrivacyEventCounts1796800000000().page,
 ];
 
 export function seededLegalPages(): SeededLegalPage[] {

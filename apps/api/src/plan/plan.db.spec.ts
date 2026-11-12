@@ -405,10 +405,13 @@ interface Reply {
   json: any;
 }
 
-async function ask(body: unknown): Promise<Reply> {
+async function ask(
+  body: unknown,
+  headers: Record<string, string> = {},
+): Promise<Reply> {
   const res = await fetch(base + '/plan', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify(body),
   });
   const text = await res.text();
@@ -772,8 +775,18 @@ describe('🔴 outside the Union is a 400 that names the point', () => {
 });
 
 describe('🔴 the entry stores nothing', () => {
-  /** Every statement a request sends on its connection, in order. */
-  async function recorded(body: unknown): Promise<string[]> {
+  /**
+   * What the request did AFTER the planner's transaction ended (CAMP-504):
+   * the lookup and the day's counter, on their own connection. Kept apart so
+   * that every assertion below is about the planner's transaction alone.
+   */
+  let afterCommit: string[] = [];
+
+  /** Every statement the PLANNER sends on its connection, in order, up to its end. */
+  async function recorded(
+    body: unknown,
+    headers: Record<string, string> = {},
+  ): Promise<string[]> {
     const seen: string[] = [];
     const real = dataSource.createQueryRunner.bind(dataSource);
     const spy = jest
@@ -788,11 +801,13 @@ describe('🔴 the entry stores nothing', () => {
         return runner;
       });
     try {
-      await ask(body);
+      await ask(body, headers);
     } finally {
       spy.mockRestore();
     }
-    return seen;
+    const end = seen.findIndex((q) => /^(COMMIT|ROLLBACK)$/.test(q));
+    afterCommit = end === -1 ? [] : seen.slice(end + 1);
+    return end === -1 ? seen : seen.slice(0, end + 1);
   }
 
   it('the first thing the connection is told is READ ONLY, and the last is the end of the transaction', async () => {
@@ -816,6 +831,29 @@ describe('🔴 the entry stores nothing', () => {
         ),
       ),
     ).toEqual([]);
+  });
+
+  it("🔴 after the commit the ONLY thing written is the day's campsite counter, and never what was asked", async () => {
+    // A visitor nobody has counted today: the earlier requests in this file
+    // came from one address and counted the same campsites once already.
+    process.env.TRUST_PROXY_CLIENT_IP = '1';
+    try {
+      await recorded(PLAN_LON15, { 'cf-connecting-ip': '198.51.100.99' });
+    } finally {
+      delete process.env.TRUST_PROXY_CLIENT_IP;
+    }
+    const writes = afterCommit.filter((q) =>
+      /^(INSERT|UPDATE|DELETE|TRUNCATE|CREATE|DROP|ALTER|COPY|GRANT)\b/i.test(
+        q,
+      ),
+    );
+    expect(writes.length).toBeGreaterThan(0);
+    for (const w of writes)
+      expect(w).toMatch(
+        /^INSERT INTO spot_event_daily \(day, camping_spot_id, event, source, n\) VALUES/,
+      );
+    // Nothing the reader typed is in any statement text after the commit.
+    expect(afterCommit.join('\n')).not.toMatch(/lon|lat|days/i);
   });
 
   it('a refused request is a transaction too, ended, and the pool is not starved by it', async () => {

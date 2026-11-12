@@ -33,6 +33,9 @@ import { ProblemReport } from './entities/problem-report.entity';
 import { ClientError } from './entities/client-error.entity';
 import { NotFoundHit } from './entities/not-found-hit.entity';
 import { SpotClaim } from './entities/spot-claim.entity';
+import { SpotEventDaily } from './entities/spot-event-daily.entity';
+import { ZeroResultSearchDaily } from './entities/zero-result-search-daily.entity';
+import { EventsModule } from './events/events.module';
 import { SpotTariff } from './entities/spot-tariff.entity';
 import { BathingWater } from './entities/bathing-water.entity';
 import {
@@ -108,6 +111,9 @@ export const REASONS = loadMeasuredReasons();
         AirQualityModelled,
         // «Report a problem»: what a reader says is wrong about a campsite.
         ProblemReport,
+        // CAMP-504: денні лічильники подій, без персональних даних.
+        SpotEventDaily,
+        ZeroResultSearchDaily,
       ],
       synchronize: false,
     }),
@@ -135,6 +141,8 @@ export const REASONS = loadMeasuredReasons();
     // CAMP-391: the HTTP entry to the planner — `POST /plan`, in its own throttle
     // bucket, over a read-only transaction.
     PlanModule,
+    // CAMP-504: запис подій із першого дня.
+    EventsModule,
   ],
   controllers: [AppController],
   providers: [
