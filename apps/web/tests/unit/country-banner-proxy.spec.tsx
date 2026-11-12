@@ -146,6 +146,36 @@ async function wire(res: Response): Promise<string> {
   return `${res.status}\n${head}\n${Buffer.from(await res.arrayBuffer()).toString('latin1')}`;
 }
 
+/**
+ * Тіла вбудованих скриптів. 🔴 БЕЗ РЕГУЛЯРКИ ПО ТЕГУ: регістр тега в HTML не
+ * важить (`<SCRIPT>` виконується так само), а регулярка `<script>…</script>`
+ * його не бачила б, і тест лишався б зеленим над розміткою, яку не прочитав
+ * (CodeQL js/bad-tag-filter). Шукаємо за нижнім регістром копії, а вміст
+ * беремо з оригіналу за тими самими зсувами.
+ */
+function inlineScriptBodies(html: string): string[] {
+  const lower = html.toLowerCase();
+  const out: string[] = [];
+  let from = 0;
+  for (;;) {
+    const open = lower.indexOf('<script', from);
+    if (open === -1) break;
+    const start = lower.indexOf('>', open);
+    const close = lower.indexOf('</script', start);
+    if (start === -1 || close === -1) break;
+    out.push(html.slice(start + 1, close));
+    from = close + 1;
+  }
+  return out;
+}
+
+test('сторож скриптів читає тег у будь-якому регістрі', () => {
+  expect(inlineScriptBodies('<p>x</p><SCRIPT>a()</SCRIPT>')).toEqual(['a()']);
+  expect(inlineScriptBodies('<ScRiPt type="x">b()</sCrIpT >')).toEqual(['b()']);
+  expect(inlineScriptBodies('<script>1</script><script>2</script>')).toEqual(['1', '2']);
+  expect(inlineScriptBodies('<p>без скриптів</p>')).toEqual([]);
+});
+
 const CACHE_CONTROL =
   'public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800';
 
@@ -219,6 +249,10 @@ test('🔴 не-зображення — відмова, хоч би Directus к
   for (const body of [
     text('<html><script>alert(1)</script></html>'),
     text('<svg xmlns="http://www.w3.org/2000/svg"><script>1</script></svg>'),
+    // Регістр тега не рятує: вміст відкидається за байтами, не за розміткою.
+    text('<SVG XMLNS="http://www.w3.org/2000/svg"><SCRIPT>1</SCRIPT></SVG>'),
+    text('<?xml version="1.0"?>\n<Svg><ScRiPt>1</ScRiPt></Svg>'),
+    text('<HTML><SCRIPT>alert(1)</SCRIPT></HTML>'),
     text('%PDF-1.7'),
     new Uint8Array(0),
   ]) {
@@ -445,9 +479,9 @@ test('🔴 запасний шлях ПІСЛЯ рендеру: скрипт х�
   await inWorld({}, async () => {
     const html = await page();
     // Скрипт є в розмітці й стоїть ДО `<img>`, бо `error` не спливає.
-    const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
-    const guard = scripts.find((x) => x.includes('ct-banner__media-img'));
-    expect(guard, 'скрипту запасного шляху в розмітці немає').toBe(FOREGROUND_ERROR_GUARD);
+    expect(inlineScriptBodies(html), 'скрипту запасного шляху в розмітці немає').toContain(
+      FOREGROUND_ERROR_GUARD,
+    );
     expect(html.indexOf(FOREGROUND_ERROR_GUARD)).toBeLessThan(html.indexOf('<img class="ct-banner__media-img"'));
 
     // Виконуємо ТОЙ САМИЙ текст проти мінімального документа.
