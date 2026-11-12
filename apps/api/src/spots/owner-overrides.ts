@@ -28,7 +28,9 @@ export const HOOKUP_FIELDS = Object.freeze({
   priceEurPerNight: { min: 0, max: 100, whole: false },
 } as const);
 export type HookupKey = keyof typeof HOOKUP_FIELDS;
-export const HOOKUP_KEYS = Object.freeze(Object.keys(HOOKUP_FIELDS) as HookupKey[]);
+export const HOOKUP_KEYS = Object.freeze(
+  Object.keys(HOOKUP_FIELDS) as HookupKey[],
+);
 
 export const AMENITY_KEYS = Object.freeze([
   'electricity',

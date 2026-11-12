@@ -65,7 +65,9 @@ beforeAll(async () => {
   await db.query('CREATE EXTENSION IF NOT EXISTS postgis');
   await db.query(`CREATE SCHEMA ${SCHEMA}`);
   await db.query(`SET search_path = ${SCHEMA}, public`);
-  const qr = { query: (sql: string) => db.query(sql) } as unknown as QueryRunner;
+  const qr = {
+    query: (sql: string) => db.query(sql),
+  } as unknown as QueryRunner;
   await new RoutePoi1790572800000().up(qr);
   await new RoutePoiFacilities1791400000000().up(qr);
   await new RoutePoiGas1791700000000().up(qr);
@@ -114,7 +116,13 @@ afterAll(async () => {
 test('the constants are the ones the comment measured', () => {
   expect(NEARBY_RADIUS_M).toBe(10_000);
   expect(ONSITE_RADIUS_M).toBe(150);
-  expect(CAMP_SERVICE_KINDS).toEqual(['fuel', 'ev_charging', 'water', 'dump', 'gas']);
+  expect(CAMP_SERVICE_KINDS).toEqual([
+    'fuel',
+    'ev_charging',
+    'water',
+    'dump',
+    'gas',
+  ]);
 });
 
 test('spot a: nearest on site and nearest nearby, with names and metres', async () => {
@@ -154,7 +162,9 @@ test('🔴 EV charging is its own kind and never the hookup', async () => {
   expect(Math.abs(c.nearby!.metres - 167)).toBeLessThanOrEqual(3);
   expect(v.map((e) => e.kind)).not.toContain('charging');
   expect(v.map((e) => e.kind)).not.toContain('electricity');
-  expect(campServicesSql('s.location', 's.outline')).not.toMatch(/electricity|hookup/i);
+  expect(campServicesSql('s.location', 's.outline')).not.toMatch(
+    /electricity|hookup/i,
+  );
 });
 
 test('gas is cylinder_swap, not a kind of its own row', async () => {
@@ -166,7 +176,13 @@ test('gas is cylinder_swap, not a kind of its own row', async () => {
 test('dump has only a nearby point, in the right place in the list', async () => {
   const v = await run('a');
   expect(of(v, 'dump')!.nearby!.name).toBe('Dump A');
-  expect(v.map((e) => e.kind)).toEqual(['fuel', 'ev_charging', 'water', 'dump', 'gas']);
+  expect(v.map((e) => e.kind)).toEqual([
+    'fuel',
+    'ev_charging',
+    'water',
+    'dump',
+    'gas',
+  ]);
 });
 
 test('spot b: with an outline, "on site" means inside it, whatever the distance', async () => {

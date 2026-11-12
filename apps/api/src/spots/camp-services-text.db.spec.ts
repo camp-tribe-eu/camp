@@ -20,11 +20,15 @@ let db: Client;
 let dbName: string;
 
 const runnerOf = (c: Client) =>
-  ({ query: async (sql: string, p?: unknown[]) => (await c.query(sql, p)).rows }) as unknown as QueryRunner;
+  ({
+    query: async (sql: string, p?: unknown[]) => (await c.query(sql, p)).rows,
+  }) as unknown as QueryRunner;
 
 beforeAll(async () => {
   if (!ADMIN_URL)
-    throw new Error('Set CAMP_TEST_DATABASE_URL. This suite FAILS instead of skipping.');
+    throw new Error(
+      'Set CAMP_TEST_DATABASE_URL. This suite FAILS instead of skipping.',
+    );
   admin = new Client({ connectionString: ADMIN_URL });
   await admin.connect();
   dbName = `camp503_${process.pid}_${Date.now()}`;
@@ -38,7 +42,9 @@ beforeAll(async () => {
     'CREATE TABLE IF NOT EXISTS migrations (id serial PRIMARY KEY, timestamp bigint NOT NULL, name varchar NOT NULL)',
   );
   const dir = join(__dirname, '..', 'migrations');
-  for (const file of readdirSync(dir).filter((f) => /^\d{13}-.*\.ts$/.test(f)).sort()) {
+  for (const file of readdirSync(dir)
+    .filter((f) => /^\d{13}-.*\.ts$/.test(f))
+    .sort()) {
     const mod = await import(join(dir, file));
     const M = Object.values(mod).find(
       (v): v is new () => { up(q: QueryRunner): Promise<void> } =>
@@ -52,7 +58,8 @@ beforeAll(async () => {
 afterAll(async () => {
   await db?.end();
   if (admin) {
-    if (dbName) await admin.query(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`);
+    if (dbName)
+      await admin.query(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`);
     await admin.end();
   }
 });
@@ -67,19 +74,24 @@ test('the page exists, is published, and holds exactly the slots the page reads'
       ORDER BY s.sort`,
     [CAMP_SERVICES_SLUG],
   );
-  expect(rows.map((r) => r.slot)).toEqual(CAMP_SERVICES_SECTIONS.map((s) => s.slot));
+  expect(rows.map((r) => r.slot)).toEqual(
+    CAMP_SERVICES_SECTIONS.map((s) => s.slot),
+  );
   for (const r of rows) expect(String(r.heading).trim()).not.toBe('');
-  expect(rows.find((r) => r.slot === 'kind-ev_charging').body).toMatch(/not a mains hookup/);
+  expect(rows.find((r) => r.slot === 'kind-ev_charging').body).toMatch(
+    /not a mains hookup/,
+  );
 });
 
-test('re-running leaves an editor\'s words alone', async () => {
+test("re-running leaves an editor's words alone", async () => {
   await db.query(
     `UPDATE page_section_translations SET heading = 'Edited'
       WHERE section_id IN (SELECT s.id FROM page_sections s JOIN pages p ON p.id = s.page_id
                             WHERE p.slug = $1 AND s.slot = 'onsite')`,
     [CAMP_SERVICES_SLUG],
   );
-  const { CampServicesText1796900000000: M } = await import('../migrations/1796900000000-CampServicesText');
+  const { CampServicesText1796900000000: M } =
+    await import('../migrations/1796900000000-CampServicesText');
   await new M().up(runnerOf(db));
   const { rows } = await db.query(
     `SELECT st.heading FROM page_sections s JOIN pages p ON p.id = s.page_id

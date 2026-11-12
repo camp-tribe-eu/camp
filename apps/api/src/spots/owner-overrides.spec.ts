@@ -181,7 +181,9 @@ describe('накладання правки', () => {
 
 describe('CAMP-503: hookup (живлення кемпера на стоянці, не заряджання авто)', () => {
   it('приймає число в межах і зберігає його', () => {
-    const patch = { hookup: { voltageV: 230, powerKw: 3.7, priceEurPerNight: 4.5 } };
+    const patch = {
+      hookup: { voltageV: 230, powerKw: 3.7, priceEurPerNight: 4.5 },
+    };
     expect(faults(patch)).toEqual([]);
     expect(merge({}, patch).hookup).toEqual(patch.hookup);
   });
@@ -194,7 +196,9 @@ describe('CAMP-503: hookup (живлення кемпера на стоянці,
   });
   it('null прибирає поле, а останнє прибране забирає весь обʼєкт', () => {
     const one = merge({}, { hookup: { voltageV: 230, powerKw: 3 } });
-    expect(merge(one, { hookup: { voltageV: null } }).hookup).toEqual({ powerKw: 3 });
+    expect(merge(one, { hookup: { voltageV: null } }).hookup).toEqual({
+      powerKw: 3,
+    });
     expect(merge(one, { hookup: null }).hookup).toBeUndefined();
   });
 });
