@@ -11,6 +11,7 @@ import { BOOTSTRAP } from "@/lib/error-bootstrap";
 import { THEME_BOOTSTRAP } from "@/lib/theme-bootstrap";
 import { PERSONA_BOOTSTRAP, PERSONA_PAGE } from "@/lib/persona";
 import { pageContent } from "@/lib/page-content";
+import PersonaOrder from "@/components/persona-order";
 import { personaLabels } from "@/lib/persona-labels";
 import { BRAND_TITLE } from "@/lib/brand";
 
@@ -159,6 +160,7 @@ export default async function RootLayout({
       <body id="top" className="flex min-h-screen flex-col antialiased">
         {/* Drains what the head script caught. Renders null. */}
         <ErrorReporter />
+        <PersonaOrder />
         <SiteHeader nav={nav} persona={personaLabels(personaPage?.sections ?? null)} />
         <div className="flex-1">{children}</div>
         <SiteFooter nav={footerLinks} footerNote={settings.footerNote} />

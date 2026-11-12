@@ -230,7 +230,10 @@ function Hero({
         {/* 🔴 The two funnels as separate cards, not tabs. A tab hides one
             of them behind a click, and the mock-up's own note (CAMP-81) is
             that an inactive tab is not an entrance. */}
-        <div className="mt-8 grid grid-cols-1 items-start gap-4 md:grid-cols-2">
+        <div
+          data-persona-group
+          className="mt-8 grid grid-cols-1 items-start gap-4 md:grid-cols-2"
+        >
           <div
             data-persona-first="owner"
             className="rounded-card border border-line-2 bg-bg p-5"

@@ -26,6 +26,9 @@ function read(): Persona | null {
   }
 }
 
+/** Подія, якою два екземпляри перемикача (шапка й шухляда) тримають один стан. */
+export const PERSONA_EVENT = 'camptribe:persona';
+
 function apply(next: Persona | null) {
   const root = document.documentElement;
   if (next === null) delete root.dataset.persona;
@@ -36,6 +39,7 @@ function apply(next: Persona | null) {
   } catch {
     // Приватне вікно: вибір діє до перезавантаження.
   }
+  window.dispatchEvent(new Event(PERSONA_EVENT));
 }
 
 /**
@@ -43,14 +47,28 @@ function apply(next: Persona | null) {
  * активній ЗНІМАЄ вибір (ключ видаляється, сайт — як був). Підписи
  * приходять із CMS; без них компонент не малюється (порожнє не малюємо).
  */
-export default function PersonaToggle({ labels }: { labels: PersonaLabels }) {
+export default function PersonaToggle({
+  labels,
+  variant = 'header',
+}: {
+  labels: PersonaLabels;
+  /**
+   * 🔴 `header` — у ряду шапки лише від 1200 px (там, де меню теж у ряду) і
+   * не в «острові»; на вужчому — `drawer`, у бургері. Заповіт CAMP-448:
+   * шапка завжди ОДИН рядок, тож те, що не вміщається, іде в бургер.
+   */
+  variant?: 'header' | 'drawer';
+}) {
   // Перший рендер збігається із серверним: вибору «ще не знаємо».
   const [choice, setChoice] = useState<Persona | null>(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    setChoice(read());
+    const sync = () => setChoice(read());
+    sync();
     setReady(true);
+    window.addEventListener(PERSONA_EVENT, sync);
+    return () => window.removeEventListener(PERSONA_EVENT, sync);
   }, []);
 
   const click = (p: Persona) => {
@@ -63,9 +81,13 @@ export default function PersonaToggle({ labels }: { labels: PersonaLabels }) {
     <div
       role="group"
       aria-label={labels.group}
-      data-testid="persona-toggle"
+      data-testid={variant === "drawer" ? "persona-toggle-drawer" : "persona-toggle"}
       data-persona-choice={ready ? (choice ?? "none") : undefined}
-      className="flex shrink-0 items-center gap-1 text-sm"
+      className={
+        variant === "drawer"
+          ? "mb-6 flex flex-wrap items-center gap-2 border-b border-line-2 pb-6 text-lg"
+          : "hidden shrink-0 items-center gap-1 text-sm xl:flex group-data-[stacked=true]/header:hidden"
+      }
     >
       {(["owner", "renter"] as const).map((p) => (
         <button
@@ -73,7 +95,7 @@ export default function PersonaToggle({ labels }: { labels: PersonaLabels }) {
           type="button"
           onClick={() => click(p)}
           aria-pressed={choice === p}
-          data-testid={`persona-${p}`}
+          data-testid={variant === "drawer" ? `persona-drawer-${p}` : `persona-${p}`}
           className={`min-h-12 rounded-full px-3 text-heading ${
             choice === p
               ? "bg-btn text-btn-ink"

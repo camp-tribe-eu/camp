@@ -248,7 +248,7 @@ export function SiteHeader({
         {persona && <PersonaToggle labels={persona} />}
         <ThemeToggle />
 
-        <SiteNavDrawer items={nav} />
+        <SiteNavDrawer items={nav} persona={persona} />
     </SiteHeaderFrame>
   );
 }

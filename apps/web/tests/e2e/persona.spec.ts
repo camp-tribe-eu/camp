@@ -34,6 +34,22 @@ async function slot(page: Page, selector: string) {
   return box.y * 10_000 + box.x;
 }
 
+/**
+ * Кнопка вибору: у шапці від 1200 px, а на вужчому — у бургері (шапка
+ * завжди один рядок, CAMP-448). Читач робить те саме, що й тест.
+ */
+async function choose(page: Page, p: "owner" | "renter") {
+  const inHeader = page.getByTestId(`persona-${p}`);
+  if (await inHeader.isVisible()) {
+    await inHeader.click();
+    return;
+  }
+  await page.getByTestId("burger-open").click();
+  await page.getByTestId(`persona-drawer-${p}`).click();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("burger-scrim")).toHaveCount(0);
+}
+
 let routePath: string;
 let campPath: string;
 
@@ -82,7 +98,7 @@ test.describe('🔴 CAMP-501 — перемикач «маю кемпер / ор
     expect(await attr(page), 'на старті вже стоїть вибір').toBeNull();
     expect(await stored(page), 'на старті вже є запис').toBeNull();
 
-    await page.getByTestId('persona-renter').click();
+    await choose(page, 'renter');
     expect(await attr(page)).toBe('renter');
     expect(await stored(page), 'вибір не записано').toBe('renter');
 
@@ -93,12 +109,8 @@ test.describe('🔴 CAMP-501 — перемикач «маю кемпер / ор
     // навігація: атрибут мусить стояти до першого малювання.
     await page.goto(routePath);
     expect(await attr(page), 'на сторінці маршруту вибір зник').toBe('renter');
-    await expect(page.getByTestId('persona-renter')).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
 
-    await page.getByTestId('persona-owner').click();
+    await choose(page, 'owner');
     await page.goto(campPath);
     expect(await attr(page), 'на картці кемпінгу вибір зник').toBe('owner');
     expect(await stored(page)).toBe('owner');
@@ -106,9 +118,9 @@ test.describe('🔴 CAMP-501 — перемикач «маю кемпер / ор
 
   test('повторне натискання знімає вибір і видаляє ключ', async ({ page }) => {
     await page.goto('/');
-    await page.getByTestId('persona-owner').click();
+    await choose(page, 'owner');
     expect(await stored(page)).toBe('owner');
-    await page.getByTestId('persona-owner').click();
+    await choose(page, 'owner');
     expect(await attr(page)).toBeNull();
     expect(await stored(page), 'ключ лишився після зняття вибору').toBeNull();
   });
@@ -129,13 +141,13 @@ test.describe('🔴 CAMP-501 — перемикач «маю кемпер / ор
     // Без вибору — як було: «де зупинитись» перше.
     expect(await slot(page, stay)).toBeLessThan(await slot(page, drive));
 
-    await page.getByTestId('persona-renter').click();
+    await choose(page, 'renter');
     expect(
       await slot(page, drive),
       'орендар: картка «що возити» не стала першою',
     ).toBeLessThan(await slot(page, stay));
 
-    await page.getByTestId('persona-owner').click();
+    await choose(page, 'owner');
     expect(
       await slot(page, stay),
       'власник кемпера: картка «де зупинитись» не перша',
@@ -150,14 +162,14 @@ test.describe('🔴 CAMP-501 — перемикач «маю кемпер / ор
     await expect(block, 'у розмітці блоку оренди немає').toHaveCount(1);
     await expect(block, 'без вибору блок мусить бути видимий').toBeVisible();
 
-    await page.getByTestId('persona-renter').click();
+    await choose(page, 'renter');
     await expect(block).toBeVisible();
     await expect(block.getByRole('link').first()).toHaveAttribute(
       'href',
       /^\/camper-rental\/[a-z]{2}$/,
     );
 
-    await page.getByTestId('persona-owner').click();
+    await choose(page, 'owner');
     await expect(block, 'власнику кемпера блок оренди видно').toBeHidden();
     // Не лише невидимий: і поза доступним деревом.
     await expect(page.getByRole('heading', { name: /Renting a camper/ })).toHaveCount(0);
@@ -179,7 +191,7 @@ test.describe('🔴 CAMP-501 — перемикач «маю кемпер / ор
     // Без вибору нічого не міняється.
     expect(await order(there)).toBe('0');
 
-    await page.getByTestId('persona-renter').click();
+    await choose(page, 'renter');
     expect(await order(there), 'орендарю «Getting there» не піднято').toBe('-1');
     expect(await order(services)).toBe('0');
     expect(await order(header), 'заголовок мусить лишитись першим').toBe('-2');
@@ -188,9 +200,114 @@ test.describe('🔴 CAMP-501 — перемикач «маю кемпер / ор
       await slot(page, 'section:has(> h2:text-is("Facilities"))'),
     );
 
-    await page.getByTestId('persona-owner').click();
+    await choose(page, 'owner');
     expect(await order(services), 'власнику «служби» не підняті').toBe('-1');
     expect(await order(there)).toBe('0');
     expect(await slot(page, header)).toBeLessThan(await slot(page, there));
+  });
+
+  test('🔴 шапка лишається ОДНИМ рядком на 320, 375, 768 і 1200 px, з вибором і без', async ({
+    page,
+  }) => {
+    for (const width of [320, 375, 768, 1200]) {
+      await page.setViewportSize({ width, height: 900 });
+      for (const persona of [null, 'renter'] as const) {
+        await page.goto('/');
+        if (persona) await choose(page, persona);
+        const rows = await page.evaluate(() => {
+          const logo = document.querySelector('header a[href="/"]')!.getBoundingClientRect();
+          const tops = ['[data-testid="burger-open"]', '[data-testid="theme-toggle"]', '[data-testid="persona-toggle"]']
+            .map((q) => document.querySelector(q))
+            .filter((el): el is Element => !!el && el.getBoundingClientRect().width > 0)
+            .map((el) => el.getBoundingClientRect());
+          return {
+            logoBottom: logo.bottom,
+            tops: tops.map((r) => r.top),
+            height: document.querySelector('header')!.getBoundingClientRect().height,
+            overflow: document.documentElement.scrollWidth - window.innerWidth,
+          };
+        });
+        const label = `${width}px, вибір ${persona ?? 'немає'}`;
+        for (const top of rows.tops) {
+          expect(top, `${label}: елемент шапки на другому рядку`).toBeLessThan(rows.logoBottom);
+        }
+        expect(rows.height, `${label}: шапка вища за один рядок`).toBeLessThan(90);
+        expect(rows.overflow, `${label}: горизонтальна прокрутка`).toBeLessThanOrEqual(0);
+      }
+    }
+  });
+
+  test('🔴 порядок Tab збігається з видимим: головна, обидва режими', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    for (const [persona, firstCard] of [
+      ['renter', 'renter'],
+      ['owner', 'owner'],
+    ] as const) {
+      await page.goto('/');
+      await choose(page, persona);
+      // Перезавантаження: порядок мусить відновитись із збереженого вибору,
+      // а не лише після кліку.
+      await page.reload();
+      // PersonaOrder переставляє DOM після гідратації: чекаємо, доки він
+      // відпрацює, а не вгадуємо паузу.
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () => document.querySelector('[data-persona-group]')!.firstElementChild!.getAttribute('data-persona-first'),
+          ),
+        )
+        .toBe(firstCard);
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+      await page.evaluate(() => document.querySelector<HTMLElement>('[data-persona-group]')!.scrollIntoView());
+      await page.evaluate(() => {
+        const first = document.querySelector('[data-persona-group] a')!;
+        (first.previousElementSibling as HTMLElement | null)?.focus?.();
+      });
+      const seq: string[] = [];
+      await page.locator('[data-persona-group] a').first().focus();
+      // Рівно стільки Tab, скільки посилань у двох картках: далі йде решта сторінки.
+      const stops = await page.locator('[data-persona-group] a').count();
+      for (let i = 0; i < stops; i++) {
+        const card = await page.evaluate(
+          () => document.activeElement?.closest('[data-persona-first]')?.getAttribute('data-persona-first') ?? '-',
+        );
+        if (card !== '-' && seq[seq.length - 1] !== card) seq.push(card);
+        await page.keyboard.press('Tab');
+      }
+      const visual = await page.evaluate(() =>
+        [...document.querySelectorAll('[data-persona-group] > [data-persona-first]')]
+          .map((el) => ({ k: el.getAttribute('data-persona-first')!, x: el.getBoundingClientRect().x }))
+          .sort((a, b) => a.x - b.x)
+          .map((e) => e.k),
+      );
+      expect(seq, `${persona}: Tab ходить блоками не так, як вони стоять`).toEqual(visual);
+      expect(visual[0], `${persona}: перший блок не той`).toBe(firstCard);
+    }
+  });
+
+  test('🔴 порядок Tab збігається з видимим: картка кемпінгу, обидва режими', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    for (const persona of ['renter', 'owner'] as const) {
+      await page.goto(campPath);
+      await choose(page, persona);
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const kids = [...document.querySelector('[data-persona-zone]')!.children];
+            return kids.findIndex((k) => k.getAttribute('data-persona-first') === 'renter') <
+              kids.findIndex((k) => k.getAttribute('data-persona-first') === 'owner');
+          }),
+        )
+        .toBe(persona === 'renter');
+      // Порядок у розмітці = порядок на екрані: кожна дитина, що має
+      // прямокутник, стоїть не вище попередньої.
+      const ys = await page.evaluate(() =>
+        [...document.querySelector('[data-persona-zone]')!.children]
+          .map((k) => k.getBoundingClientRect())
+          .filter((r) => r.height > 0)
+          .map((r) => Math.round(r.top + window.scrollY)),
+      );
+      expect(ys, `${persona}: розмітка йде не так, як екран`).toEqual([...ys].sort((a, b) => a - b));
+    }
   });
 });
