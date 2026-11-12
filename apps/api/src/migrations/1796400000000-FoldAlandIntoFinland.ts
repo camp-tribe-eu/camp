@@ -13,9 +13,32 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * веде 301 у `middleware.ts` (`moveCountry`).
  *
  * Інші таблиці з колонкою `country` рядків `ax` не мають (заміряно: 0).
- * `down` нічого не робить: після `up` не відрізнити колишні `AX` від
- * решти `FI`, а повернути код, якого імпорт більше не видає, не можна.
+ * `down` відновлює рівно ці 19 за slug (глобально унікальний) зі списку
+ * нижче: «це були AX станом на 12.11.2026» (`camptribe_dev`, 19 рядків).
+ * Рядок, якого імпорт з того часу додав або прибрав, у список не входить.
  */
+const WERE_AX_ON_2026_11_12 = [
+  'alands-caravan-club',
+  'bike-bed',
+  'bjorklidens-stugby',
+  'degersand',
+  'eckero-camping-stugor',
+  'grona-uddens-camping',
+  'hummelvik-camping',
+  'karingsund',
+  'karingsund-resort-conference-camping',
+  'karingsunds-camping',
+  'kattnas-camping',
+  'majlidens-stallplats',
+  'notvikens-stugor-camping',
+  'overnasgarden',
+  'sandosunds-camping',
+  'sandvik',
+  'spot-a3094674728',
+  'spot-n11061645944',
+  'svino-stugby',
+];
+
 export class FoldAlandIntoFinland1796400000000 implements MigrationInterface {
   name = 'FoldAlandIntoFinland1796400000000';
 
@@ -25,7 +48,10 @@ export class FoldAlandIntoFinland1796400000000 implements MigrationInterface {
     );
   }
 
-  public async down(): Promise<void> {
-    // Незворотна за побудовою — див. коментар вище.
+  public async down(q: QueryRunner): Promise<void> {
+    await q.query(
+      `UPDATE camping_spots SET country = 'AX' WHERE slug = ANY($1)`,
+      [WERE_AX_ON_2026_11_12],
+    );
   }
 }
