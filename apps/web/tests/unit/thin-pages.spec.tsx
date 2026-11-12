@@ -603,8 +603,10 @@ test.describe("/search", () => {
     expect(API_COUNTRIES.map((c) => c.country)).toContain("ax");
 
     const text = visibleText(await renderSearch());
-    expect(text).toContain("across 27 countries");
+    // CAMP-490: 27 членів мінус Кіпр (не публікуємо) = 26; `ax` злитий із `fi`.
+    expect(text).toContain("across 26 countries");
     expect(text).not.toContain("28 countries");
+    expect(text).not.toContain("27 countries");
   });
 
   test("🔴 folded, the source’s codes ARE the EU-27 — compared with the API workspace’s own file", () => {
@@ -684,6 +686,8 @@ test.describe("/search", () => {
 // a check like this goes green over a blank page.
 
 /** The EU-27, counted from the file the API workspace keeps. */
+/** CAMP-490: що бачить читач — 27 членів без Кіпру; Åland не окрема країна. Літерал, не похідна від коду. */
+const SHOWN = 26;
 const EU_MEMBERS: number = Object.keys(
   (
     JSON.parse(
@@ -695,8 +699,15 @@ const EU_MEMBERS: number = Object.keys(
   ).members,
 ).length;
 
-/** The campsites the fixture holds — what each surface should still total. */
-const FIXTURE_SPOTS = API_COUNTRIES.reduce((n, c) => n + c.spots, 0);
+/**
+ * The campsites a reader is told about: everything in the fixture EXCEPT
+ * Cyprus (CAMP-490, not published). Åland stays in the total — its 19 count
+ * under Finland, they are not dropped.
+ */
+const FIXTURE_SPOTS = API_COUNTRIES.filter((c) => c.country !== "cy").reduce(
+  (n, c) => n + c.spots,
+  0,
+);
 
 /** The `description` of the CollectionPage a page marks itself up as. */
 function collectionDescription(html: string): string {
@@ -866,59 +877,54 @@ test.describe("the count of countries, on every surface that prints one", () => 
     expect(API_COUNTRIES.length).toBeGreaterThan(EU_MEMBERS);
   });
 
-  test("🔴 /camping marks itself up as 27 countries, not 28", async () => {
+  test("🔴 /camping marks itself up as 26 countries, not 27 or 28", async () => {
     const html = await renderCamping();
     const description = collectionDescription(html);
-    expect(countriesSaid(description, "/camping")).toBe(EU_MEMBERS);
+    expect(countriesSaid(description, "/camping")).toBe(SHOWN);
     expect(description).toContain(`${FIXTURE_SPOTS} campsites`);
   });
 
-  test("/camping still lists Åland — only the COUNT changed", async () => {
+  test("🔴 /camping does not list Åland as a country, and no link leads to /camping/ax", async () => {
     const html = await renderCamping();
     const paths = collectionItemPaths(html);
-    // Every code gets a link, Åland included: it has 19 campsites and a
-    // page of its own. Folding it away from the LIST would lose them.
-    expect(paths.length).toBe(API_COUNTRIES.length);
-    expect(paths).toContain("/camping/ax");
-    const text = visibleText(html);
-    expect(text).toContain("Åland Islands");
-    expect(html).toContain('href="/camping/ax"');
+    expect(paths.length).toBe(SHOWN);
+    expect(paths).not.toContain("/camping/ax");
+    expect(html).not.toContain("/camping/ax");
+    expect(visibleText(html)).not.toContain("Åland");
   });
 
-  test("🔴 /map marks itself up as 27 countries, not 28", async () => {
+  test("🔴 /map marks itself up as 26 countries, not 27 or 28", async () => {
     const html = await renderMap();
     const description = collectionDescription(html);
-    expect(countriesSaid(description, "/map")).toBe(EU_MEMBERS);
+    expect(countriesSaid(description, "/map")).toBe(SHOWN);
     // The campsite figure beside it is the browsable one, unchanged.
     expect(description).toContain(
       `${FIXTURE_SPOTS.toLocaleString("en-GB")} campsites`,
     );
   });
 
-  test("/map still links Åland in the list below the canvas", async () => {
+  test("🔴 /map does not link Åland", async () => {
     const html = await renderMap();
-    expect(collectionItemPaths(html)).toContain("/camping/ax");
-    expect(html).toContain('href="/camping/ax"');
+    expect(collectionItemPaths(html)).not.toContain("/camping/ax");
+    expect(html).not.toContain("/camping/ax");
   });
 
-  test("🔴 llms.txt tells an assistant 27 countries, not 28", async () => {
+  test("🔴 llms.txt tells an assistant 26 countries, not 27 or 28", async () => {
     const body = await renderLlmsTxt();
-    expect(countriesSaid(body, "llms.txt")).toBe(EU_MEMBERS);
+    expect(countriesSaid(body, "llms.txt")).toBe(SHOWN);
     // The plural branch is chosen from the same number it prints.
-    expect(body).toMatch(/across 27 countries,/);
+    expect(body).toMatch(/across 26 countries,/);
     expect(body).toContain(`**${FIXTURE_SPOTS} campsites**`);
   });
 
-  test('llms.txt still points at Åland under "Start here"', async () => {
+  test('llms.txt does not name Åland, and "Start here" has one line per shown country', async () => {
     const body = await renderLlmsTxt();
-    // One line per code, Åland included — an assistant that is told we
-    // cover 27 countries must still be able to reach all 28 pages.
-    expect(body).toContain("/camping/ax)");
-    expect(body).toContain("Åland Islands");
+    expect(body).not.toContain("/camping/ax)");
+    expect(body).not.toContain("Åland");
     const starts = body.split("## Start here")[1] ?? "";
     expect(
       starts.split("\n").filter((l) => l.startsWith("- [Campsites in ")).length,
-    ).toBe(API_COUNTRIES.length);
+    ).toBe(SHOWN);
   });
 
   // 🔴 CAMP-427. Каталог компаній — єдине місце в проєкті, де про чужу

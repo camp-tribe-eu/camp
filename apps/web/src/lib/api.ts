@@ -4,6 +4,7 @@
 // cross-origin call and the base URL differs per environment. Hard-coding
 // it in pages would mean finding every call site the day the host changes.
 
+import { publishedCountries } from './unpublished-countries';
 import type { SpotSource } from './sources';
 import type { Tariff } from './tariffs';
 // CAMP-168: the official bathing water classification for a season.
@@ -562,7 +563,8 @@ export async function getCountries(): Promise<CountrySummary[]> {
   const res = await apiFetch(`/spots/countries`, {
     next: { revalidate: 86400 },
   });
-  return res.ok ? res.json() : [];
+  // CAMP-490: читач не бачить `ax` як країну й приховані країни — ніде.
+  return res.ok ? publishedCountries(await res.json()) : [];
 }
 
 export async function getRegions(country: string): Promise<RegionSummary[]> {

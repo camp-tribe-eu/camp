@@ -292,3 +292,43 @@ test('🔴 правило, що веде саме в себе, не дає ві�
   ) as NextResponse;
   expect(res.status, 'відповіли редиректом самі на себе').not.toBe(301);
 });
+
+// CAMP-490 — Åland більше не окрема країна: старі `/camping/ax/…` ведуть у `fi`.
+//
+// 🔴 Тест кличе `route` без фікстури мапи країн, тобто з тим, що справді
+// лежить у коді (`COUNTRY_MOVES`): інакше він перевіряв би власну фікстуру.
+test('CAMP-490: /camping/ax/... → 301 на /camping/fi/..., одним кроком, з рядком запиту', () => {
+  const go = (path: string) =>
+    route(new NextRequest(new URL(path, 'http://localhost:3000'), { headers: proxied() }), new Map(), new Set());
+
+  const cases: [string, string][] = [
+    ['/camping/ax', '/camping/fi'],
+    ['/camping/ax/', '/camping/fi'],
+    ['/camping/AX/mariehamn', '/camping/fi/mariehamn'],
+    ['/camping/ax/mariehamn/alands-caravan-club?from=map', '/camping/fi/mariehamn/alands-caravan-club?from=map'],
+  ];
+  for (const [from, to] of cases) {
+    const res = go(from) as NextResponse;
+    expect(res.status, from).toBe(301);
+    expect(res.headers.get('location'), from).toBe(`${PUBLIC}${to}`);
+  }
+});
+
+test('CAMP-490: сусідні країни й ax не на місці країни не чіпаються', () => {
+  const go = (path: string) =>
+    route(new NextRequest(new URL(path, 'http://localhost:3000'), { headers: proxied() }), new Map(), new Set());
+  for (const path of ['/camping/fi/mariehamn', '/camping/at', '/camping/de/ax', '/map/ax']) {
+    expect((go(path) as NextResponse).headers.get('location'), path).toBeNull();
+  }
+});
+
+test('CAMP-490: країна й регіон переїхали разом — один 301, не два', () => {
+  const res = route(
+    new NextRequest(new URL('/camping/ax/old-region/spot', 'http://localhost:3000'), { headers: proxied() }),
+    new Map(),
+    new Set(),
+    new Map([['fi/old-region', 'new-region']]),
+  ) as NextResponse;
+  expect(res.status).toBe(301);
+  expect(res.headers.get('location')).toBe(`${PUBLIC}/camping/fi/new-region/spot`);
+});
