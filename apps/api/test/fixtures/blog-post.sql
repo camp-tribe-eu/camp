@@ -52,6 +52,22 @@ A guess looks exactly like a fact once it is printed.',
   JOIN pages p ON p.id = s.page_id
  WHERE p.slug = 'what-the-data-does-not-say' AND p.type = 'post';
 
+-- Примітка про походження тексту: `check-post-provenance` вимагає її в
+-- КОЖНОМУ зібраному дописі, фікстурний не виняток.
+INSERT INTO page_sections (page_id, sort, type, variant, visible)
+SELECT id, 1, 'prose', 'provenance', true
+  FROM pages
+ WHERE slug = 'what-the-data-does-not-say' AND type = 'post';
+
+INSERT INTO page_section_translations (section_id, language_code, body, items)
+SELECT s.id, 'en',
+       'This article was composed by AI. It is general background, not a statement about any particular campsite.',
+       '[]'::jsonb
+  FROM page_sections s
+  JOIN pages p ON p.id = s.page_id
+ WHERE p.slug = 'what-the-data-does-not-say' AND p.type = 'post'
+   AND s.variant = 'provenance';
+
 -- 🔴 І ЩЕ ОДИН — МАЙБУТНЬОЮ ДАТОЮ. Він не сміє зʼявитись ні в блозі,
 -- ні в карті сайту, ні як згенерована адреса. Без нього твердження
 -- «запланований допис не видно» можна було б написати тільки над
@@ -71,14 +87,29 @@ SELECT id, 'en', 'Scheduled and not yet due', 'Must not be visible anywhere.'
   FROM pages
  WHERE slug = 'scheduled-and-not-yet-due' AND type = 'post';
 
+-- 🔴 СТОРОЖ РАХУЄ ЛИШЕ СВОЇ ЗАПИСИ, А НЕ ВСІ ДОПИСИ В ТАБЛИЦІ. Раніше
+-- тут стояло «рівно 2 допису в базі» — і воно впало, щойно міграція
+-- `SeedTestBlogPosts` поклала власні п'ять. Жорстке число зламалося б
+-- знову на шостому. Те, що фікстура мусить довести, — що ЇЇ два рядки
+-- посаджено: один видимий, один із майбутньою датою. Чужі дописи тут
+-- не заважають і не рятують: рахунок іде за слагами цього файлу.
 DO $$
 DECLARE n int;
+DECLARE future int;
 BEGIN
-  SELECT count(*) INTO n FROM pages WHERE type = 'post';
+  SELECT count(*) INTO n FROM pages
+   WHERE type = 'post'
+     AND slug IN ('what-the-data-does-not-say', 'scheduled-and-not-yet-due');
   IF n <> 2 THEN
-    RAISE EXCEPTION 'CI fixture: expected exactly 2 posts, got %', n;
+    RAISE EXCEPTION 'CI fixture: expected its own 2 posts, found %', n;
   END IF;
-  RAISE NOTICE 'CI fixture: 2 posts seeded, 1 of them dated in the future';
+  SELECT count(*) INTO future FROM pages
+   WHERE type = 'post' AND slug = 'scheduled-and-not-yet-due'
+     AND published_at > now();
+  IF future <> 1 THEN
+    RAISE EXCEPTION 'CI fixture: the scheduled post is not dated in the future';
+  END IF;
+  RAISE NOTICE 'CI fixture: its own 2 posts seeded, 1 of them dated in the future';
 END $$;
 
 COMMIT;

@@ -77,6 +77,14 @@ type ProseStyle = { measure: Measure; className: string };
 const PROSE_VARIANTS: Record<string, ProseStyle> = {
   // Як було на /tools: відбитий донизу, приглушений.
   aside: { measure: "read", className: "mt-10 text-ink-2" },
+  // Примітка про походження тексту (допис блогу). Рядок у CMS, не код:
+  // власник міняє текст, коли перепише допис сам. Варіант лише дає їй
+  // вигляд і мітку `data-provenance`, за якою її шукає
+  // `scripts/ci/check-post-provenance.mjs` у ВІДДАНІЙ сторінці.
+  provenance: {
+    measure: "read",
+    className: "mt-10 border-t border-line-2 pt-4 text-sm text-ink-2",
+  },
 };
 /** Звичайний абзацний текст секції — читальна колонка, бо це суцільний текст. */
 const PROSE_PLAIN: ProseStyle = {
@@ -87,7 +95,7 @@ const PROSE_PLAIN: ProseStyle = {
 function Prose({ section, values }: RenderProps) {
   const style =
     (section.variant && PROSE_VARIANTS[section.variant]) || PROSE_PLAIN;
-  return (
+  const content = (
     <>
       {section.heading && (
         <h2 className="text-xl text-heading">
@@ -103,6 +111,11 @@ function Prose({ section, values }: RenderProps) {
         />
       )}
     </>
+  );
+  return section.variant === "provenance" ? (
+    <div data-provenance>{content}</div>
+  ) : (
+    content
   );
 }
 

@@ -1,4 +1,4 @@
-import { saysSomething } from './compute-context';
+import { carryForward, heightGuard, saysSomething } from './compute-context';
 import type { SpotContext } from './spot-context';
 
 // CAMP-108 — the one rule in compute-context that can publish a lie.
@@ -52,5 +52,110 @@ describe('saysSomething', () => {
     // `elevation` is only set when the DEM answered. If it did not, and
     // nothing else was found either, the spot must stay unmeasured.
     expect(saysSomething({ ...at } as SpotContext)).toBe(false);
+  });
+});
+
+// CAMP-496 — a manual run over a row without `at` erased its stored height.
+//
+// 🔴 The write replaces the whole context, and 1 711 live rows have a height
+// and relief but no `at`. They are always picked up (`!at`), and the carry
+// used to require `previous.at`. Reproduced on a scratch database: 5 of 5
+// such rows lost their height.
+
+const here = { lat: 46.3, lon: 14.05 };
+const stored = {
+  elevation: 505,
+  terrain: { relief: 105, type: 'hilly' as const },
+};
+
+describe('carryForward', () => {
+  it('keeps height and relief of a row WITHOUT `at` — the 1 711', () => {
+    const fresh = { at: here } as SpotContext;
+    const kept = carryForward(fresh, stored as SpotContext, here);
+    expect(kept).toBe(true);
+    expect(fresh.elevation).toBe(505);
+    expect(fresh.terrain).toEqual({ relief: 105, type: 'hilly' });
+  });
+
+  it('still keeps them for a row WITH `at` at the same coordinates', () => {
+    const fresh = { at: here } as SpotContext;
+    carryForward(fresh, { ...stored, at: { ...here } } as SpotContext, here);
+    expect(fresh.elevation).toBe(505);
+    expect(fresh.terrain).toBeDefined();
+  });
+
+  it('does not carry a height measured somewhere else (`at` differs)', () => {
+    const fresh = { at: here } as SpotContext;
+    const kept = carryForward(
+      fresh,
+      { ...stored, at: { lat: 47.0, lon: 15.0 } } as SpotContext,
+      here,
+    );
+    expect(kept).toBe(false);
+    expect(fresh.elevation).toBeUndefined();
+    expect(fresh.terrain).toBeUndefined();
+  });
+
+  it('never overwrites a height that was just computed', () => {
+    const fresh = { at: here, elevation: 600 } as SpotContext;
+    expect(carryForward(fresh, stored as SpotContext, here)).toBe(false);
+    expect(fresh.elevation).toBe(600);
+  });
+
+  it('does nothing without a previous context', () => {
+    const fresh = { at: here } as SpotContext;
+    expect(carryForward(fresh, null, here)).toBe(false);
+    expect(fresh.elevation).toBeUndefined();
+  });
+});
+
+describe('heightGuard', () => {
+  const row = (id: string, context: SpotContext | null) => ({
+    id,
+    ...here,
+    context,
+  });
+
+  it('watches rows with a height, with or without `at`, and prints who', () => {
+    const { watched } = heightGuard([
+      row('a', stored as SpotContext),
+      row('b', { ...stored, at: { ...here } } as SpotContext),
+      row('c', { at: here } as SpotContext),
+      row('d', null),
+    ]);
+    expect(watched).toEqual(['a', 'b']);
+  });
+
+  it('does not watch a row that moved: its old height was never ours to keep', () => {
+    const { watched } = heightGuard([
+      row('m', { ...stored, at: { lat: 50, lon: 20 } } as SpotContext),
+    ]);
+    expect(watched).toEqual([]);
+  });
+});
+
+describe('carry plus guard, end to end over one batch', () => {
+  it('after the carry, every watched row still has its height (lost = 0 of N)', () => {
+    const batch = [
+      { id: 'a', ...here, context: stored as SpotContext },
+      {
+        id: 'b',
+        ...here,
+        context: { ...stored, at: { ...here } } as SpotContext,
+      },
+    ];
+    const { watched } = heightGuard(batch);
+    const written = batch.map((r) => {
+      const next = { at: { lat: here.lat, lon: here.lon } } as SpotContext;
+      carryForward(next, r.context, r);
+      return { id: r.id, context: next };
+    });
+    const lost = written.filter(
+      (w) => watched.includes(w.id) && w.context.elevation === undefined,
+    );
+    expect({ lost: lost.length, of: watched.length }).toEqual({
+      lost: 0,
+      of: 2,
+    });
   });
 });
