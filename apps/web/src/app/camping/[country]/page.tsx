@@ -19,6 +19,7 @@ import { readRegionCard, readRegionCards, RegionTiles } from '@/components/regio
 import { GridBanner } from '@/components/grid-banner';
 import { BoxBanner } from '@/components/box-banner';
 import CountryMap from '@/components/country-map';
+import { getCountryBanner } from '@/lib/country-banner';
 
 // CAMP-71, level 1: the country hub.
 //
@@ -84,7 +85,7 @@ export async function generateMetadata(
 
 export default async function CountryHub(props: { params: Promise<Params> }) {
   const params = await props.params;
-  const [rows, stats, allMapRegions, posts] = await Promise.all([
+  const [rows, stats, allMapRegions, posts, banner] = await Promise.all([
     getRegions(params.country),
     getHubStats(params.country),
     // 🔴 CAMP-474. Той самий індекс, що й у великої мапи, прочитаний на
@@ -98,6 +99,9 @@ export default async function CountryHub(props: { params: Promise<Params> }) {
     // прикраса внизу, а не зміст: збій CMS має прибрати секцію, а не
     // сторінку. Той самий `.catch(() => [])`, що вже стоїть над мапою.
     postList().catch(() => []),
+    // 🔴 CAMP-469. Власне зображення країни; його немає, поки власник не
+    // поставив, і тоді банер такий, як був. Збій не кладе сторінку.
+    getCountryBanner(params.country),
   ]);
   const regions = readRegionCards(rows);
   if (regions.length === 0) notFound();
@@ -164,11 +168,14 @@ export default async function CountryHub(props: { params: Promise<Params> }) {
       {/* 1. The layered banner carries the page's h1. Shorter than the
           theme's 95vh: six sections follow it, and a full-screen banner
           would hide every one of them below the fold. The background is
-          the same drawing /camping uses — we hold no country photography. */}
+          the same drawing /camping uses — we hold no country photography.
+          CAMP-469: the `foreground` slot is the country's own picture, set
+          by the owner in the CMS; without one the slot is simply absent. */}
       <LayeredBanner
         className="mt-4"
         headingLevel={1}
         background={{ src: '/banners/eu-dawn.svg' }}
+        foreground={banner ?? undefined}
         tickerText={name.toUpperCase()}
         heading={`Campsites in ${name}`}
         description={lead}

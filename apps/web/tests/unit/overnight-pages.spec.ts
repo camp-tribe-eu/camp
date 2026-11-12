@@ -241,7 +241,15 @@ test.describe('a campsite page says the answer outright', () => {
 async function countryText(regions: unknown[], country = 'mt'): Promise<string> {
   let html = '';
   await withFetch(
-    (url) => (url.includes('/regions') ? json(regions) : json({}, 404)),
+    // 🔴 `/spots/map/regions` — ІНДЕКС МАПИ, а не регіони країни, і його
+    // форма інша (рядок має `country`). Відповідь регіонами валила сторінку
+    // на `r.country.toLowerCase()`, коли в цього воркера ще не було
+    // закешованого індексу: тест залежав від того, який файл пройшов
+    // раніше в тому ж процесі (CAMP-469 зсунув розклад і виявив це).
+    (url) =>
+      url.includes('/regions') && !url.includes('/map/regions')
+        ? json(regions)
+        : json({}, 404),
     async () => {
       html = await renderAsyncComponent(CountryHub, {
         params: Promise.resolve({ country }),

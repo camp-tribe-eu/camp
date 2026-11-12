@@ -156,6 +156,14 @@
     },
     {
       "collection": "pages",
+      "field": "banner_image_url",
+      "interface": "input",
+      "special": "",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "pages",
       "field": "noindex",
       "interface": "boolean",
       "special": "",
@@ -301,6 +309,14 @@
     {
       "collection": "page_section_translations",
       "field": "subheading",
+      "interface": "input",
+      "special": "",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "page_translations",
+      "field": "banner_image_alt",
       "interface": "input",
       "special": "",
       "readonly": false,
