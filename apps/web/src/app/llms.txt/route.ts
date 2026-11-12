@@ -271,6 +271,12 @@ export async function GET() {
       `- [Blog](${SITE}/blog) — ${posts.length} ` +
         `${posts.length === 1 ? "post" : "posts"}, newest first.`,
     );
+    lines.push(
+      "- Every post ends with a note on who wrote it. Where it says the " +
+        "text was composed by AI, it is machine-written general " +
+        "background, not human editorial material, and not a statement " +
+        "about any particular campsite.",
+    );
     for (const post of posts) {
       lines.push(
         `- [${post.title}](${SITE}/blog/${post.slug})` +
