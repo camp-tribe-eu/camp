@@ -35,7 +35,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chooseAction, flagValue } from '../lib/entrypoint.mjs';
 
+
 const HERE = dirname(fileURLToPath(import.meta.url));
+const DEFAULT_REL = 'apps/api/src/migrations';
+const REPO_ROOT = join(HERE, '..', '..');
 const DEFAULT_DIR = join(HERE, '..', '..', 'apps', 'api', 'src', 'migrations');
 
 /** The last 13 digits of a class name — what TypeORM actually sorts by. */
@@ -104,7 +107,133 @@ export function findings(entries) {
   return problems;
 }
 
-function run(dir) {
+
+// 🔴 CAMP-497. THE GUARD ABOVE ONLY EVER SEES ITS OWN TREE, so two
+// branches that each pick the same stamp are each green, and the
+// collision is born at the SECOND merge. It happened three times in two
+// days (the last: `AttributionBannerImages` in #549 and
+// `SeedTestBlogPosts` on main, both 1796500000000). Nothing in a single
+// checkout can see it — the other half lives on another branch.
+//
+// So this branch's class stamps are also compared with those on
+// `origin/main` and on the head of EVERY OPEN PR, read with
+// `git fetch` + `git ls-tree` + `git show`, never a checkout.
+//
+// What counts as a collision: the same 13-digit stamp on a DIFFERENT
+// class. The same class name and stamp is the same migration — a branch
+// that fell a week behind main still carries main's old migrations, and
+// must not go red for them.
+//
+// 🔴 PRICE OF A FALSE ALARM, which decides red vs warning when the
+// other branches cannot be read (no network, no token, GitHub down):
+// a red here blocks every PR on a GitHub hiccup, and the author can do
+// nothing about it. Silence costs less than that, because the
+// single-tree check still runs on `main` after the merge and catches the
+// collision there (late, which is the very cost this card exists to cut
+// — but loud, not lost). So: NOT red — a separate explicit line,
+// "parallel branches NOT checked", plus a CI warning annotation. It is
+// never the green line.
+
+const git = (repo, args) =>
+  spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
+
+/** Same shape as `readEntries`, but from a commit-ish, with no checkout. */
+export function readEntriesFromRef(repo, ref, rel = DEFAULT_REL) {
+  const ls = git(repo, ['ls-tree', '-r', '--name-only', ref, '--', `${rel}/`]);
+  if (ls.status !== 0) throw new Error(`ls-tree ${ref}: ${ls.stderr.trim()}`);
+  const out = [];
+  for (const path of ls.stdout.split('\n').filter((f) => f.endsWith('.ts'))) {
+    const show = git(repo, ['show', `${ref}:${path}`]);
+    if (show.status !== 0) throw new Error(`show ${ref}:${path}`);
+    const className =
+      /export\s+class\s+([A-Za-z0-9_]+)/.exec(show.stdout)?.[1] ?? null;
+    if (!className) continue;
+    const file = path.slice(path.lastIndexOf('/') + 1);
+    out.push({
+      file,
+      className,
+      fileStamp: stampOfFile(file),
+      classStamp: stampOfClass(className),
+    });
+  }
+  return out;
+}
+
+/**
+ * This branch against the others: one finding per stamp carried by a
+ * different class on a different branch. `others` is
+ * `[{label, entries}]`.
+ */
+export function crossFindings(own, others) {
+  const problems = [];
+  for (const { label, entries } of others) {
+    for (const theirs of entries) {
+      if (!theirs.classStamp) continue;
+      for (const mine of own) {
+        if (mine.classStamp === theirs.classStamp && mine.className !== theirs.className) {
+          problems.push({
+            kind: 'parallel-collision',
+            detail:
+              `${mine.classStamp} is carried by ${mine.className} (this branch) ` +
+              `and ${theirs.className} (${label})`,
+          });
+        }
+      }
+    }
+  }
+  return problems;
+}
+
+/** Open PRs as `[{number, headRefName}]` — injectable file for rehearsal. */
+function listOpenPrs(prsJson) {
+  if (prsJson) return JSON.parse(readFileSync(prsJson, 'utf8'));
+  const res = spawnSync(
+    'gh',
+    ['pr', 'list', '--state', 'open', '--limit', '300', '--json', 'number,headRefName'],
+    { encoding: 'utf8' },
+  );
+  if (res.status !== 0) throw new Error(`gh pr list: ${(res.stderr || res.error || '').toString().trim()}`);
+  return JSON.parse(res.stdout);
+}
+
+/**
+ * Read origin/main and every open PR head. Never throws: what could not
+ * be read is counted, so the caller prints the denominator honestly.
+ */
+export function gatherOthers({ repo, remote, rel, self, prsJson }) {
+  const others = [];
+  let unread = 0;
+  const failure = [];
+  const fetchRead = (label, refspec, local) => {
+    const f = git(repo, ['fetch', '--no-tags', '--depth=1', '--quiet', remote, `+${refspec}:${local}`]);
+    if (f.status !== 0) {
+      unread += 1;
+      failure.push(`${label}: ${f.stderr.trim().split('\n')[0]}`);
+      return;
+    }
+    try {
+      others.push({ label, entries: readEntriesFromRef(repo, local, rel) });
+    } catch (e) {
+      unread += 1;
+      failure.push(`${label}: ${e.message}`);
+    }
+  };
+
+  let prs = [];
+  let listError = null;
+  try {
+    prs = listOpenPrs(prsJson).filter((p) => p.headRefName !== self);
+  } catch (e) {
+    listError = e.message;
+  }
+  if (self !== 'main') fetchRead('origin/main', 'refs/heads/main', 'refs/camp-stamps/main');
+  for (const pr of prs) {
+    fetchRead(`PR #${pr.number} ${pr.headRefName}`, `refs/pull/${pr.number}/head`, `refs/camp-stamps/pr-${pr.number}`);
+  }
+  return { others, unread, failure, listError, total: prs.length + (self !== 'main' ? 1 : 0) };
+}
+
+function run(dir, opts = {}) {
   const entries = readEntries(dir);
   const problems = findings(entries);
 
@@ -121,6 +250,44 @@ function run(dir) {
   }
 
   console.log(`✓ ${entries.length} migrations, every class stamp distinct`);
+  return parallelStep(entries, opts);
+}
+
+/** The cross-branch half. Prints its denominator or its blindness, never nothing. */
+function parallelStep(entries, opts) {
+  if (opts.noParallel) {
+    console.log('- parallel branches NOT checked (--no-parallel)');
+    return 0;
+  }
+  const self = opts.self;
+  if (self === 'main') {
+    console.log('- parallel branches: n/a on main (the single-tree check above is the one that applies)');
+    return 0;
+  }
+  const g = gatherOthers({
+    repo: opts.repo,
+    remote: opts.remote,
+    rel: opts.rel,
+    self,
+    prsJson: opts.prsJson,
+  });
+  const found = crossFindings(entries, g.others);
+  if (found.length > 0) {
+    console.error('\n✗ Stamp already taken on another branch:\n');
+    for (const p of found) console.error(`  [${p.kind}] ${p.detail}`);
+    console.error('\n  Whichever merges second creates the collision. Move this');
+    console.error('  migration on (new 13 digits in the file AND the class name).');
+    return 1;
+  }
+  const read = g.others.length;
+  if (g.listError || g.unread > 0 || read === 0) {
+    const why = g.listError ? `open-PR list failed: ${g.listError}` : g.failure.join('; ') || 'nothing could be read';
+    const line = `parallel branches NOT fully checked: ${read} of ${g.total} read (${why}); the single-tree check above still holds, and main re-runs it after the merge`;
+    console.log(`⚠ ${line}`);
+    if (process.env.GITHUB_ACTIONS) console.log(`::warning title=migration stamps::${line}`);
+    return 0;
+  }
+  console.log(`✓ parallel: ${read} branches compared (origin/main + ${read - (self === 'main' ? 0 : 1)} open PRs), no stamp taken by a different class`);
   return 0;
 }
 
@@ -146,7 +313,7 @@ function selfTest() {
         `export class ${className} { async up() {} }\n`,
       );
     }
-    const out = spawnSync(process.execPath, [self, '--dir', dir], {
+    const out = spawnSync(process.execPath, [self, '--dir', dir, '--no-parallel'], {
       encoding: 'utf8',
     });
     return out.status;
@@ -218,9 +385,98 @@ function selfTest() {
     0,
   );
 
+  // 🔴 CAMP-497: the cross-branch half is rehearsed against a REAL git
+  // remote (a bare repo with `refs/pull/N/head`), through the whole script
+  // and its exit code — not by calling `crossFindings`. Narrowing the
+  // guard back to the current tree turns `parallel collision` green.
+  const gitIn = (cwd, ...a) =>
+    spawnSync('git', ['-C', cwd, '-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { encoding: 'utf8' });
+  const commitTree = (repoDir, files) => {
+    const m = join(repoDir, DEFAULT_REL);
+    mkdirSync(m, { recursive: true });
+    for (const [file, className] of files) {
+      writeFileSync(join(m, file), `export class ${className} { async up() {} }\n`);
+    }
+    gitIn(repoDir, 'add', '-A');
+    gitIn(repoDir, 'commit', '-q', '-m', 'x');
+  };
+  const parallelScenario = (name, { mainFiles, mainLater = [], prFiles, mine }) => {
+    const base = join(root, name);
+    const origin = join(base, 'origin.git');
+    const work = join(base, 'work');
+    mkdirSync(base, { recursive: true });
+    spawnSync('git', ['init', '-q', '--bare', '-b', 'main', origin]);
+    spawnSync('git', ['init', '-q', '-b', 'main', work]);
+    gitIn(work, 'remote', 'add', 'origin', origin);
+    commitTree(work, mainFiles);
+    gitIn(work, 'push', '-q', 'origin', 'main');
+    // This branch forks HERE; main moves on afterwards (a stale branch).
+    gitIn(work, 'branch', 'mine');
+    if (mainLater.length > 0) {
+      commitTree(work, mainLater);
+      gitIn(work, 'push', '-q', 'origin', 'main');
+    }
+    const prs = [];
+    prFiles.forEach((files, i) => {
+      gitIn(work, 'checkout', '-q', '-B', `pr${i}`, 'origin/main');
+      commitTree(work, files);
+      gitIn(work, 'push', '-q', 'origin', `pr${i}:refs/pull/${i + 1}/head`);
+      prs.push({ number: i + 1, headRefName: `feature-${i}` });
+    });
+    // this branch: a checkout of main plus its own migration(s)
+    gitIn(work, 'checkout', '-q', 'mine');
+    commitTree(work, mine);
+    const prsFile = join(base, 'prs.json');
+    writeFileSync(prsFile, JSON.stringify(prs));
+    const r = spawnSync(
+      process.execPath,
+      [self, '--dir', join(work, DEFAULT_REL), '--repo', work, '--prs-json', prsFile, '--self-branch', 'mine'],
+      { encoding: 'utf8' },
+    );
+    return { status: r.status, out: r.stdout + r.stderr };
+  };
+
+  const A = ['1796500000000-AttributionBannerImages.ts', 'AttributionBannerImages1796500000000'];
+  const B = ['1796500000000-SeedTestBlogPosts.ts', 'SeedTestBlogPosts1796500000000'];
+  const C = ['1796600000000-Other.ts', 'Other1796600000000'];
+  const OLD = ['1790662800000-BathingWaters.ts', 'BathingWaters1790662800000'];
+
+  // (a) two branches, one stamp: this one against an open PR.
+  const vsPr = parallelScenario('par-pr', { mainFiles: [OLD], prFiles: [[B]], mine: [A] });
+  expect('same stamp as an OPEN PR on another branch', vsPr.status, 1);
+  if (!(vsPr.out.includes('AttributionBannerImages') && vsPr.out.includes('SeedTestBlogPosts') && vsPr.out.includes('feature-0'))) {
+    console.error('✗ REHEARSAL FAILED: the finding must name both classes and the other branch');
+    rc = 1;
+  }
+  // ...and against origin/main itself.
+  const vsMain = parallelScenario('par-main', { mainFiles: [OLD], mainLater: [B], prFiles: [], mine: [A] });
+  expect('same stamp as origin/main', vsMain.status, 1);
+  // The denominator is printed on the green path.
+  const clean = parallelScenario('par-clean', { mainFiles: [OLD], prFiles: [[B]], mine: [C] });
+  expect('distinct from main and every open PR', clean.status, 0);
+  if (!/parallel: 2 branches compared \(origin\/main \+ 1 open PRs\)/.test(clean.out)) {
+    console.error('✗ REHEARSAL FAILED: the green line must print how many branches were compared');
+    rc = 1;
+  }
+  // A branch that is merely behind: the SAME class on main and here is one migration.
+  const behind = parallelScenario('par-behind', { mainFiles: [OLD, B], mainLater: [['1796700000000-Later.ts', 'Later1796700000000']], prFiles: [], mine: [C] });
+  expect('a branch that carries main\'s own migration is not a collision', behind.status, 0);
+  // Unreachable remote: loud, separate line, not the green one, not red.
+  const blind = spawnSync(
+    process.execPath,
+    [self, '--dir', join(root, 'par-clean', 'work', DEFAULT_REL), '--repo', join(root, 'par-clean', 'work'),
+      '--remote', 'nowhere', '--prs-json', join(root, 'par-clean', 'prs.json'), '--self-branch', 'mine'],
+    { encoding: 'utf8' },
+  );
+  expect('an unreachable remote does not block', blind.status, 0);
+  if (!/parallel branches NOT fully checked/.test(blind.stdout) || /✓ parallel/.test(blind.stdout)) {
+    console.error('✗ REHEARSAL FAILED: an unreadable remote must say NOT checked and never print the green line');
+    rc = 1;
+  }
+
   // 🔴 CAMP-286: counted, because a scenario that stopped being
   // rehearsed prints exactly what a passing one prints — nothing.
-  const EXPECTED_CASES = 6;
+  const EXPECTED_CASES = 11;
   if (cases !== EXPECTED_CASES) {
     console.error(`✗ ${cases} scenarios ran, expected ${EXPECTED_CASES}`);
     rc = 1;
@@ -253,14 +509,28 @@ const invokedDirectly = (() => {
 if (invokedDirectly) {
   const action = chooseAction(
     process.argv.slice(2),
-    ['--self-test', '--dir'],
+    ['--self-test', '--dir', '--no-parallel', '--repo', '--remote', '--prs-json', '--self-branch'],
     'check-migration-stamps.mjs',
-    { takesValue: ['--dir'] },
+    { takesValue: ['--dir', '--repo', '--remote', '--prs-json', '--self-branch'] },
   );
   if (action.has('--self-test')) process.exit(selfTest());
   // 🔴 `flagValue`, not `indexOf`. Review measured `--dir=<path>` —
   // a spelling chooseAction accepts — being read as absent, so the check
   // scanned DEFAULT_DIR and printed ✓ over a directory it never looked
   // at (CAMP-286).
-  process.exit(run(flagValue(process.argv.slice(2), '--dir') ?? DEFAULT_DIR));
+  const argv = process.argv.slice(2);
+  const repo = flagValue(argv, '--repo') ?? REPO_ROOT;
+  process.exit(
+    run(flagValue(argv, '--dir') ?? DEFAULT_DIR, {
+      noParallel: action.has('--no-parallel'),
+      repo,
+      remote: flagValue(argv, '--remote') ?? 'origin',
+      rel: DEFAULT_REL,
+      prsJson: flagValue(argv, '--prs-json'),
+      self:
+        flagValue(argv, '--self-branch') ??
+        process.env.GITHUB_HEAD_REF ??
+        (git(repo, ['rev-parse', '--abbrev-ref', 'HEAD']).stdout.trim() || 'HEAD'),
+    }),
+  );
 }
