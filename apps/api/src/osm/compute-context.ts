@@ -210,6 +210,71 @@ export const feature = (
         ...(displayName(name) ? { name: displayName(name) } : {}),
       };
 
+/**
+ * 🔴 CAMP-496: ВИСОТА Й РЕЛЬЄФ ПЕРЕНОСЯТЬСЯ І БЕЗ `previous.at`.
+ *
+ * Запис контексту замінює його цілком (`SET context = $2`), тож поле, якого
+ * тут не донесли, видалене. Раніше перенос вимагав `previous.at`, а 1 711
+ * живих рядків (заміряно на проді 11.11.2026) мають лише висоту й рельєф, без
+ * `at`, — і рівно вони потрапляють у роботу (`!at` → `return true`). Ручний
+ * запуск знищував їхню висоту. Відтворено на скретч-базі: 5 з 5 рядків без
+ * `at` втратили висоту.
+ *
+ * Гора не рухається, тож мітка часу обчислення оточення тут ні до чого.
+ * Єдине, що забороняє перенос, — ДОКАЗ, що точка зсунулась: `at` є й
+ * відрізняється. Без `at` доказу немає, і висота лишається.
+ *
+ * Повертає true, якщо перенесено висоту.
+ */
+export function carryForward(
+  context: SpotContext,
+  previous: SpotContext | null | undefined,
+  now: { lat: number | string; lon: number | string },
+): boolean {
+  if (!previous) return false;
+  const moved =
+    previous.at !== undefined &&
+    (Math.abs(previous.at.lat - Number(now.lat)) > 1e-5 ||
+      Math.abs(previous.at.lon - Number(now.lon)) > 1e-5);
+  if (moved) return false;
+  let carried = false;
+  if (context.elevation === undefined && previous.elevation !== undefined) {
+    context.elevation = previous.elevation;
+    carried = true;
+  }
+  if (context.terrain === undefined && previous.terrain !== undefined) {
+    context.terrain = previous.terrain;
+  }
+  return carried;
+}
+
+/**
+ * Сторож: скільки рядків, що мали висоту до прогону, її не мають після.
+ * Має бути 0. «Зсунутий» тут розраховано НЕЗАЛЕЖНО від `carryForward` —
+ * сторож, що ділить предикат із кодом, який міряє, сліпне разом із ним.
+ */
+export function heightGuard(
+  before: ReadonlyArray<{
+    id: number | string;
+    lat: number | string;
+    lon: number | string;
+    context: SpotContext | null;
+  }>,
+): { watched: string[] } {
+  const watched = before
+    .filter((r) => {
+      const c = r.context;
+      if (typeof c?.elevation !== 'number') return false;
+      if (!c.at) return true;
+      return (
+        Math.abs(c.at.lat - Number(r.lat)) <= 1e-5 &&
+        Math.abs(c.at.lon - Number(r.lon)) <= 1e-5
+      );
+    })
+    .map((r) => String(r.id));
+  return { watched };
+}
+
 async function main(): Promise<void> {
   const db = new Client({ connectionString: DB_URL });
   await db.connect();
@@ -239,6 +304,9 @@ async function main(): Promise<void> {
     CONTEXT_SQL,
     contextParams(COUNTRY) as unknown[],
   );
+
+  // CAMP-496: хто мав висоту ДО прогону — знімок для сторожа наприкінці.
+  const { watched } = heightGuard(rows);
 
   // A spot is skipped when its stored context was computed at the same
   // coordinates. Recomputing 300 unchanged rows would be free locally and
@@ -405,23 +473,7 @@ async function main(): Promise<void> {
         // and silence from the DEM is no reason to throw it away. The
         // retry filter above keeps asking for the spots that genuinely
         // have none, because `elevation === undefined` is still the test.
-        const previous = r.context;
-        const sameSpot =
-          previous?.at !== undefined &&
-          Math.abs(previous.at.lat - Number(r.lat)) <= 1e-5 &&
-          Math.abs(previous.at.lon - Number(r.lon)) <= 1e-5;
-        if (sameSpot) {
-          if (
-            context.elevation === undefined &&
-            previous.elevation !== undefined
-          ) {
-            context.elevation = previous.elevation;
-            carriedForward++;
-          }
-          if (context.terrain === undefined && previous.terrain !== undefined) {
-            context.terrain = previous.terrain;
-          }
-        }
+        if (carryForward(context, r.context, r)) carriedForward++;
 
         if (!saysSomething(context)) {
           nothingToSay++;
@@ -523,6 +575,26 @@ async function main(): Promise<void> {
     console.log(
       `  height kept        ${carriedForward}  (DEM silent, coordinates unchanged)`,
     );
+  }
+
+  // 🔴 CAMP-496: прогін не мав права знищити жодної висоти. Знаменник —
+  // рядки, що мали її до початку й не зсунулись.
+  const lost = await db.query<{ n: string }>(
+    `SELECT count(*) AS n FROM camping_spots
+      WHERE id::text = ANY($1::text[]) AND NOT (context ? 'elevation')`,
+    [watched],
+  );
+  const lostN = Number(lost.rows[0]?.n);
+  console.log(
+    `  height lost        ${lostN} / ${watched.length} checked  (${rows.length} in scope)`,
+  );
+  if (lostN > 0) {
+    console.error(
+      `\n✗ this run ERASED the height of ${lostN} of ${watched.length} spots that had one\n`,
+    );
+    await db.end();
+    process.exitCode = 1;
+    return;
   }
 
   // The card's own bar: "fields filled for >90% of a country's records".
