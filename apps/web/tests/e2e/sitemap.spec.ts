@@ -205,7 +205,14 @@ test.describe('llms.txt', () => {
     expect(body).toMatch(/No photographs/i);
     // CAMP-469: the banners look like photographs, so the file says they
     // are not. Same three words scripts/images/check-banners.mjs requires.
-    expect(body).toMatch(/decorative[^.]*AI-generated[^.]*no real place/i);
+    // One LINE carries all three words — the same rule check-banners.mjs
+    // enforces on the source. The old single regex forbade any full stop
+    // between the words, while the real bullet has three sentences, so it
+    // could never match.
+    const bannerLine = body
+      .split('\n')
+      .find((l) => /decorative/i.test(l) && /AI-generated/i.test(l) && /no real place/i.test(l));
+    expect(bannerLine, 'one llms.txt line: decorative + AI-generated + no real place').toBeTruthy();
     expect(body).toMatch(/No reviews and no ratings/i);
     expect(body).toMatch(/not recorded/i);
   });
