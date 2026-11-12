@@ -27,6 +27,9 @@ interface Post {
   body: string;
 }
 
+export const PROVENANCE_NOTE =
+  'This article was composed by AI. It is general background, not a statement about any particular campsite.';
+
 export const TEST_POSTS: readonly Post[] = [
   {
     slug: 'camper-over-3-5-tonnes',
@@ -230,6 +233,22 @@ export class SeedTestBlogPosts1796500000000 implements MigrationInterface {
         `INSERT INTO page_section_translations (section_id, language_code, body)
          VALUES ($1, 'en', $2)`,
         [prose[0].id, p.body],
+      );
+
+      // Примітка про походження: окрема секція, яку власник бачить і
+      // міняє в `page_sections` (variant = provenance). Пише рівно те,
+      // що є: текст складено ШІ. Про людську перевірку НЕ сказано, бо її
+      // не було. Переписав допис сам — заміни текст примітки, не видаляй
+      // секцію: `check-post-provenance` вимагає її в кожному дописі.
+      const note: Array<{ id: string }> = await queryRunner.query(
+        `INSERT INTO page_sections (page_id, sort, type, variant, visible)
+         VALUES ($1, 1, 'prose', 'provenance', true) RETURNING id`,
+        [pageId],
+      );
+      await queryRunner.query(
+        `INSERT INTO page_section_translations (section_id, language_code, body)
+         VALUES ($1, 'en', $2)`,
+        [note[0].id, PROVENANCE_NOTE],
       );
     }
   }

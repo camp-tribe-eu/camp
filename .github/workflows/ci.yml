@@ -1556,6 +1556,15 @@ jobs:
             | grep -c 'check-no-internal-kitchen self-test:' >/dev/null
           node scripts/ci/check-no-internal-kitchen.mjs
 
+      # Допис блогу без примітки про походження тексту читач не відрізнить
+      # від людського. Сторож читає ВІДДАНУ сторінку, не код.
+      - name: Every blog post says who wrote its text
+        run: |
+          set -o pipefail
+          node scripts/ci/check-post-provenance.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-post-provenance self-test:' >/dev/null
+          node scripts/ci/check-post-provenance.mjs
+
       # CAMP-463 (друга половина). Власник: «Проєкт має бути написаний
       # людиною для людей». Попередній крок ловить сполуки про стан наших
       # справ; цей — ще й МАШИННИЙ ФОРМАТ, показаний читачеві (ISO-мітка
