@@ -39,9 +39,10 @@ async function slot(page: Page, selector: string) {
  * завжди один рядок, CAMP-448). Читач робить те саме, що й тест.
  */
 async function choose(page: Page, p: "owner" | "renter") {
-  const inHeader = page.getByTestId(`persona-${p}`);
-  if (await inHeader.isVisible()) {
-    await inHeader.click();
+  const trigger = page.getByTestId("persona-trigger");
+  if (await trigger.isVisible()) {
+    await trigger.click();
+    await page.getByTestId(`persona-${p}`).click();
     return;
   }
   await page.getByTestId("burger-open").click();
@@ -206,21 +207,29 @@ test.describe('🔴 CAMP-501 — перемикач «маю кемпер / ор
     expect(await slot(page, header)).toBeLessThan(await slot(page, there));
   });
 
-  test('🔴 шапка лишається ОДНИМ рядком на 320, 375, 768 і 1200 px, з вибором і без', async ({
+  test('🔴 шапка лишається ОДНИМ рядком на 320–1440 px, з вибором і без', async ({
     page,
   }) => {
-    for (const width of [320, 375, 768, 1200]) {
+    for (const width of [320, 375, 768, 1200, 1280, 1440]) {
       await page.setViewportSize({ width, height: 900 });
       for (const persona of [null, 'renter'] as const) {
         await page.goto('/');
         if (persona) await choose(page, persona);
         const rows = await page.evaluate(() => {
           const logo = document.querySelector('header a[href="/"]')!.getBoundingClientRect();
-          const tops = ['[data-testid="burger-open"]', '[data-testid="theme-toggle"]', '[data-testid="persona-toggle"]']
-            .map((q) => document.querySelector(q))
-            .filter((el): el is Element => !!el && el.getBoundingClientRect().width > 0)
+          // Усе, що в шапці видно: кнопки І кожен пункт меню (саме «About»
+          // на другому рядку пропустила перша редакція цього тесту).
+          const tops = [
+            ...document.querySelectorAll(
+              'header [data-testid="burger-open"], header [data-testid="theme-toggle"], header [data-testid="persona-toggle"], header nav[aria-label="Main"] a',
+            ),
+          ]
+            // Підпункти розкривачів сховані (`data-nav-sub`): не рядок шапки.
+            .filter((el) => el.getBoundingClientRect().width > 0 && !el.closest('[data-nav-sub]'))
             .map((el) => el.getBoundingClientRect());
+          const centres = tops.map((r) => r.top + r.height / 2);
           return {
+            centres,
             logoBottom: logo.bottom,
             tops: tops.map((r) => r.top),
             height: document.querySelector('header')!.getBoundingClientRect().height,
@@ -228,6 +237,13 @@ test.describe('🔴 CAMP-501 — перемикач «маю кемпер / ор
           };
         });
         const label = `${width}px, вибір ${persona ?? 'немає'}`;
+        // Строго: центр усіх пунктів і кнопок у межах 10 px один від одного. Нижня
+        // межа логотипа (45 px) була надто м'якою — другий рядок меню стоїть
+        // на 37 px, тобто «вище за низ логотипа», і її не ловив.
+        expect(
+          Math.max(...rows.centres) - Math.min(...rows.centres),
+          `${label}: пункти шапки стоять у різних рядках (${rows.centres.map(Math.round)})`,
+        ).toBeLessThanOrEqual(10);
         for (const top of rows.tops) {
           expect(top, `${label}: елемент шапки на другому рядку`).toBeLessThan(rows.logoBottom);
         }
