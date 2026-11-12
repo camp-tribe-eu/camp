@@ -43,7 +43,10 @@
 //                              invented fact this project keeps refusing.
 //   tourism=picnic_site        Scenery, not a service. 0.1% have hours.
 //     (107 704)
-//   amenity=pharmacy,          Real needs, but not the question "where
+//   amenity=pharmacy,          (CAMP-506: pharmacy and car_repair are STORED
+//     shop=car_repair          now, for the campsite page's "when something
+//                              goes wrong" group — still not served on a
+//                              route page.) Real needs, but not the question "where
 //     shop=bakery,             do I stop between two campsites", and
 //     shop=car_repair,         seven kinds is already the ceiling the
 //     shop=laundry             per-page cap allows (see ODbL note below).
@@ -386,7 +389,15 @@ export const CANONICAL_REF_KINDS = [
  * implies `yes`, so `cylinder_swap = 'yes'` alone is the same set. Removing
  * either one as redundant is how three quarters of the points go missing.
  */
-export const STORED_ONLY_KINDS = ['gas_exchange'] as const;
+export const STORED_ONLY_KINDS = [
+  'gas_exchange',
+  // CAMP-506: the "when something goes wrong" pair of the campsite page's
+  // services block. Stored, not served on a route page (same reason as
+  // gas_exchange), and LAST in the CASE: a forecourt that also repairs cars
+  // stays the fuel station it was, a hotel with a pharmacy stays a hotel.
+  'pharmacy',
+  'car_repair',
+] as const;
 
 /**
  * Everything the table can hold. Order is the CASE's order: legacy first,
@@ -418,6 +429,10 @@ export const STORED_POI_RULES: Record<StoredPoiKind, TagRule[]> = {
   // (2 097 stay); the flag `cylinder_swap` kept all 17 in the gas layer, which
   // is the reason it exists: the layer was 8 925 objects before and after.
   gas_exchange: [{ key: 'shop', values: ['gas'] }],
+  // CAMP-506. `amenity=pharmacy`, `shop=car_repair`; nothing else. Both keys
+  // are already in export-rpoi.json, so no staging column is new.
+  pharmacy: [{ key: 'amenity', values: ['pharmacy'] }],
+  car_repair: [{ key: 'shop', values: ['car_repair'] }],
 };
 
 /**

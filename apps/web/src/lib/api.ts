@@ -753,8 +753,10 @@ export interface CampServicesPayload {
   onSiteM: number;
   items: {
     kind: string;
-    onSite: { name: string | null; metres: number } | null;
-    nearby: { name: string | null; metres: number } | null;
+    /** CAMP-506: the traveller's need the kind answers (before/stay/trouble). */
+    group?: string;
+    onSite: { name: string | null; metres: number; seen?: string | null } | null;
+    nearby: { name: string | null; metres: number; seen?: string | null } | null;
   }[];
 }
 

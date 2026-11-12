@@ -3,6 +3,7 @@ import type { QueryRunner } from 'typeorm';
 import { RoutePoi1790572800000 } from '../migrations/1790572800000-RoutePoi';
 import { RoutePoiFacilities1791400000000 } from '../migrations/1791400000000-RoutePoiFacilities';
 import { RoutePoiGas1791700000000 } from '../migrations/1791700000000-RoutePoiGas';
+import { RoutePoiHelp1797000000000 } from '../migrations/1797000000000-RoutePoiHelp';
 import {
   CAMP_SERVICE_KINDS,
   campServicesSql,
@@ -71,6 +72,7 @@ beforeAll(async () => {
   await new RoutePoi1790572800000().up(qr);
   await new RoutePoiFacilities1791400000000().up(qr);
   await new RoutePoiGas1791700000000().up(qr);
+  await new RoutePoiHelp1797000000000().up(qr);
   await db.query(
     `CREATE TABLE spots (id text PRIMARY KEY, location geometry(Point,4326), outline geometry(MultiPolygon,4326))`,
   );
@@ -105,6 +107,16 @@ beforeAll(async () => {
   // spot b: inside the outline but 390 m from the point; and just outside
   await poi('n9', 'water', 'Tap inside', 14.1055, 46.001);
   await poi('n10', 'water', 'Tap outside', 14.1075, 46.001);
+  // CAMP-506, spot a: a pharmacy 1 113 m north-ish (0.01 deg lat), a repair
+  // shop 9.5 km away (inside the 10 km radius) and one 10.6 km away (outside),
+  // a supermarket 556 m away. Known import day on the pharmacy.
+  await poi('n13', 'pharmacy', 'Lekarna', 14.0, 46.01); // 1 113 m
+  await db.query(
+    `UPDATE osm_route_poi SET last_seen_at = '2026-11-05T23:30:00Z' WHERE osm_ref = 'n13'`,
+  );
+  await poi('n14', 'car_repair', 'Garage in range', 14.0, 46.0853); // 9.50 km
+  await poi('n15', 'car_repair', 'Garage too far', 14.0, 46.0952); // 10.60 km
+  await poi('n16', 'groceries', 'Spar', 14.0, 46.005); // 556 m
 });
 
 afterAll(async () => {
@@ -118,17 +130,24 @@ test('the constants are the ones the comment measured', () => {
   expect(ONSITE_RADIUS_M).toBe(150);
   expect(CAMP_SERVICE_KINDS).toEqual([
     'fuel',
+    'groceries',
     'ev_charging',
+    'gas',
     'water',
     'dump',
-    'gas',
+    'pharmacy',
+    'car_repair',
   ]);
 });
 
 test('spot a: nearest on site and nearest nearby, with names and metres', async () => {
   const v = await run('a');
   const w = of(v, 'water')!;
-  expect(w.onSite).toEqual({ name: 'Tap A near', metres: expect.any(Number) });
+  expect(w.onSite).toEqual({
+    name: 'Tap A near',
+    metres: expect.any(Number),
+    seen: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+  });
   expect(Math.abs(w.onSite!.metres - 77)).toBeLessThanOrEqual(3);
   // 🔴 the 400 m tap is NOT on site and the nearest "nearby" is the 401 m one,
   // not the 773 m one: nearest means nearest.
@@ -176,12 +195,26 @@ test('gas is cylinder_swap, not a kind of its own row', async () => {
 test('dump has only a nearby point, in the right place in the list', async () => {
   const v = await run('a');
   expect(of(v, 'dump')!.nearby!.name).toBe('Dump A');
+  // page order: the groups' order, not the order of the rows
   expect(v.map((e) => e.kind)).toEqual([
     'fuel',
+    'groceries',
     'ev_charging',
+    'gas',
     'water',
     'dump',
-    'gas',
+    'pharmacy',
+    'car_repair',
+  ]);
+  expect(v.map((e) => e.group)).toEqual([
+    'before',
+    'before',
+    'before',
+    'before',
+    'stay',
+    'stay',
+    'trouble',
+    'trouble',
   ]);
 });
 
@@ -200,4 +233,37 @@ test('🔴 nearest is nearest in METRES, not in degrees (58.4 N)', async () => {
   const d = of(await run('e'), 'dump')!;
   expect(d.nearby!.name).toBe('Dump true nearest');
   expect(Math.abs(d.nearby!.metres - 7140)).toBeLessThanOrEqual(40);
+});
+
+test('🔴 CAMP-506: pharmacy, car repair and groceries — nearest, with metres and the import day', async () => {
+  const v = await run('a');
+  const ph = of(v, 'pharmacy')!;
+  expect(ph.nearby!.name).toBe('Lekarna');
+  expect(Math.abs(ph.nearby!.metres - 1113)).toBeLessThanOrEqual(12);
+  // UTC day of the stamp, not the server's zone
+  expect(ph.nearby!.seen).toBe('2026-11-05');
+  expect(ph.group).toBe('trouble');
+  const g = of(v, 'groceries')!;
+  expect(g.nearby!.name).toBe('Spar');
+  expect(Math.abs(g.nearby!.metres - 556)).toBeLessThanOrEqual(6);
+  expect(g.group).toBe('before');
+});
+
+test('🔴 CAMP-506: the radius holds for the new kinds (9.5 km in, 10.6 km out)', async () => {
+  const cr = of(await run('a'), 'car_repair')!;
+  expect(cr.nearby!.name).toBe('Garage in range');
+  expect(Math.abs(cr.nearby!.metres - 9500)).toBeLessThanOrEqual(60);
+  // a campsite whose only repair shop is out of range gets no car_repair entry
+  await db.query(`DELETE FROM osm_route_poi WHERE osm_ref = 'n14'`);
+  try {
+    expect(of(await run('a'), 'car_repair')).toBeUndefined();
+  } finally {
+    await poi('n14', 'car_repair', 'Garage in range', 14.0, 46.0853);
+  }
+});
+
+test('a kind with no rows at all (the table before the import) is simply absent', async () => {
+  const v = await run('e');
+  expect(of(v, 'pharmacy')).toBeUndefined();
+  expect(of(v, 'car_repair')).toBeUndefined();
 });

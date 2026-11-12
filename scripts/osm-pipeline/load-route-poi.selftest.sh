@@ -165,6 +165,7 @@ WANT=(
   highway=rest_area highway=services shop=gas shop=supermarket
   shop=convenience amenity=restaurant amenity=cafe amenity=fast_food
   tourism=hotel tourism=motel tourism=hostel tourism=guest_house
+  amenity=pharmacy shop=car_repair
 )
 filter_args=$(tr ' ' '\n' <<<"$filter_call")
 missing=''
@@ -181,7 +182,7 @@ else
   fail "osmium was not handed:$missing  (call: $filter_call)"
 fi
 
-# …and for nothing else: 18 values on two element types, no more. A value
+# …and for nothing else: 20 values on two element types, no more. A value
 # added to the script and not to the rules would be a row loaded and thrown
 # away (the spec compares the pairs with STORED_POI_RULES; this is what the
 # shell actually hands over).

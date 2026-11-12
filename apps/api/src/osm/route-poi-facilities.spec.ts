@@ -702,6 +702,8 @@ describe('every rule reads its tag as the elements of a `;` list', () => {
       ['rest_area', 'highway', ['rest_area']],
       ['service_area', 'highway', ['services']],
       ['gas_exchange', 'shop', ['gas']],
+      ['pharmacy', 'amenity', ['pharmacy']],
+      ['car_repair', 'shop', ['car_repair']],
     ];
     const branches = sql.split('WHEN ').slice(1);
     for (const [kind, key, values] of contract) {
@@ -710,7 +712,7 @@ describe('every rule reads its tag as the elements of a `;` list', () => {
       expect(branch).toBeDefined();
       expect(branch).toContain(element(key, ...values));
     }
-    // 11 element tests, one per (kind, key) in the contract
+    // 13 element tests, one per (kind, key) in the contract
     expect(sql.match(/&& ARRAY\[/g)).toHaveLength(contract.length);
   });
 
@@ -788,6 +790,8 @@ describe('the loader notices when a rule does not read its tag as a `;` list', (
     'rest_area',
     'service_area',
     'gas_exchange',
+    'pharmacy',
+    'car_repair',
   ];
   const all = (over: Record<string, Partial<ListRulesSummary>> = {}) =>
     KINDS.map((k) => row(k, over[k]));
