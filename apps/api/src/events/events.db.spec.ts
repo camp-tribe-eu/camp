@@ -329,13 +329,13 @@ describe('рахунок = числу дій', () => {
 
 describe('джерело: клас, не referrer', () => {
   it('клас, не referrer: у базі лише одне зі слів, а рядка немає ніде', async () => {
-    const SECRET = 'jane-doe-secret-query';
+    const PERSONAL_BIT = 'jane-doe-private-query';
     const cases: Array<[string | undefined, string]> = [
-      [`https://www.google.com/search?q=${SECRET}`, 'organic'],
-      [`https://chatgpt.com/c/${SECRET}`, 'ai'],
-      [`https://perplexity.ai/search/${SECRET}`, 'ai'],
+      [`https://www.google.com/search?q=${PERSONAL_BIT}`, 'organic'],
+      [`https://chatgpt.com/c/${PERSONAL_BIT}`, 'ai'],
+      [`https://perplexity.ai/search/${PERSONAL_BIT}`, 'ai'],
       [undefined, 'direct'],
-      [`https://blog.example/post?u=${SECRET}`, 'other'],
+      [`https://blog.example/post?u=${PERSONAL_BIT}`, 'other'],
     ];
     for (const [ref, want] of cases) {
       const ip = nextVisitor();
@@ -351,7 +351,7 @@ describe('джерело: клас, не referrer', () => {
     const dump = JSON.stringify(
       (await db.query('SELECT * FROM spot_event_daily')).rows,
     );
-    expect(dump).not.toContain(SECRET);
+    expect(dump).not.toContain(PERSONAL_BIT);
     expect(dump).not.toContain('google.com');
     const sources = (
       await db.query('SELECT DISTINCT source FROM spot_event_daily')
