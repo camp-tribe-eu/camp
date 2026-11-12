@@ -29,13 +29,13 @@ The reader-facing statement lives in `apps/web/src/app/llms.txt/route.ts`
 runs in CI and fails if a raster file sits in `public/banners/` while that
 sentence is missing. The service and model are named for readers on the
 attribution page, section "Decorative images" (migration
-`1796500000000-AttributionBannerImages`, version 1.4). The campsite page block "We don't publish pictures we
+`1796600000000-AttributionBannerImages`, version 1.4). The campsite page block "We don't publish pictures we
 haven't verified" was measured and left alone: it says "here", the page
 renders no banner, and a banner shows no place, so it stays true.
 
 ## 🔴 Ordering: do not ship attribution 1.4 before the components use `.webp`
 
-🔴 Migration `1796500000000-AttributionBannerImages` (attribution 1.4) must NOT be rolled out before the components reference the `.webp` files. As of 12.11.2026 they do (CAMP-469 PR): `apps/web/src` references `.webp` and no longer `.svg` for banners. Ship them together, never the migration alone.
+🔴 Migration `1796600000000-AttributionBannerImages` (attribution 1.4) must NOT be rolled out before the components reference the `.webp` files. As of 12.11.2026 they do (CAMP-469 PR): `apps/web/src` references `.webp` and no longer `.svg` for banners. Ship them together, never the migration alone.
 
 ## Common to all eight
 
