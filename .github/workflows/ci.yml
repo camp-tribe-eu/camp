@@ -2398,7 +2398,7 @@ jobs:
       - run: npm run test:e2e --workspace=apps/web
         env:
           CI: true
-          FULL_MATRIX: ${{ (github.ref_name == 'main' || github.event_name == 'workflow_dispatch') && '1' || '' }}
+          FULL_MATRIX: '1' # ТИМЧАСОВО, лише на гілках fix/e2e-flaky-run-*: токен не може workflow_dispatch, а доказ потребує webkit. У PR #564 цього рядка немає.
           API_BASE_URL: http://localhost:3001
           # CAMP-92. Reading client errors back is token-guarded; this is
           # the same throwaway value build-site gives the API it starts.
