@@ -483,6 +483,8 @@ export type Failure = {
 export type Report = {
   measuredAt: string;
   database: string;
+  /** The card's headings, in its order: `[group, title]`. */
+  groups: typeof GROUPS;
   lines: Line[];
   failures: Failure[];
   notMeasured: typeof NOT_MEASURED;
@@ -562,6 +564,7 @@ export async function measure(
     return {
       measuredAt: stamp.at,
       database: stamp.db,
+      groups: GROUPS,
       lines,
       failures,
       notMeasured: NOT_MEASURED,

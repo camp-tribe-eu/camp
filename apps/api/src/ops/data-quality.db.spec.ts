@@ -199,8 +199,9 @@ const ROWS: Row[] = [
     amenities: { shower: 'yes', water: 'no' },
   }),
   // A11 — not seen for 30 days, yet not stamped missing; edited 400 days
-  // ago. Nameless and empty itself: its name and its one answered
-  // amenity come from D18, folded in.
+  // ago. Nameless, and it answers no amenity itself: its name and its one
+  // answered amenity come from D18, folded in. It and D18 name the SAME
+  // website domain and DIFFERENT stars.
   A(11, {
     country: 'SE',
     region: 'Skåne',
@@ -209,6 +210,8 @@ const ROWS: Row[] = [
     lat: 56,
     seen: 30,
     edited: 400,
+    stars: 4,
+    contact: { website: 'https://vieux.se' },
   }),
   // A12 — a second OSM object for A3 (node + area): folded, SAME source.
   A(12, {
@@ -287,7 +290,7 @@ const ROWS: Row[] = [
     stars: 1,
     description: 'Cinq.',
   }),
-  // D18 — second copy of A11, gives no website and no stars.
+  // D18 — second copy of A11, 10 m away.
   D(18, {
     country: 'SE',
     region: 'Skåne',
@@ -296,6 +299,8 @@ const ROWS: Row[] = [
     lat: 56,
     seen: 50,
     upd: 20,
+    website: 'https://www.vieux.se/a',
+    stars: 5,
     amenities: { wifi: 'yes' },
   }),
   // D19 — second copy of A8, but GONE: its website is nobody's.
@@ -561,11 +566,13 @@ describe('the data-quality measures', () => {
   it('finds the contradictions between two sources of one campsite', () => {
     // three pairs: A1–D13 (40 m), A2–D14 (200 m), A11–D18 (10 m).
     expect(got('pairs_further_apart_than_one_site')).toEqual([1, 3]);
-    // A11–D18 names no website on either side. `www.lac.fr` and `lac.fr`
-    // are one domain; `lespins.fr` and `autre.com` are not.
-    expect(got('pairs_naming_different_websites')).toEqual([1, 2]);
-    // A1–D13 agree on 3; A2–D14 say 3 and 4.
-    expect(got('pairs_giving_different_stars')).toEqual([1, 2]);
+    // 🔴 THREE pairs with one odd one out each time, never two and two:
+    // on a symmetric fixture `<>` and `=` count the same and a flipped
+    // comparison passes. `www.lac.fr`/`lac.fr` and `vieux.se`/
+    // `www.vieux.se` are one domain each; `lespins.fr`/`autre.com` are not.
+    expect(got('pairs_naming_different_websites')).toEqual([1, 3]);
+    // A1–D13 agree on 3; A2–D14 say 3 and 4; A11–D18 say 4 and 5.
+    expect(got('pairs_giving_different_stars')).toEqual([2, 3]);
   });
 
   it('splits rows by licence, and names a source it has no licence for', () => {
@@ -601,8 +608,8 @@ describe('the data-quality measures', () => {
       name: [11, 14],
       // not A4, X21.
       region: [12, 14],
-      // A1 A2 A5 in `contact`, D16 in the column. Not A8: D19 is gone.
-      website: [4, 14],
+      // A1 A2 A5 A11 in `contact`, D16 in the column. Not A8: D19 is gone.
+      website: [5, 14],
       // A1; A3 through A12.
       phone: [2, 14],
       // A2.
@@ -611,8 +618,8 @@ describe('the data-quality measures', () => {
       'opening hours': [5, 14],
       // A1 (D13), A2 (D14), D15 D16 D17, X21.
       description: [6, 14],
-      // A1 A2 A5 D15 D16 D17 X21.
-      stars: [7, 14],
+      // A1 A2 A5 A11 D15 D16 D17 X21.
+      stars: [8, 14],
       // A1 A2 A4 A5 A8 A9 A10 X21, and A11 through D18. Not A3: all "unknown".
       'any amenity answered': [9, 14],
       // A1 A4 A8 X21.
