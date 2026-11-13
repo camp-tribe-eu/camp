@@ -176,6 +176,11 @@ test.describe("the document", () => {
     const outside = out.replace(/<style>.*?<\/style>/, "");
     expect(outside).not.toMatch(/onerror=alert\(1\)>/);
     expect(outside).toContain("&quot;&#39;&amp;");
+
+    // The words for "nothing measured" travel a branch of their own.
+    const bare = html({ context: {} }, { ...LABELS, empty: hostile });
+    expect(bare).not.toMatch(/<script/i);
+    expect(bare).toContain("<p>&lt;script&gt;");
   });
 
   test("a nameless campsite is named the way its page names it", () => {
