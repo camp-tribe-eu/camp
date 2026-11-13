@@ -61,8 +61,24 @@ export function CatalogueProvenance({ guides }: { guides: readonly Guide[] }) {
   const provenance = strongest(new Set(counts.keys()));
   if (!provenance) return null;
 
+  // 🔴 ЛИШЕ ПРОГРАМИ, ЩО Є МОВНИМИ МОДЕЛЯМИ. Перелік збирався з УСІХ
+  // гайдів сторінки, а умова нижче дивилась тільки на НАЙСИЛЬНІШЕ
+  // походження. Тож сторінка, де поруч стоять гайд моделі й гайд
+  // лічильника, друкувала «The programs are … and region-facts@2» —
+  // рівно ту внутрішню назву, яку CAMP-463 прибирав. У проді цього не
+  // видно, поки всі гайди `data-generated`; показалось у день, коли
+  // фікстура CI отримала перший гайд `ai-assisted` (13.11.2026,
+  // check-no-internal-disclosure: 2 збіги на 203 сторінках).
   const programs = [
-    ...new Set(guides.map((g) => g.generator).filter((g): g is string => !!g)),
+    ...new Set(
+      guides
+        .filter(
+          (g) =>
+            g.provenance === 'ai-generated' || g.provenance === 'ai-assisted',
+        )
+        .map((g) => g.generator)
+        .filter((g): g is string => !!g),
+    ),
   ].sort();
 
   // One clause per kind actually present, in the order the labels declare
