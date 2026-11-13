@@ -140,7 +140,11 @@ const LIVE_PAIRS = `spot_links l
 const website = (a: string) =>
   `coalesce(${a}.website, ${a}.contact->>'website')`;
 
-/** `https://www.Example.fr/camping?x` → `example.fr`. */
+/**
+ * The host of a website with the scheme and a leading `www.` dropped, so
+ * the same site written two ways is one domain. (No sample address here:
+ * the attribution sweep reads every host in production code as a source.)
+ */
 const domain = (a: string) =>
   `substring(lower(${website(a)}) from '^(?:https?://)?(?:www\\.)?([^/:?#]+)')`;
 
@@ -547,7 +551,24 @@ export async function measure(
           of: count(r.of),
           sql: m.sql,
         }));
-        if (parsed.length === 0) throw new Error('the query returned no rows');
+        // 🔴 NO ROWS IS AN EMPTY POPULATION, NOT A FAILURE AND NOT A GAP.
+        // An aggregate without GROUP BY always answers one row; only a
+        // breakdown can answer none, and it does so exactly when there
+        // is nothing to break down (no campsite carries a date at all,
+        // say). That is "0 of 0" — printed, so the measure does not
+        // vanish from the page, and never turned into a share.
+        if (parsed.length === 0) {
+          parsed.push({
+            key: m.key,
+            group: m.group,
+            label: null,
+            what: m.what,
+            ofWhat: m.of,
+            n: 0,
+            of: 0,
+            sql: m.sql,
+          });
+        }
         lines.push(...parsed);
         await db.query('RELEASE SAVEPOINT m');
       } catch (e) {

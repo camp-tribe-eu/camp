@@ -356,6 +356,7 @@ const ROWS: Row[] = [
     lat: 37,
     seen: 1,
     contact: { website: 'https://um.pt' },
+    amenities: { wifi: 'no' },
   }),
   D(23, {
     country: 'PT',
@@ -649,8 +650,10 @@ describe('the data-quality measures', () => {
       description: [6, 15],
       // A1 A2 A5 A11 D15 D16 D17 X21, and A22 through D23.
       stars: [9, 15],
-      // A1 A2 A4 A5 A8 A9 A10 X21, and A11 through D18. Not A3: all "unknown".
-      'any amenity answered': [9, 15],
+      // A1 A2 A4 A5 A8 A9 A10 A22 X21, and A11 through D18. Not A3: all
+      // "unknown". (Ten of fifteen, and the NEGATED predicate counts nine:
+      // with nine each way the two were indistinguishable.)
+      'any amenity answered': [10, 15],
       // A1 A4 A8 X21.
       'electricity answered': [4, 15],
       // A8 A9 A10. Not A1: "unknown".
@@ -748,7 +751,7 @@ describe('a measure that breaks', () => {
     expect(r.lines.map((l) => l.n)).toEqual([15]);
   });
 
-  it('is reported when the answer is not a count, or is no answer', async () => {
+  it('is reported when the answer is not a count', async () => {
     const r = await measure(db, [
       {
         ...broken,
@@ -762,12 +765,33 @@ describe('a measure that breaks', () => {
       },
       {
         ...broken,
-        key: 'empty',
-        sql: 'SELECT NULL AS label, 1 AS n, 1 AS of WHERE false',
+        key: 'fraction',
+        sql: 'SELECT NULL AS label, 1.5 AS n, 2 AS of',
       },
     ]);
     expect(r.lines).toEqual([]);
-    expect(r.failures.map((f) => f.key)).toEqual(['negative', 'null', 'empty']);
+    expect(r.failures.map((f) => f.key)).toEqual([
+      'negative',
+      'null',
+      'fraction',
+    ]);
+  });
+
+  it('🔴 a breakdown with nothing to break down is "0 of 0", on the page, not gone', async () => {
+    // What `rows_changed_within_a_year` answers on a database where no
+    // row carries a date: GROUP BY over nothing is no rows at all.
+    const r = await measure(db, [
+      {
+        ...broken,
+        key: 'nobody',
+        sql: 'SELECT s.country AS label, count(*) AS n, count(*) AS of FROM camping_spots s WHERE false GROUP BY 1',
+      },
+    ]);
+    expect(r.failures).toEqual([]);
+    expect(
+      r.lines.map(({ key, label, n, of }) => ({ key, label, n, of })),
+    ).toEqual([{ key: 'nobody', label: null, n: 0, of: 0 }]);
+    expect(share(r.lines[0].n, r.lines[0].of)).toBeNull();
   });
 
   it('runs read-only, and a measure that writes leaves nothing behind', async () => {
