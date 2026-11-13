@@ -91,8 +91,7 @@ const nextConfig = {
       );
       if (i >= 0) headers[i] = { ...headers[i], value: cspForDevServer() };
     }
-<<<<<<< HEAD
-    // 🔴 CAMP-523. THE WIDGET PATH COMES SECOND, AND THE ORDER IS THE RULE.
+    // 🔴 CAMP-523. THE WIDGET PATH COMES AFTER `/:path*`, AND THE ORDER IS THE RULE.
     //
     // Next: "If two headers match the same path and set the same header
     // key, the last header key will override the first." So everything
@@ -109,15 +108,6 @@ const nextConfig = {
     // The dev relaxation above is deliberately NOT applied here: the
     // widget is a route handler that prints a string, there is no client
     // module to compile, and so nothing for 'unsafe-eval' to unblock.
-    return [
-      { source: '/:path*', headers },
-      {
-        source: `${EMBED_PREFIX}/:path*`,
-        headers: Object.entries(EMBED_HEADERS).map(([key, value]) => ({
-          key,
-          value,
-        })),
-=======
     return [
       { source: '/:path*', headers },
       // 🔴 ШРИФТИ КЕШУЮТЬСЯ НА РІК І НЕ ПЕРЕВІРЯЮТЬСЯ ЗАНОВО.
@@ -145,7 +135,13 @@ const nextConfig = {
       {
         source: '/fonts/:file*',
         headers: [{ key: 'Cache-Control', value: FONT_CACHE_CONTROL }],
->>>>>>> origin/main
+      },
+      {
+        source: `${EMBED_PREFIX}/:path*`,
+        headers: Object.entries(EMBED_HEADERS).map(([key, value]) => ({
+          key,
+          value,
+        })),
       },
     ];
   },

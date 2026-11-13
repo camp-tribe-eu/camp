@@ -307,7 +307,16 @@ test.describe("the policy", () => {
     );
     expect(all).toBe(0);
     expect(embed, "Next lets the LAST matching entry win").toBeGreaterThan(all);
-    expect(entries).toHaveLength(2);
+    // Other entries may exist (fonts have their own cache rule); what
+    // matters is which of them carry a policy, and in what order.
+    const withPolicy = entries
+      .map((e: { source: string; headers: { key: string }[] }) =>
+        e.headers.some((h) => h.key === "Content-Security-Policy")
+          ? e.source
+          : null,
+      )
+      .filter(Boolean);
+    expect(withPolicy).toEqual(["/:path*", `${EMBED_PREFIX}/:path*`]);
     const value = (i: number, key: string) =>
       entries[i].headers.find((h: { key: string }) => h.key === key)?.value;
     expect(value(embed, "Content-Security-Policy")).toBe(EMBED_CSP);
