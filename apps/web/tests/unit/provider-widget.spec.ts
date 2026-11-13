@@ -24,6 +24,7 @@ import {
 import { SECURITY_HEADERS } from "../../scripts/security-headers.mjs";
 import nextConfig from "../../next.config.mjs";
 import { WIDGET_SECTIONS } from "../../../api/src/migrations/1797400000000-ProviderWidgetText";
+import { PrivacyProviderWidget1797600000000 } from "../../../api/src/migrations/1797600000000-PrivacyProviderWidget";
 
 // CAMP-523. What can be held without a server: the string the widget is,
 // the policy it is served under, and that the two agree. What needs a
@@ -372,5 +373,57 @@ test.describe("what the campsite pastes", () => {
       '<a href="https://camptribe.eu/camping/hr/istria/camp-x">Camp &lt;X&gt; on CampTribe</a>',
     );
     expect(snippet).toContain('title="Camp &quot;X&quot;"');
+  });
+});
+
+test.describe("the privacy policy names the block", () => {
+  const migration = new PrivacyProviderWidget1797600000000();
+  const section = (body: string) => {
+    const from = body.indexOf("{#widget}");
+    return from < 0 ? "" : body.slice(from, body.indexOf("\n### ", from));
+  };
+
+  test("🔴 2.9 adds the subsection and the referrer line, and changes nothing else", () => {
+    const before = migration.previous.body;
+    const after = migration.page.body;
+    expect(migration.page.version).toBe("2.9");
+    expect(section(before)).toBe("");
+
+    const added = section(after);
+    expect(added).toContain("loaded from our server");
+    expect(added).toContain("one line in the security log described above");
+    expect(added).toContain("fourteen days");
+    expect(added).toContain("sets no cookies, runs no script");
+    expect(added).toContain("not to send us the referrer");
+    expect(after).toContain(
+      "- the address of the page that led you to us, when your browser sends one (the referrer);",
+    );
+
+    // Take the two additions back out and the previous text must remain,
+    // character for character: nothing else was touched.
+    const heading = after.lastIndexOf("\n### ", after.indexOf("{#widget}")) + 1;
+    const removed =
+      after.slice(0, heading) +
+      after.slice(after.indexOf("\n### ", after.indexOf("{#widget}")) + 1);
+    expect(
+      removed.replace(
+        "\n- the address of the page that led you to us, when your browser sends one (the referrer);",
+        "",
+      ),
+    ).toBe(before);
+  });
+
+  test("🔴 what it says of the snippet is what the snippet does", () => {
+    // «asks your browser not to send us the referrer»
+    expect(
+      embedSnippet({
+        address: ADDRESS,
+        siteUrl: "https://camptribe.eu",
+        title: "t",
+        linkText: "l",
+      }),
+    ).toContain('referrerpolicy="no-referrer"');
+    // «the same fourteen days» — the term the section above it states.
+    expect(migration.page.body).toContain("- **Kept for:** fourteen days.");
   });
 });

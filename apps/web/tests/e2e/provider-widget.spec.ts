@@ -383,3 +383,24 @@ test.describe("the manual at /widget", () => {
     );
   });
 });
+
+test.describe("the privacy policy, as served", () => {
+  test.use({ javaScriptEnabled: false });
+
+  test("🔴 /legal/privacy tells a visitor of a campsite’s website what reaches us", async ({
+    page,
+  }) => {
+    await page.goto("/legal/privacy");
+    const main = page.locator("main");
+    await expect(main).toContainText("Our block on a campsite’s own website");
+    await expect(main).toContainText(
+      "your browser sends us one request, and that request becomes one line in the security log",
+    );
+    await expect(main).toContainText(
+      "the address of the page that led you to us, when your browser sends one (the referrer)",
+    );
+    await expect(page.getByTestId("legal-version")).toContainText(
+      "Version 2.9",
+    );
+  });
+});
