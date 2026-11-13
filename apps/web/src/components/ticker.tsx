@@ -1,4 +1,5 @@
-import type { CSSProperties, ReactNode } from "react";
+import { cloneElement, isValidElement } from "react";
+import type { CSSProperties, ReactElement, ReactNode } from "react";
 
 /**
  * Біжучий рядок (тікер) — CAMP-449, перша частина.
@@ -102,6 +103,38 @@ function isLive(item: ReactNode): boolean {
   return true;
 }
 
+/**
+ * Елемент для ДРУГОЇ копії доріжки — той самий, але поза порядком Tab.
+ *
+ * 🔴 ДЕФЕКТ, ЯКИЙ ТУТ ЛАГОДИТЬСЯ, БУВ СПРАВЖНІЙ, А НЕ ФЛУКТУАЦІЯ. Копія
+ * позначена `aria-hidden`, а елементи обох наших тікерів — посилання.
+ * Тобто клавіатура зупинялась на шести посиланнях, яких для екранного
+ * диктора не існує: WCAG 4.1.2, правило axe `aria-hidden-focus`.
+ *
+ * Чому `hub-axe` падав лише зрідка (43005814681, 43100999349,
+ * 43309227482 — щоразу webkit): axe вимикає це правило, поки на сторінці
+ * видно `role="dialog"`, а банер згоди на cookie — саме він, і зʼявляється
+ * він після гідратації. Встиг банер — порушення сховане; не встиг —
+ * показане. Заміряно на розмітці тікера без банера: 6 вузлів із 6 у
+ * chromium і webkit, щоразу.
+ *
+ * 🔴 `tabIndex={-1}`, А НЕ `inert`. `inert` прибрав би й клік мишею, а
+ * копія половину часу — та сама, що на екрані: назва регіону, на яку
+ * не можна натиснути, була б новим дефектом замість старого.
+ *
+ * Межа: знімає з порядку Tab сам елемент, а не те, що в нього вкладено.
+ * Обидва виклики передають посилання як корінь; сторож у
+ * `tests/unit/ticker.spec.tsx` читає відданий HTML і червоніє, щойно в
+ * прихованій копії зʼявиться щось фокусоване без `tabindex="-1"`.
+ */
+function outOfTabOrder(item: ReactNode): ReactNode {
+  return isValidElement(item)
+    ? cloneElement(item as ReactElement<{ tabIndex?: number }>, {
+        tabIndex: -1,
+      })
+    : item;
+}
+
 // Не експортується навмисно: тест має читати відданий HTML, а не цю константу.
 const TICKER_CSS = `
 .ct-ticker{overflow:hidden;display:flex;width:100%;font-size:var(--text-size-mobile);--animateEnd:-50%}
@@ -163,7 +196,7 @@ export function Ticker({
         ))}
         {live.map((item, i) => (
           <div className="ct-ticker__item" aria-hidden="true" key={`b${i}`}>
-            {item}
+            {outOfTabOrder(item)}
           </div>
         ))}
       </div>

@@ -36,6 +36,12 @@ export interface DisturbanceMarker {
   lon: number;
   /** Words for the map pin, from the CMS: "Possible disturbance: Airport, 3.2 km". */
   label: string;
+  /**
+   * 🔴 The sentence that says we did not measure noise, ON the marker: a pin
+   * cannot be built without the words it must be shown with. The map shows
+   * them when a pin is pressed and under the map always.
+   */
+  caveat: string;
 }
 export interface DisturbanceView {
   heading: string;
@@ -65,7 +71,11 @@ export function disturbanceView(
     s[slot] = sec;
   }
   // The caveat is the BODY of its section: the sentence itself, not a title.
-  if (!filled(s.caveat.body) || !filled(s.intro.body) || !filled(s['map-label'].heading))
+  // 🔴 The pin's template is the BODY of `map-label`, like the intro's: the
+  // page loader substitutes every HEADING from its own fixed list and throws
+  // on `{{kind}}` (page-content.ts, `applyValues`) — in a heading this
+  // template made the whole CMS page unloadable and the block vanish.
+  if (!filled(s.caveat.body) || !filled(s.intro.body) || !filled(s['map-label'].body))
     return null;
 
   const rows: DisturbanceRow[] = [];
@@ -87,7 +97,8 @@ export function disturbanceView(
       kind,
       lat: item.lat,
       lon: item.lon,
-      label: substitute(s['map-label'].heading!, { kind: label, distance }),
+      label: substitute(s['map-label'].body!, { kind: label, distance }),
+      caveat: s.caveat.body!,
     });
   }
   if (rows.length === 0) return null;

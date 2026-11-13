@@ -209,6 +209,13 @@ export function townClause(town: SpotContext['town']): string | null {
  *
  * It is OpenStreetMap's word, passed through unchanged, exactly like a
  * town's. Nothing is invented and no adjective is added.
+ *
+ * 🔴 "THE NEAREST" IS SAID OF A SUPERMARKET, because that is what this is:
+ * `context.supermarket` is `shop=supermarket` only. The services block on the
+ * same page prints the nearest food shop of ANY size (supermarket or
+ * convenience), which is often nearer — review found "the nearest food shop
+ * is 2.4 km away" above a shop 900 m away. "A food shop within walking
+ * distance" stays: it claims a shop, not the nearest one.
  */
 export function shopClause(shop: SpotContext['supermarket']): string | null {
   if (!shop || !Number.isFinite(shop.m)) return null;
@@ -220,11 +227,11 @@ export function shopClause(shop: SpotContext['supermarket']): string | null {
       : `there is a food shop within walking distance, ${d}`;
   }
   if (shop.m < 8000) {
-    return name ? `the nearest food shop is ${name}, ${d} away` : `the nearest food shop is ${d} away`;
+    return name ? `the nearest supermarket is ${name}, ${d} away` : `the nearest supermarket is ${d} away`;
   }
   return name
-    ? `stock up before you arrive: the nearest food shop is ${name}, ${d} off`
-    : `stock up before you arrive: the nearest food shop is ${d} off`;
+    ? `stock up before you arrive: the nearest supermarket is ${name}, ${d} off`
+    : `stock up before you arrive: the nearest supermarket is ${d} off`;
 }
 
 /**

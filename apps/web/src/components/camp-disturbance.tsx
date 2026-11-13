@@ -1,4 +1,5 @@
 import type { DisturbanceView } from '@/lib/disturbance';
+import { DISTURBANCE_BLOCK_ID } from '@/lib/site-map-view';
 
 // CAMP-502 — «Possible disturbance». Every word comes from `view` (the CMS page
 // camp-disturbance). `null` renders NOTHING. The caveat sits NEXT TO the
@@ -9,10 +10,10 @@ export default function CampDisturbance({ view }: { view: DisturbanceView | null
   return (
     <section
       data-testid="camp-disturbance"
-      aria-labelledby="camp-disturbance-heading"
+      aria-labelledby={DISTURBANCE_BLOCK_ID}
       className="mt-8"
     >
-      <h2 id="camp-disturbance-heading" className="text-xl md:text-[25px]">
+      <h2 id={DISTURBANCE_BLOCK_ID} className="text-xl md:text-[25px]">
         {view.heading}
       </h2>
       <p className="mt-2 max-w-read text-sm text-ink-2">{view.intro}</p>

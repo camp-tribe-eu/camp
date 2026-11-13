@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { NavItem } from "@/lib/navigation";
+import PersonaToggle, { type PersonaLabels } from "./persona-toggle";
 
 /**
  * Бургер-меню нижче 1200 px (CAMP-350).
@@ -60,7 +61,14 @@ const ITEM =
 const CHILD =
   "flex min-h-14 items-center text-xl font-semibold leading-tight text-ink-2";
 
-export function SiteNavDrawer({ items }: { items: NavItem[] }) {
+export function SiteNavDrawer({
+  items,
+  persona = null,
+}: {
+  items: NavItem[];
+  /** CAMP-501: на вузькій ширині перемикач «маю кемпер / орендую» живе тут. */
+  persona?: PersonaLabels | null;
+}) {
   const [open, setOpen] = useState(false);
   const panel = useRef<HTMLDivElement>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -271,6 +279,7 @@ export function SiteNavDrawer({ items }: { items: NavItem[] }) {
               aria-label="Main"
               className="min-h-0 flex-1 overflow-y-auto px-9"
             >
+              {persona && <PersonaToggle labels={persona} variant="drawer" />}
               <ul className="flex flex-col gap-3">
                 {items.map((item) => (
                   <li key={item.href}>

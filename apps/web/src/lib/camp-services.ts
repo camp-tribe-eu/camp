@@ -22,6 +22,9 @@ export const GROUPS = [
   { group: 'trouble', kinds: ['pharmacy', 'car_repair'] },
 ] as const;
 
+/** Mirrors RADIUS_KINDS in the API module (a spec compares them). */
+export const RADIUS_KINDS = ['water', 'dump'] as const;
+
 /** Page order. `ev_charging` — never `charging`/`electricity`. */
 export const KINDS = GROUPS.flatMap((g) => g.kinds) as unknown as readonly [
   'fuel',
@@ -40,6 +43,7 @@ export const SLOTS = [
   ...KINDS.map((k) => `kind-${k}`),
   'source',
   'onsite',
+  'within',
   'nearby',
   'unnamed',
   'hookup',
@@ -48,8 +52,11 @@ export const SLOTS = [
   'hookup-price',
 ] as const;
 
+/** Slots whose BODY is a template this module fills (`{{date}}`, `{{onsite}}`). */
+export const TEMPLATE_SLOTS = ['source', 'within'] as const;
+
 export interface ServiceLine {
-  where: 'onsite' | 'nearby';
+  where: 'onsite' | 'within' | 'nearby';
   label: string;
   /** The OSM name, or the CMS's "not named" wording. */
   name: string;
@@ -99,6 +106,12 @@ export function servicesView(
     if (!sec || !sec.heading || sec.heading.trim() === '') return null;
     s[slot] = sec;
   }
+  // 🔴 A TEMPLATE THE PAGE FILLS ITSELF LIVES IN A BODY, NEVER A HEADING. The
+  // CMS loader (page-content.ts applyValues) expands every heading against a
+  // fixed whitelist and throws on `{{date}}` / `{{onsite}}` — which is how the
+  // whole block went missing after CAMP-506. Bodies it leaves alone.
+  for (const slot of TEMPLATE_SLOTS)
+    if (!s[slot].body || s[slot].body.trim() === '') return null;
   const groups: ServiceGroup[] = [];
   for (const g of GROUPS) {
   const rows: ServiceRow[] = [];
@@ -106,16 +119,28 @@ export function servicesView(
     const item = payload.items.find((i) => i.kind === kind);
     if (!item) continue;
     const lines: ServiceLine[] = [];
-    for (const [where, p] of [['onsite', item.onSite], ['nearby', item.nearby]] as const) {
+    // 🔴 `within` is a DISTANCE (no outline mapped; water and dump only), and
+    // the page takes it only for those kinds — it never becomes "on site".
+    const within = (RADIUS_KINDS as readonly string[]).includes(kind)
+      ? item.withinRadius
+      : null;
+    for (const [where, p] of [
+      ['onsite', item.onSite],
+      ['within', within],
+      ['nearby', item.nearby],
+    ] as const) {
       if (!p) continue;
       lines.push({
         where,
-        label: s[where].heading!,
+        label:
+          where === 'within'
+            ? substitute(s.within.body!, { onsite: formatDistance(payload.onSiteM) })
+            : s[where].heading!,
         name: p.name ?? s.unnamed.heading!,
         distance: formatDistance(p.metres),
         source:
           typeof p.seen === 'string' && p.seen !== ''
-            ? substitute(s.source.heading!, { date: p.seen })
+            ? substitute(s.source.body!, { date: p.seen })
             : null,
       });
     }

@@ -115,6 +115,25 @@ test.describe('the catalogue disclosure says what is on the page', () => {
     expect(text([guide('data-generated')])).toContain('written by a program');
   });
 
+  // 🔴 Сусідній тест бере сторінку з ОДНИМИ лічильниками. Дефект жив на
+  // мішаній: умова «чи друкувати імена» дивилась на найсильніше
+  // походження сторінки, а перелік імен збирався з усіх гайдів — тож
+  // один гайд моделі витягав на сторінку й `region-facts@2`.
+  test('🔴 a counted guide beside a model-written one still does not print its internal name', () => {
+    const out = render([
+      guide('ai-assisted', 'drafter@1'),
+      guide('data-generated', 'region-facts@2'),
+    ]);
+    // Якір: імʼя моделі Є — інакше «немає region-facts» було б правдою
+    // й на сторінці, яка перестала називати програми взагалі.
+    expect(out).toContain('The program is <span><code>drafter@1</code></span>');
+    expect(out).not.toContain('region-facts');
+    // …а про лічильник сказано словами.
+    expect(text([guide('ai-assisted', 'drafter@1'), guide('data-generated')])).toContain(
+      'written by a program that counted',
+    );
+  });
+
   test('…and a page with nothing on it says nothing', () => {
     expect(render([])).toBe('');
   });
