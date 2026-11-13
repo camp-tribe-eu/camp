@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { NotFoundException } from '@nestjs/common';
 import type { DataSource } from 'typeorm';
 import { MEASURES } from './data-quality';
@@ -8,7 +9,10 @@ import { CACHE_MS, DataQualityService } from './data-quality.service';
 // database is asked for it. The numbers themselves are
 // data-quality.db.spec.ts; here the database is a counter.
 
-const TOKEN = 'a-build-token-for-this-spec';
+// 🔴 Made up per run, never written down: a literal here is a string
+// shaped like a credential in a public repository, and the secret scan
+// is right to refuse it.
+const TOKEN = randomBytes(18).toString('hex');
 
 function fakeDb(opts: { failConnect?: () => boolean } = {}) {
   const calls = { connects: 0, releases: 0, measures: 0, runs: 0 };

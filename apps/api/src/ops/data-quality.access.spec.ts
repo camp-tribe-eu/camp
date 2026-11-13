@@ -1,8 +1,12 @@
+import { randomBytes } from 'node:crypto';
 import { mayReadQuality } from './data-quality.access';
 
 // CAMP-522 — the report is the site's own server's to read, nobody else's.
 
-const TOKEN = 'a-build-token-for-this-spec';
+// 🔴 Made up per run, never written down: a literal here is a string
+// shaped like a credential in a public repository, and the secret scan
+// is right to refuse it.
+const TOKEN = randomBytes(18).toString('hex');
 
 describe('who may read the data-quality report', () => {
   it('the caller that presents the configured build token', () => {
@@ -10,7 +14,10 @@ describe('who may read the data-quality report', () => {
   });
 
   it('nobody with another token, a prefix of it, or a longer one', () => {
-    expect(mayReadQuality('another-token-entirely-here', TOKEN)).toBe(false);
+    // the same length, so only the comparison itself can refuse it
+    const other = randomBytes(18).toString('hex');
+    expect(other).toHaveLength(TOKEN.length);
+    expect(mayReadQuality(other, TOKEN)).toBe(false);
     expect(mayReadQuality(TOKEN.slice(0, -1), TOKEN)).toBe(false);
     expect(mayReadQuality(`${TOKEN}x`, TOKEN)).toBe(false);
   });
