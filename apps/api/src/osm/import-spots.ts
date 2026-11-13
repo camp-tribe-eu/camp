@@ -28,6 +28,11 @@ import {
   OsmTags,
 } from './tag-mapping';
 import { isEuMemberState } from './eu';
+import {
+  mapTravelStyles,
+  TRAVEL_STYLE_KEYS,
+  type TravelStyles,
+} from './travel-styles';
 import { foldToAscii } from '../spots/canonical';
 import { correctRegion, isKnownRegion } from './region-names';
 import {
@@ -560,7 +565,8 @@ export const UPSERT_SPOT_SQL = `INSERT INTO camping_spots
            (name, country, region, slug, type, amenities, location,
             osm_ref, last_seen_at, missing_since, content_changed_at, sources,
             contact, overnight_status, overnight_source, overnight_checked_at,
-            osm_record_edited_at, osm_record_version, osm_record_ref, outline)
+            osm_record_edited_at, osm_record_version, osm_record_ref, outline,
+            travel_styles)
          -- 🔴 $8::text in BOTH places, not just in the JSON below.
          --
          -- osm_ref is character varying, so an uncast $8 here made
@@ -617,7 +623,11 @@ export const UPSERT_SPOT_SQL = `INSERT INTO camping_spots
                  -- where the importer built this row from several objects and
                  -- the newest of them is not the one the row is keyed on.
                  $13::timestamptz, $14::integer, $15::text,
-                 ST_GeomFromText($16, 4326))
+                 ST_GeomFromText($16, 4326),
+                 -- 🔴 CAMP-520. Each entry arrives WITH its source from the
+                 -- mapper (osm/travel-styles.ts); the table's CHECK refuses
+                 -- an entry without one.
+                 $17::jsonb)
          ON CONFLICT (osm_ref) DO UPDATE SET
            name          = EXCLUDED.name,
            country       = EXCLUDED.country,
@@ -661,6 +671,12 @@ export const UPSERT_SPOT_SQL = `INSERT INTO camping_spots
            -- описує нічого, і лишати його означало б показувати
            -- читачеві форму, якої вже немає.
            outline       = EXCLUDED.outline,
+           -- 🔴 CAMP-520. Rewritten from the tags on EVERY run: a
+           -- seasonal=no a mapper later deletes must stop being «open in
+           -- winter» the next Monday. Empty in, empty out. NOT in the
+           -- content_changed_at comparison below: the campsite page does
+           -- not print it, so it must not restamp that page's lastmod.
+           travel_styles = EXCLUDED.travel_styles,
            last_seen_at  = EXCLUDED.last_seen_at,
            missing_since = NULL,
            -- 🔴 CAMP-101. Replace only OUR entry; keep every other
@@ -812,6 +828,12 @@ export interface UpsertSpotValues {
    * no way to spell it (see RecordEdit), which is the point.
    */
   record: RecordEdit | null;
+  /**
+   * CAMP-520: what `mapTravelStyles` returned. Optional so that a caller
+   * with no tags to read (a rehearsal, a spec about something else) writes
+   * `{}` — "nothing known" — and cannot write a label by forgetting.
+   */
+  travelStyles?: TravelStyles;
 }
 
 export function upsertSpotParams(v: UpsertSpotValues): unknown[] {
@@ -837,6 +859,8 @@ export function upsertSpotParams(v: UpsertSpotValues): unknown[] {
     // двічі кожен). Зсув, який компілятор не бачить, — найдешевший
     // спосіб переплутати країну з регіоном.
     v.outlineWkt ?? null,
+    // $17 — appended, for the reason $16 was.
+    JSON.stringify(v.travelStyles ?? {}),
   ];
 }
 
@@ -1011,6 +1035,11 @@ async function main(): Promise<void> {
   // stopped recognising `yes` would otherwise look exactly like a
   // country with no tags.
   const overnightCounts = { allowed: 0, forbidden: 0, unknown: 0 };
+  // CAMP-520: the run prints its own coverage, with its denominator.
+  const styleCounts = {
+    winter: { yes: 0, no: 0 },
+    adultsOnly: { yes: 0, no: 0 },
+  };
   const overnightLeft = new Map<string, number>();
   // CAMP-288: how many names this run corrected, and which it could not.
   let renamed = 0;
@@ -1110,6 +1139,11 @@ async function main(): Promise<void> {
       const contact = mapContact(row.tags);
       const type = mapSpotType(row.tags).type;
       const overnight = mapOvernight(row.tags);
+      const travelStyles = mapTravelStyles(row.tags);
+      for (const key of TRAVEL_STYLE_KEYS) {
+        const entry = travelStyles[key];
+        if (entry) styleCounts[key][entry.value]++;
+      }
       overnightCounts[overnight.status]++;
       if (overnight.leftUnknownBecause) {
         overnightLeft.set(
@@ -1148,6 +1182,7 @@ async function main(): Promise<void> {
           overnightStatus: overnight.status,
           overnightSource: overnight.source,
           record: record.edit,
+          travelStyles,
         }),
       );
       if (res.rows[0]?.was_insert) inserted++;
@@ -1257,6 +1292,9 @@ async function main(): Promise<void> {
     );
     console.log(
       `  overnight stay     allowed ${overnightCounts.allowed} · forbidden ${overnightCounts.forbidden} · unknown ${overnightCounts.unknown}  (motorhome tag — CAMP-255)`,
+    );
+    console.log(
+      `  travel styles      winter yes ${styleCounts.winter.yes} · no ${styleCounts.winter.no} · adults-only yes ${styleCounts.adultsOnly.yes} · no ${styleCounts.adultsOnly.no}  of ${deduped.length} rows (CAMP-520)`,
     );
     for (const [why, n] of [...overnightLeft]
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
