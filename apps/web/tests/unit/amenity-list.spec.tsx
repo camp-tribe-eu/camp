@@ -31,6 +31,11 @@ const render = (values: Record<AmenityKey, AmenityValue>) =>
     keys: AMENITY_KEYS,
     labels: AMENITY_LABEL,
     values,
+    // CAMP-521: статус походження — те, що дає сторінка для імпортованого
+    // запису; що саме тут друкується, читає `trust-status.spec.tsx`.
+    trust: Object.fromEntries(
+      AMENITY_KEYS.map((k) => [k, values[k] === 'unknown' ? 'unknown' : 'imported']),
+    ) as Record<AmenityKey, 'unknown' | 'imported'>,
   });
 
 /** Скільки значків зручностей у виводі — рахуємо ЕЛЕМЕНТИ, не згадки. */
@@ -115,6 +120,7 @@ test('🔴 порожній перелік не малює рамки', () => {
     rendersNothing(AmenityList, {
       keys: [],
       labels: AMENITY_LABEL,
+      trust: {} as Record<AmenityKey, 'imported'>,
       values: all('unknown'),
     }),
   ).toBe(true);
