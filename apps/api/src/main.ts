@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { corsOptions } from './cors';
+import { keepAliveTimeoutMs } from './keep-alive';
 
 // CAMP-32 made this necessary: until now every call to the API came from
 // the Next build on the server, and the browser never spoke to it. The
@@ -77,6 +78,16 @@ async function bootstrap() {
   // через AST і червоніє без адреси, на wildcard, на `localhost` (біндить
   // лише ::1, а Caddy ходить на 127.0.0.1), на `??` і на будь-якому виразі
   // без `|| '127.0.0.1'` — голий `process.env.HOST` дає `::`.
+  // See keep-alive.ts: unset in production, set by the CI fixture.
+  const keepAlive = keepAliveTimeoutMs(process.env.HTTP_KEEP_ALIVE_TIMEOUT_MS);
+  if (keepAlive !== undefined) {
+    const server = app.getHttpServer() as import('node:http').Server;
+    server.keepAliveTimeout = keepAlive;
+    // Node refuses to let headers outlive the connection they arrive on.
+    server.headersTimeout = Math.max(server.headersTimeout, keepAlive + 1000);
+    console.log(`[http] keep-alive timeout: ${keepAlive} ms`);
+  }
+
   await app.listen(process.env.PORT ?? 3000, process.env.HOST || '127.0.0.1');
 }
 bootstrap();
