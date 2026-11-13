@@ -268,7 +268,8 @@ describe('🔴 CAMP-256: the OSM edit date in the weekly upsert', () => {
     const highest = Math.max(
       ...[...code.matchAll(/\$(\d+)/g)].map((m) => Number(m[1])),
     );
-    expect(highest).toBe(16);
+    // 17: CAMP-520 appended `travel_styles`.
+    expect(highest).toBe(17);
     expect(upsertSpotParams(values)).toHaveLength(highest);
   });
 

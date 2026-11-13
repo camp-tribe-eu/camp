@@ -6,13 +6,15 @@
 // "family-friendly" is not a playground. A style exists on a row exactly
 // when a source said the thing itself, and the source travels with it.
 //
-// 🔴 WHAT WAS MEASURED BEFORE ANYTHING WAS BUILT (production, 13.11.2026,
-// `osm_camping_staging` — the last country imported, which is FRANCE:
-// 12 968 OSM objects, 12 836 of the 12 885 that match a row are FR):
+// 🔴 WHAT WAS MEASURED BEFORE ANYTHING WAS BUILT (production, 13.11.2026).
+// The raw tags on production are `osm_camping_staging` — the LAST country
+// imported, which is FRANCE: 12 968 OSM objects (12 836 of the 12 885 that
+// match a row are FR). The other 26 countries' tags are not on the
+// machine; their coverage is first known when the importer prints it.
+// THIS FILE's rules, run over those 12 968 tag sets:
 //
-//   winter       seasonal=no 1 030 · opening_hours=24/7 1 054 · either 1 534
-//                a plain month range (`Apr-Oct`) 628         → known ≈ 16 %
-//   adultsOnly   min_age ≥ 18: 4 objects                      → 0.03 %
+//   winter       yes 1 550 (11.95 %) · no 610 · known 16.66 %
+//   adultsOnly   yes 4 (0.03 %) · no 0
 //   family       no tag says it. `playground=yes` (40) is an indirect sign.
 //   quiet        `quiet_time` on 1 object, and it is a curfew, not a claim.
 //

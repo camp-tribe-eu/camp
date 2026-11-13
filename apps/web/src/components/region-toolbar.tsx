@@ -170,7 +170,7 @@ const TOOLBAR_CSS = `
 .ct-filters__group + .ct-filters__group{margin-top:16px}
 .ct-filters__label{display:flex;align-items:center;gap:12px;margin:0 0 8px;font-size:.875rem;font-weight:500;line-height:1.333;color:var(--color-ink-2)}
 .ct-chips{display:flex;flex-wrap:wrap;gap:8px}
-.ct-filters__note{margin:8px 0 0;max-width:70ch;font-size:.875rem;line-height:1.5;color:var(--color-ink-2)}
+.ct-filters__note{margin:8px 0 0;font-size:.875rem;line-height:1.5;color:var(--color-ink-2)}
 .ct-check{display:inline-flex;align-items:center;gap:12px;padding:12px 16px;line-height:1.5;border-radius:var(--r,16px);border:1px solid var(--color-line);background-color:var(--color-surface);color:var(--color-heading);text-decoration:none;transition:border-color .4s,background-color .4s,color .4s,box-shadow .4s}
 .ct-check__box{position:relative;display:inline-flex;justify-content:center;align-items:center;flex-shrink:0;width:24px;height:24px;border:1px solid var(--color-line);border-radius:calc(var(--r,16px) / 2);background-color:var(--color-surface)}
 .ct-check__box svg{width:14px;height:14px;opacity:0;color:var(--color-surface);transition:opacity .2s}
