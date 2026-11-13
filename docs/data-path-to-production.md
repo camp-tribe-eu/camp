@@ -177,3 +177,79 @@ node -e "…gunzipSync…"  → фіч: 14 | @timestamp: true
 кемпінги вже передано далі; `import-route-poi.mjs` на машині з тією самою
 межею віку (`--max-age-days 9` проти бюджету 10 діб); часткова поставка
 видаляє невидані рядки лише в країнах, чий файл приїхав.
+
+## Шар hazard (CAMP-502): як таблиця `osm_ctx_hazard` потрапляє на машину
+
+Блок «Possible disturbance» на сторінці кемпінга рахує відстань до рядків
+`osm_ctx_hazard` (автомагістралі й trunk, залізничні лінії, аеропорти) на
+КОЖНОМУ запиті сторінки. Міграція створює таблицю порожньою; порожня таблиця
+означає «блоку немає ніде», і про це щодня кричить
+`camptribe-disturbance-check`.
+
+**Що заміряно 13.11.2026** (ноутбук, 27 екстрактів Geofabrik від 25.09.2026):
+
+| що | число | команда |
+| --- | --- | --- |
+| рядків у шарі ЄС-27 | **2 985 001** | `wc -l ctx_hazard.geojsonl` |
+| вивантаження | 739 МБ, у gzip **148 МБ** | `ls -l`, `gzip -6` (13,8 с) |
+| `osmium tags-filter` по 27 екстрактах | 146 с | `date +%s` до й після циклу |
+| `osmium merge` + `osmium export` | 13 с | те саме |
+| перше завантаження в порожню таблицю | **38 с**, node 199 МБ RSS | `/usr/bin/time -l node load-hazard.mjs` |
+| повторне (заміна 2 985 001 рядка) | 60 с | те саме |
+| таблиця після першого завантаження | 483 МБ + 186 МБ індекс | `pg_table_size`, `pg_indexes_size` |
+| після повторного (мертві рядки до наступного VACUUM) | 966 МБ + 375 МБ | те саме |
+| `pg_dump -Fc -t osm_ctx_hazard` | 249 МБ | `pg_dump … \| wc -c` |
+| сторож на повному шарі й 52 549 кемпінгах | 11,6 с | `time npx ts-node src/spots/check-disturbance.ts` |
+
+На машині не міряно нічого: час там — оцінка (4 vCPU проти 8 ядер ноутбука,
+тобто хвилини, а не секунди).
+
+**Чому не `ogr2ogr` і не `move-table.sh`.** `ogr2ogr -overwrite` створює
+колонку лише для тегу, який є у вивантаженні, і видаляє живу таблицю: на
+вивантаженні без жодного `tunnel` кожна сторінка кемпінга відповідала
+`column x.tunnel does not exist` (рецензія #557). На машині GDAL немає взагалі.
+`move-table.sh` замінює таблицю цілком (DROP у транзакції) — для таблиці, яку
+сторінка читає щосекунди, це зайвий ACCESS EXCLUSIVE. `load-hazard.mjs`
+потребує лише node і psql, пише у таблицю міграції з фіксованим переліком
+колонок і міняє рядки `DELETE` + `INSERT` в одній транзакції: читач бачить
+старі рядки до COMMIT і нові після, таблиця та її права лишаються тими самими.
+
+**Кроки.**
+
+1. Ноутбук — зібрати вивантаження (лише шар hazard, решту шарів не чіпає):
+
+   ```
+   CTX_LAYERS=hazard ./scripts/osm-pipeline/load-context.sh \
+     europe/austria europe/belgium … (усі 27)
+   ```
+
+   Файл лишається в `~/camptribe-osm/ctx_hazard.geojsonl`. 🔴 Скрипт звіряє
+   кожен екстракт із тим, що Geofabrik публікує СЬОГОДНІ; якщо дата змінилась,
+   він качає екстракт знову (25 ГБ, з ноутбука години).
+2. `gzip -k ctx_hazard.geojsonl` і `scp` на машину в `/var/tmp/`
+   (148 МБ; при заміряних 2,07 МБ/с — близько 70 с).
+3. Машина, ПІСЛЯ деплою (міграція створює таблицю, реліз несе скрипт):
+
+   ```
+   chmod 644 /var/tmp/ctx_hazard.geojsonl.gz
+   systemd-run --unit=camp502-hazard-load --wait --collect --pipe \
+     --uid=camptribe --gid=camptribe \
+     --property=EnvironmentFile=/srv/camptribe/current/apps/api/.env \
+     --property=WorkingDirectory=/srv/camptribe/current \
+     --property=Nice=10 --property=IOSchedulingClass=idle \
+     /usr/bin/node scripts/osm-pipeline/load-hazard.mjs --file /var/tmp/ctx_hazard.geojsonl.gz
+   ```
+
+   Успіх — рядок `✓ osm_ctx_hazard: 2 985 001 рядків із 2 985 001 у файлі`.
+   Будь-яка відмова лишає таблицю як була. Місце: 0,67 ГБ таблиця з індексом
+   і на час завантаження ще проміжна нежурнальована таблиця (текст GeoJSON,
+   порядку розміру файлу, 0,74 ГБ) плюс WAL; після повторних завантажень
+   таблиця тримається біля 1,34 ГБ.
+4. Перевірка: `systemctl start camptribe-disturbance-check.service` і
+   `journalctl -u camptribe-disturbance-check -n 5` — рядок
+   `✓ block on N of M campsites with a page; countries with the block: …`.
+   Сторінки кемпінгів оновлюються за своїм ISR (доба), а не миттєво.
+
+Менше ніж половина наявних рядків — відмова (типова помилка: завантажили одну
+країну замість двадцяти семи); свідоме зменшення — прапорець `--allow-shrink`.
+

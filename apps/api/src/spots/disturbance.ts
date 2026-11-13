@@ -30,6 +30,13 @@
 // further than a road does, and 10 km would flag one campsite in eleven.
 // These are not a noise model and the page does not call them one.
 //
+// 🔴 THE TABLE'S SHAPE IS THE MIGRATION'S, ALWAYS. This is a scalar subquery of
+// SPOT_DETAIL_SQL: a column missing here is an error on EVERY campsite page.
+// `ogr2ogr -overwrite` used to make the table, with a column only for a tag
+// the export contained (review of #557: no tunnel in the export, no `tunnel`
+// column, `column x.tunnel does not exist`). scripts/osm-pipeline/
+// load-hazard.mjs now fills the migration's table with a fixed column list.
+//
 // WHAT COUNTS (the layer `osm_ctx_hazard` is a plain copy of the tags, see
 // scripts/osm-pipeline/load-context.sh; the rules are here):
 //   road     highway = motorway | trunk, not in a tunnel.
@@ -48,7 +55,8 @@ export const DISTURBANCE_RADIUS_M: Record<DisturbanceKind, number> = {
   airport: 5_000,
 };
 
-const FILTER: Record<DisturbanceKind, string> = {
+/** Exported for the coverage sentry (check-disturbance.ts): one rule, read twice. */
+export const DISTURBANCE_FILTER: Record<DisturbanceKind, string> = {
   road: `x.highway IN ('motorway','trunk') AND (x.tunnel IS NULL OR x.tunnel = 'no')`,
   rail: `x.railway = 'rail' AND x.service IS NULL AND (x.tunnel IS NULL OR x.tunnel = 'no')`,
   airport: `x.aeroway = 'aerodrome' AND x.iata IS NOT NULL`,
@@ -86,7 +94,7 @@ export function disturbanceSql(
                'lat', ST_Y(ST_ClosestPoint(x.geom, ${spotLocationExpr})),
                'name', x.name)
         FROM osm_ctx_hazard x
-       WHERE ${FILTER[kind]}
+       WHERE ${DISTURBANCE_FILTER[kind]}
          AND x.geom && ST_Expand(${spotLocationExpr}, ${deg})
          AND ST_DWithin(${spotLocationExpr}::geography, x.geom::geography, ${m})
        ORDER BY ST_Distance(${spotLocationExpr}::geography, x.geom::geography), x.ogc_fid

@@ -1,6 +1,7 @@
 import SiteMapEmbed from './site-map-embed';
 import type { Outline } from '@/lib/outline';
 import type { DisturbanceMarker } from '@/lib/disturbance';
+import { DISTURBANCE_BLOCK_ID, DISTURBANCE_PIN_COLOUR } from '@/lib/site-map-view';
 
 /**
  * Медіаслот сторінки кемпінгу (CAMP-344).
@@ -131,6 +132,29 @@ export function CampsiteMedia({
         />
       </div>
       <figcaption className="mt-2 text-xs text-ink-2" data-outline={outline ? 'yes' : 'no'}>
+        {/* 🔴 CAMP-502: WHAT THE «!» PINS ARE, IN THE HTML, NEXT TO THE MAP.
+            The pins live in a client island: without JavaScript or WebGL
+            there are none, on a phone a `title` does not exist, and a far
+            airport is outside the first view. So every pin is named here
+            with its distance, followed by the sentence that we did not
+            measure noise — the same words the pressed pin shows. All of it
+            comes from the CMS through the markers; nothing is typed here.
+            No markers, no line. */}
+        {disturbance.length > 0 && (
+          <span data-testid="disturbance-legend" className="mb-1.5 block">
+            <span
+              aria-hidden="true"
+              className="mr-1.5 inline-block h-4 w-4 rounded-full text-center text-[11px] font-bold leading-4 text-white"
+              style={{ background: DISTURBANCE_PIN_COLOUR }}
+            >
+              !
+            </span>
+            <a href={`#${DISTURBANCE_BLOCK_ID}`} className="underline">
+              {disturbance.map((d) => d.label).join(' · ')}
+            </a>
+            . {disturbance[0].caveat}
+          </span>
+        )}
         {/* 🔴 Два речення, і друге — причина. Без нього мапа читається як
             «фото не завантажилось».
 

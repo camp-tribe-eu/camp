@@ -11,6 +11,12 @@ import {
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { MAP_SOURCES } from '@/lib/map-sources';
 import type { DisturbanceMarker } from '@/lib/disturbance';
+import {
+  DISTURBANCE_PIN_COLOUR,
+  fitBox,
+  pinAttributes,
+  SITE_ZOOM,
+} from '@/lib/site-map-view';
 import { TYPE_COLOUR } from '@/lib/map-palette';
 import {
   outlineBounds,
@@ -43,22 +49,7 @@ import {
 // Область модуля, тож виконується до того, як збудується перша мапа.
 setWorkerUrl('/maplibre/maplibre-gl-worker.mjs');
 
-type Box = [[number, number], [number, number]];
-
-/** CAMP-502: the box widened to hold every pin, so a far pin is not off-screen. */
-function withPins(box: Box, pins: readonly DisturbanceMarker[]): Box {
-  let [[w, so], [e, n]] = box;
-  for (const d of pins) {
-    w = Math.min(w, d.lon);
-    e = Math.max(e, d.lon);
-    so = Math.min(so, d.lat);
-    n = Math.max(n, d.lat);
-  }
-  return [[w, so], [e, n]];
-}
-
-/** Zoom, на якому видно ділянку і дорогу до неї, але ще читається село. */
-const ZOOM = 15;
+const ZOOM = SITE_ZOOM;
 
 
 export default function SiteMap({
@@ -79,6 +70,10 @@ export default function SiteMap({
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
+  // CAMP-502: which pin's note is open (its kind), and the pins' elements so
+  // `aria-expanded` can follow it.
+  const [openKind, setOpenKind] = useState<string | null>(null);
+  const pinEls = useRef(new Map<string, HTMLElement>());
 
   // 🔴 КЛЮЧ, А НЕ ОБʼЄКТ, У ЗАЛЕЖНОСТЯХ ЕФЕКТУ.
   //
@@ -206,11 +201,14 @@ export default function SiteMap({
             box.current?.setAttribute('data-outline-layer', 'false');
             return;
           }
-          map.fitBounds(withPins(bounds, disturbance), {
+          // 🔴 The outline, the campsite's point and the NEAR pins only: a
+          // distant airport must not shrink the site to a dot (site-map-view.ts).
+          map.fitBounds(fitBox(lat, lon, bounds, disturbance) ?? bounds, {
             padding: 28,
             animate: false,
             maxZoom: ZOOM,
           });
+          box.current?.setAttribute('data-zoom', map.getZoom().toFixed(2));
           // 🔴 СИГНАЛ ПРО СТАН МАПИ, А НЕ ПРО ПІКСЕЛІ.
           //
           // Перша редакція ставила його через `queryRenderedFeatures` по
@@ -251,35 +249,44 @@ export default function SiteMap({
         .addTo(map);
       // CAMP-502: a pin where each possible disturbance comes closest. The words
       // are the CMS's (`map-label`); the pin says "possible", never "noise".
+      // CAMP-502: a pin where each object comes closest. 🔴 A pin is a
+      // BUTTON: pressing it (tap, click, Enter, Space) opens the note with its
+      // label and the sentence that we did not measure noise. A `title` alone
+      // does not exist on a touch screen.
+      const pins = pinEls.current;
+      pins.clear();
+      setOpenKind(null);
       for (const d of disturbance) {
         const el = document.createElement('div');
-        el.setAttribute('data-testid', 'disturbance-marker');
-        el.setAttribute('data-kind', d.kind);
-        el.setAttribute('role', 'img');
-        el.setAttribute('aria-label', d.label);
-        el.title = d.label;
+        for (const [k, v] of Object.entries(pinAttributes(d, false)))
+          el.setAttribute(k, v);
         el.textContent = '!';
         el.style.cssText =
-          'width:22px;height:22px;border-radius:50%;background:#B45309;color:#fff;' +
-          'font:700 14px/22px sans-serif;text-align:center;border:2px solid #fff;' +
-          'box-shadow:0 1px 3px rgba(0,0,0,.4)';
+          `width:28px;height:28px;border-radius:50%;background:${DISTURBANCE_PIN_COLOUR};color:#fff;` +
+          'font:700 15px/24px sans-serif;text-align:center;border:2px solid #fff;' +
+          'box-shadow:0 1px 3px rgba(0,0,0,.4);cursor:pointer';
+        const toggle = () =>
+          setOpenKind((was) => (was === d.kind ? null : d.kind));
+        el.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          toggle();
+        });
+        el.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter' || ev.key === ' ') {
+            ev.preventDefault();
+            ev.stopPropagation();
+            toggle();
+          } else if (ev.key === 'Escape') setOpenKind(null);
+        });
+        pins.set(d.kind, el);
         new Marker({ element: el }).setLngLat([d.lon, d.lat]).addTo(map);
       }
-      // A pin 4 km away is off-screen at the campsite's own zoom: frame them all.
-      if (disturbance.length > 0)
-        map.fitBounds(withPins([[lon, lat], [lon, lat]], disturbance), {
-          padding: 48,
-          animate: false,
-          maxZoom: ZOOM,
-        });
-      // 🔴 ВІДКАТ ЛИШЕ ДО ЗАВАНТАЖЕННЯ, А НЕ НА БУДЬ-ЯКУ ПОМИЛКУ.
-      // Перша редакція ставила `failed` на кожну подію `error` — а
-      // MapLibre шле її і за одну плитку, що не приїхала. Мапа,
-      // побудована й робоча, зникала б від однієї мережевої гикавки, і
-      // читач бачив би «немає WebGL» там, де WebGL є.
-      //
-      // До `load` помилка означає стиль або воркер, тобто мапи не буде
-      // взагалі. Після — означає плитку, і з цим мапа живе.
+      // Before the style loads, so the first frame is already the right one.
+      // With an outline the `load` handler fits again, outline included.
+      const first = fitBox(lat, lon, null, disturbance);
+      if (first)
+        map.fitBounds(first, { padding: 48, animate: false, maxZoom: ZOOM });
+      box.current.setAttribute('data-zoom', map.getZoom().toFixed(2));
       let ready = false;
       map.on('load', () => {
         ready = true;
@@ -337,6 +344,12 @@ export default function SiteMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lat, lon, type, outlineKey, disturbanceKey]);
 
+  useEffect(() => {
+    for (const [kind, el] of pinEls.current)
+      el.setAttribute('aria-expanded', kind === openKind ? 'true' : 'false');
+  }, [openKind]);
+  const openPin = disturbance.find((d) => d.kind === openKind) ?? null;
+
   // 🔴 КОНТЕЙНЕР РЕНДЕРИТЬСЯ ЗАВЖДИ, А ЗАПАСНИЙ ТЕКСТ ЛЯГАЄ ПОВЕРХ.
   // Перша редакція повертала при `failed` зовсім іншу гілку — БЕЗ `ref`.
   // Наслідок знайшла рецензія і він гірший, ніж здається: `failed`
@@ -352,6 +365,24 @@ export default function SiteMap({
   return (
     <div className="relative h-full w-full">
       <div ref={box} data-testid="site-map" className="h-full w-full rounded-card" />
+      {/* CAMP-502: the pressed pin's words. Top-left, clear of the zoom
+          control (top-right) and of the attribution (bottom). Both sentences
+          come from the CMS through the marker; nothing is typed here. */}
+      {openPin && !failed && (
+        <div
+          id="disturbance-note"
+          data-testid="disturbance-note"
+          data-kind={openPin.kind}
+          role="status"
+          // On a phone the map is 258 px tall and the note takes much of it:
+          // a tap on the note puts it away (the pin and Escape do too).
+          onClick={() => setOpenKind(null)}
+          className="absolute left-2 top-2 z-10 max-w-[calc(100%-4rem)] rounded-card border border-line-2 bg-surface p-2 text-xs leading-snug text-ink shadow-md md:p-3 md:text-sm"
+        >
+          <p className="font-semibold">{openPin.label}</p>
+          <p className="mt-1 text-ink-2">{openPin.caveat}</p>
+        </div>
+      )}
       {failed && (
         <div
           data-testid="site-map-fallback"

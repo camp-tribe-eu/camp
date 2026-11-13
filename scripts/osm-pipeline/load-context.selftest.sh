@@ -131,7 +131,21 @@ case "$1" in
   *) : > "$out" ;;
 esac
 SHIM
-printf '#!/usr/bin/env bash\nexit 0\n' > "$BIN/ogr2ogr"
+# ogr2ogr and the hazard loader write down what they were asked, so a
+# scenario can say which program was handed which table (CAMP-502).
+CALLS="$ROOT/calls.log"
+cat > "$BIN/ogr2ogr" <<SHIM
+#!/usr/bin/env bash
+echo "ogr2ogr \$*" >> "$CALLS"
+exit 0
+SHIM
+cat > "$BIN/load-hazard" <<SHIM
+#!/usr/bin/env bash
+echo "load-hazard \$* db=\${DATABASE_URL:-}" >> "$CALLS"
+exit "\${HAZARD_SHIM_RC:-0}"
+SHIM
+chmod +x "$BIN/load-hazard"
+export HAZARD_LOADER_BIN="$BIN/load-hazard"
 # The row check compares psql's count with `wc -l` of the export: two.
 printf '#!/usr/bin/env bash\necho 2\n' > "$BIN/psql"
 chmod +x "$BIN/osmium" "$BIN/ogr2ogr" "$BIN/psql"
@@ -371,6 +385,47 @@ if [ $rc -ne 0 ] && grep -q 'nowhere to put' <<<"$out"; then
   pass "an empty HOME is refused, not turned into /camptribe-osm"
 else
   fail "an empty HOME was accepted; rc=$rc: $out"
+fi
+
+# ── CAMP-502: the hazard layer never goes through ogr2ogr ────────────
+#
+# ogr2ogr makes a column only for a tag the export contains and DROPs the
+# table it overwrites; the campsite page reads osm_ctx_hazard on every
+# request. Review of #557 reproduced `column x.tunnel does not exist` on
+# every campsite page from an export with no tunnel in it.
+: > "$CALLS"
+out=$(WORK_DIR="$ROOT/h1" DATABASE_URL='postgres://h/x' PATH="$BIN:$PATH" bash "$SCRIPT" europe/malta 2>&1); rc=$?
+if [ $rc -eq 0 ] && ! grep -q 'ogr2ogr .*osm_ctx_hazard' "$CALLS" &&
+   [ "$(grep -c '^ogr2ogr ' "$CALLS")" = 3 ] &&
+   grep -q '^load-hazard --file ctx_hazard.geojsonl db=postgres://h/x$' "$CALLS"; then
+  pass "hazard is loaded by its own loader, with the database it was given; ogr2ogr gets the other three"
+else
+  fail "hazard went the wrong way; rc=$rc calls: $(cat "$CALLS") — $out"
+fi
+
+: > "$CALLS"
+out=$(CTX_LAYERS=hazard WORK_DIR="$ROOT/h2" PATH="$BIN:$PATH" bash "$SCRIPT" europe/malta 2>&1); rc=$?
+if [ $rc -eq 0 ] && ! grep -q '^ogr2ogr ' "$CALLS" && grep -q '^load-hazard ' "$CALLS" &&
+   [ ! -e "$ROOT/h2/europe-malta.water.pbf" ] && [ -e "$ROOT/h2/europe-malta.hazard.pbf" ] &&
+   grep -q 'hazard layer ready' <<<"$out"; then
+  pass "CTX_LAYERS=hazard rebuilds hazard alone: no ogr2ogr, no water filter"
+else
+  fail "CTX_LAYERS=hazard touched another layer; rc=$rc calls: $(cat "$CALLS") — $out"
+fi
+
+: > "$CALLS"
+out=$(CTX_LAYERS='water hazzard' WORK_DIR="$ROOT/h3" PATH="$BIN:$PATH" bash "$SCRIPT" europe/malta 2>&1); rc=$?
+if [ $rc -ne 0 ] && grep -q "unknown layer 'hazzard'" <<<"$out" && [ ! -s "$CALLS" ]; then
+  pass "a misspelt layer is refused before anything loads"
+else
+  fail "a misspelt layer was accepted; rc=$rc: $out"
+fi
+
+out=$(HAZARD_SHIM_RC=1 CTX_LAYERS=hazard WORK_DIR="$ROOT/h4" PATH="$BIN:$PATH" bash "$SCRIPT" europe/malta 2>&1); rc=$?
+if [ $rc -ne 0 ] && ! grep -q 'ready' <<<"$out"; then
+  pass "a hazard loader that refuses stops the run, and nothing says ready"
+else
+  fail "a failed hazard load was reported as ready; rc=$rc: $out"
 fi
 
 echo

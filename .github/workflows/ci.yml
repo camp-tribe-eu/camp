@@ -1845,6 +1845,23 @@ jobs:
           set -o pipefail
           node scripts/ci/check-elevation-coverage.mjs --self-test | tee /dev/stderr \
             | grep -c 'check-elevation-coverage self-test: ran 20, passed 20, failed 0' >/dev/null
+      # 🔴 CAMP-502 (рецензія #557). Шар `osm_ctx_hazard` читає КОЖНА сторінка
+      # кемпінга. Його вантажив `ogr2ogr -overwrite`, який створює колонку лише
+      # для тегу, що є у вивантаженні: без жодного `tunnel` таблиця лишалась без
+      # колонки, і кожна сторінка відповідала `column x.tunnel does not exist`.
+      # Самотест вантажить САМЕ таке вивантаження справжнім завантажувачем у
+      # справжній PostGIS і читає всі сім колонок; далі — що таблицю не
+      # видалено й не обрізано (oid і relfilenode ті самі), що збій посеред
+      # заміни лишає старі рядки, і що вдвічі менше вивантаження — відмова.
+      - name: The hazard loader keeps the table's shape whatever the export holds
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+        run: |
+          set -o pipefail
+          node scripts/osm-pipeline/load-hazard.mjs --self-test | tee /dev/stderr \
+            | grep -c 'load-hazard self-test: ran 29, passed 29, failed 0' >/dev/null
       - name: The elevation filler fills, parks and refuses on a real database
         env:
           PGHOST: localhost
