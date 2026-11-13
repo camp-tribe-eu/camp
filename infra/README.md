@@ -50,6 +50,8 @@ status=200/CHDIR
 | `systemd/camptribe-fuel-prices.timer` | 05:00 UTC, `Persistent=true` |
 | `systemd/camptribe-spot-tariffs.service` | 🔴 щотижня: `fetch-feed.mjs` (фід DATAtourisme → `/srv/camptribe/data/datatourisme/feed.zip`, `.part`+`rename`) → `import-prices.js --apply` (→ `spot_tariffs`, ставить `fetched_at`). Обидва кроки заміряно на машині: 14 с + 44 с (CAMP-400, пункт 2). Потребує міграції `SpotTariffFetchedAt` — до `--migrate` другий крок падає голосно |
 | `systemd/camptribe-spot-tariffs.timer` | четвер 05:10 UTC, `Persistent=true` — поза вівторковим ланцюгом OSM, до сторожа свіжості о 06:00 |
+| `systemd/camptribe-webcams.service` | 🔴 щотижня: `scripts/windy/fetch-webcams.mjs` (один запит на регіон → `webcams`, лише `INSERT … ON CONFLICT DO UPDATE`, без видалень). Ключ і база — з `EnvironmentFile`, ніколи з argv: ручний запуск 02.11.2026 лишив обидва в journal. ~37 хв (CAMP-190) |
+| `systemd/camptribe-webcams.timer` | пʼятниця 04:15 UTC, `Persistent=true` — найрідше, що виконує бюджет 10 діб: умови Windy називають порушенням «continuous scanning», без числа |
 | `systemd/camptribe-deploy-nightly.service` | 🔴 щонічний деплой: `camptribe-deploy-nightly` (від root; `Nice=10`; `TimeoutStartSec=45min`) |
 | `systemd/camptribe-deploy-nightly.timer` | 13:00 UTC, `Persistent=true` — після найпізнішого заміряного старту `data-refresh` (див. нижче) |
 | `bin/camptribe-deploy-nightly` | `ls-remote` main → порівняти з чинним релізом → `camptribe-deploy deploy --sha … --apply` лише якщо різні; без `--migrate`; не скасовує відкат |
