@@ -254,6 +254,22 @@ function selfTest() {
       DB_SOURCES.find((s) => s.table === 'webcams')?.unit,
       'camptribe-webcams',
     ],
+    // 🔴 CAMP-528. 8 752 кемпінги DATAtourisme стояли 50 діб без жодного
+    // оновлювача. Ці два рядки стережуть не «десь є юніт», а те, що рядок
+    // сторожа названо, що таймер справжній і що він частіший за бюджет.
+    [
+      '🔴 кемпінги DATAtourisme мають юніт, а не розписку',
+      DB_SOURCES.find((s) => s.card === 'CAMP-528')?.unit,
+      'camptribe-datatourisme-campsites',
+    ],
+    [
+      '🔴 і його таймер у репозиторії ходить щотижня — частіше за бюджет 240 год',
+      [
+        periodHours(onCalendarOf('camptribe-datatourisme-campsites')),
+        DB_SOURCES.find((s) => s.card === 'CAMP-528')?.budgetHours,
+      ],
+      [168, 240],
+    ],
     [
       '🔴 відмовка на два слова не рахується за пояснення',
       faults([{ table: 't', budgetHours: 240, unit: null, manual: 'руками' }], read).length,

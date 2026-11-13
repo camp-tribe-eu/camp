@@ -1,0 +1,80 @@
+# CAMP-528: кемпінги DATAtourisme → `camping_spots`, щотижня.
+#
+# 🔴 ЦЬОГО ЮНІТА НЕ ІСНУВАЛО, І СТОРОЖ СВІЖОСТІ ЦЬОГО НЕ БАЧИВ. Заміряно
+# на проді 13.11.2026: 8 752 рядки з `osm_ref IS NULL`, усі з
+# `last_seen_at` 2026-09-24 10:39–10:40 UTC — 50 діб при бюджеті 10.
+# Таблицю наповнили один раз руками; сторож читав `max(last_seen_at)` по
+# всій таблиці, а її щотижня освіжає OSM.
+#
+# 🔴 ЦЕ НЕ `import.ts --apply`. Той імпортер — інструмент першого
+# завантаження: ключа не має, `last_seen_at` не рухає, пише в найближчий
+# схожий рядок (зокрема рядок OSM) і ставить `content_changed_at = now()`
+# кожному. Заміри — у шапці `apps/api/src/datatourisme/refresh.ts`.
+#
+# 🔴 ЩО ПИШЕ ДРУГИЙ КРОК, І ЧОГО НЕ РОБИТЬ. Лише рядки з `osm_ref IS
+# NULL` і записом `datatourisme` у `sources`, знайдені ЗА URI ДЖЕРЕЛА:
+#
+#   названий знову   last_seen_at = мить прогону, missing_since = NULL
+#   …і змінений      name, description, stars, website, дата джерела;
+#                    content_changed_at — лише коли змінилось значення
+#   не названий      НІЧОГО, поки тут стоїть `--no-mark-missing` (нижче)
+#
+# Жодного INSERT і жодного DELETE. Новий URI рахується й друкується в
+# журнал, а не пишеться: нова сторінка — це `import.ts` і людина.
+#
+# 🔴 `--no-mark-missing` — НАВМИСНО, І ЦЕ НЕВИРІШЕНЕ ПИТАННЯ, А НЕ ФІНАЛ.
+# Без прапорця запис, якого джерело більше не називає, отримує
+# `missing_since`: сторінка зникає з сайту ОДРАЗУ, а через 28 діб
+# відповідає 410 (CAMP-87). Заміряно 13.11.2026: таких 242 (ще 359
+# згорнуто в живу сторінку OSM — їх не чіпають ніколи). Чому джерело їх
+# прибрало — НЕ встановлено: перевидано під новим URI лише 4, а 527 із
+# 601 мають дату джерела 2026 року, і зимове зняття з публікації ця
+# перевірка не відрізняє від закриття. Тож розклад освіжає те, що є, і
+# нічого не ховає; зниклі лишаються на сайті зі старою `last_seen_at`,
+# як і останні 50 діб, а їх число щотижня друкується в журнал.
+# Зняти прапорець — рішення про 242 сторінки; `refresh.spec.ts` тримає
+# його тут, щоб воно не сталося прибиранням.
+#
+# Відмови другого кроку — кожна лишає таблицю як була, з ненульовим
+# кодом і листом:
+#
+#   · бракує хоч одного з 13 регіональних файлів, або файл старший 48 год;
+#   · з файла не розібрано жодного кемпінгу;
+#   · невідомий прапорець;
+#   · (лише без `--no-mark-missing`) зниклих більше 5% живих рядків за
+#     один оберт; заміряна тижнева норма — близько 0,4%.
+#
+# 🔴 ДВА `ExecStart`, І ДРУГИЙ НЕ БІЖИТЬ, ЯКЩО ВПАВ ПЕРШИЙ. Перший пише
+# кожен файл через `.part` + `rename`, тож обрив лишає попередній цілий
+# файл — а другий крок такий файл не візьме, бо йому понад 48 год.
+# `--refetch` обовʼязковий: без нього файл того самого розміру
+# вважається «вже тут», і ми ставили б «бачено сьогодні» з торішнього.
+# Перший крок сам звіряє ліцензію набору (`fr-lo`) і відмовляє, якщо
+# вона інша.
+#
+# Заміряно 13.11.2026 з ноутбука на копії французьких рядків проду
+# (23 917 рядків): завантаження 13 файлів, 343 МБ — близько 2 хв;
+# оновлення — 8,8 с із компіляцією ts-node, 4,8 с другим обертом.
+# 🔴 На самій машині НЕ заміряно: перший прогін — `systemd-run`, команда в PR картки CAMP-528.
+[Unit]
+Description=CampTribe DATAtourisme campsites refresh (regional files -> camping_spots)
+After=postgresql.service network-online.target
+Wants=network-online.target
+OnFailure=camptribe-failed@%n.service
+
+[Service]
+Type=oneshot
+User=camptribe
+Group=camptribe
+WorkingDirectory=/srv/camptribe/current/apps/api
+# Дає DATABASE_URL другому крокові. Першому секрет не потрібен: файли
+# публічні, адреси читаються з API data.gouv.fr на кожному оберті.
+EnvironmentFile=/srv/camptribe/current/apps/api/.env
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=30min
+ExecStart=/usr/bin/node /srv/camptribe/current/scripts/datatourisme/fetch-regions.mjs --metropolitan --refetch --out /srv/camptribe/data/datatourisme/regions
+ExecStart=/usr/bin/node dist/datatourisme/refresh.js /srv/camptribe/data/datatourisme/regions --apply --no-mark-missing
+# 🔴 Слід знімається лише після УСПІШНОГО прогону: для Type=oneshot
+# ExecStartPost не біжить, якщо котрийсь ExecStart повернув ненуль.
+ExecStartPost=/bin/rm -f /srv/camptribe/failed/camptribe-datatourisme-campsites.service
