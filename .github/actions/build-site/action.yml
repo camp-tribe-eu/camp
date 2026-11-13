@@ -130,6 +130,25 @@ runs:
           exit 1
         fi
 
+    # 🔴 ПІСЛЯ генератора, і це окремий файл із власною причиною — вона
+    # написана в ньому. Коротко: без цього гайду тест про ст. 50(2)
+    # AI Act не біжить ніде, а на повній матриці це чотири пропуски понад
+    # бюджет, тобто червоний `e2e` на кожному злитті в `main`.
+    - name: Load the AI-assisted guide fixture
+      shell: bash
+      env:
+        PGPASSWORD: postgres
+      run: |
+        psql -h localhost -U postgres -d camptribe_test -v ON_ERROR_STOP=1 \
+          -f apps/api/test/fixtures/ai-guide.sql
+        count=$(psql -h localhost -U postgres -d camptribe_test -t -A \
+          -c "SELECT count(*) FROM guides WHERE provenance IN ('ai-assisted','ai-generated') AND generator IS NOT NULL AND status = 'published';")
+        echo "AI-written guides: $count"
+        if [ "$count" -lt 1 ]; then
+          echo "::error::фікстура не дала жодного гайду, написаного моделлю — тест про розкриття знову не побіжить"
+          exit 1
+        fi
+
     - name: Start the API
       shell: bash
       working-directory: apps/api
@@ -174,6 +193,16 @@ runs:
         # caller choose its own rate-limit bucket, which an adversarial
         # review measured at 62 MB pulled in seconds.
         TRUST_PROXY_CLIENT_IP: '1'
+        # 🔴 Вище за найдовший таймаут одного тесту (90 с, webkit).
+        #
+        # Типові 5 с Node (фактично сокет закривається ще за секунду)
+        # збігались із ритмом `map-filters.spec.ts`, який питає API раз
+        # на ~6,3 с: запит ішов у зʼєднання, яке сервер саме закривав, і
+        # тест отримував `read ECONNRESET` (прогін 43375812001). Заміряно
+        # зондом: 1 із 40 на паузі рівно 6,0 с, 0 із 40 на 3, 5 і 8 с.
+        # Контекст запитів живе один тест, тож до 120 с він не доживе
+        # ніколи. Прод цієї змінної не має — див. apps/api/src/keep-alive.ts.
+        HTTP_KEEP_ALIVE_TIMEOUT_MS: '120000'
       run: |
         npx nest start > /tmp/api.log 2>&1 &
         # The build fetches from it, so a race here would produce an empty
