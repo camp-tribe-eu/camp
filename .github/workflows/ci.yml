@@ -210,6 +210,20 @@ jobs:
       - name: No secrets in tracked files
         run: node scripts/security/check-secrets.mjs
 
+      # 🔴 02.11.2026 імпорт запустили як `sudo -u camptribe env
+      # DATABASE_URL=… WINDY_WEBCAMS_API_KEY=… node …`. sudo пише повний
+      # argv у journald і auth.log: пароль бази довелось ротувати
+      # (13.11.2026), ключ Windy теж. Сторож прибирає з репозиторію
+      # ЗРАЗОК, з якого таку команду списують; правильна форма —
+      # `systemd-run -p EnvironmentFile=…`, як у кожному юніті.
+      - name: The argv guard still catches a secret after sudo
+        run: |
+          set -o pipefail
+          node scripts/ci/check-no-secret-in-argv.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-no-secret-in-argv self-test:' >/dev/null
+      - name: No command here puts a secret into sudo's argv
+        run: node scripts/ci/check-no-secret-in-argv.mjs
+
       # 🔴 CAMP-469. The decorative banners are AI-generated and look like
       # photographs; llms.txt must say they show no real place whenever a
       # raster file sits in public/banners. Same two steps as everywhere:
@@ -2242,6 +2256,13 @@ jobs:
           echo "campsites $before -> $after, links $links"
           test "$before" = "$after"
           test "$links" = "0"
+          # 🔴 І МІТКИ ПРОГОНУ ТЕЖ НУЛЬ. `spot_link_runs` — це те, за чим
+          # сторож свіжості вирішує, що звірник відпрацював. Пробний
+          # прогін, який лишив би там рядок, зеленив би сторожа, нічого
+          # не записавши.
+          runs=$(psql -h localhost -U postgres -d camptribe_test -t -A \
+            -c 'SELECT count(*) FROM spot_link_runs')
+          test "$runs" = "0" || { echo "✗ dry run left $runs run stamp(s)"; exit 1; }
           # 🔴 It must have LOOKED, and it must have MATCHED. Without the
           # first, a CANDIDATE_SQL returning nothing — a typo in the
           # join, a predicate excluding everything — passes exactly like

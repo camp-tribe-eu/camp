@@ -83,7 +83,7 @@ step "лінт api (prettier усередині)" \
 
 # Сторожі CI без збірки. Саме вони 21.10 упіймали непрочитаний тип
 # файлу `.md` — двічі, бо я полагодив один із двох.
-for g in check-hardcoded-counts check-country-count; do
+for g in check-hardcoded-counts check-country-count check-no-secret-in-argv; do
   step "сторож $g" node "scripts/ci/$g.mjs"
   step "сторож $g — самоперевірка" node "scripts/ci/$g.mjs" --self-test
 done
