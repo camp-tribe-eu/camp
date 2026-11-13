@@ -2,6 +2,7 @@ import {
   cspForDevServer,
   SECURITY_HEADERS,
 } from './scripts/security-headers.mjs';
+import { EMBED_HEADERS, EMBED_PREFIX } from './scripts/embed-policy.mjs';
 
 /** @type {import('next').NextConfig} */
 
@@ -88,7 +89,33 @@ const nextConfig = {
       );
       if (i >= 0) headers[i] = { ...headers[i], value: cspForDevServer() };
     }
-    return [{ source: '/:path*', headers }];
+    // 🔴 CAMP-523. THE WIDGET PATH COMES SECOND, AND THE ORDER IS THE RULE.
+    //
+    // Next: "If two headers match the same path and set the same header
+    // key, the last header key will override the first." So everything
+    // above still reaches `/embed/…` (nosniff, Referrer-Policy,
+    // Permissions-Policy, HSTS) and only the two keys named in
+    // EMBED_HEADERS are replaced: a policy that lets a campsite's own
+    // website frame the document, and `noindex` in every build mode.
+    //
+    // Swap the two entries and the widget is served with
+    // `frame-ancestors 'none'` — an empty box on the campsite's page and
+    // no error anywhere on ours. tests/e2e/provider-widget.spec.ts frames
+    // it from another origin for exactly that reason.
+    //
+    // The dev relaxation above is deliberately NOT applied here: the
+    // widget is a route handler that prints a string, there is no client
+    // module to compile, and so nothing for 'unsafe-eval' to unblock.
+    return [
+      { source: '/:path*', headers },
+      {
+        source: `${EMBED_PREFIX}/:path*`,
+        headers: Object.entries(EMBED_HEADERS).map(([key, value]) => ({
+          key,
+          value,
+        })),
+      },
+    ];
   },
 };
 

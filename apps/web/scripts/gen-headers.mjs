@@ -17,6 +17,7 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { SECURITY_HEADERS } from './security-headers.mjs';
+import { EMBED_HEADERS, EMBED_PREFIX } from './embed-policy.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -84,6 +85,24 @@ if (!isPublic) {
   lines.push('  X-Robots-Tag: noindex, nofollow');
 }
 
+lines.push('');
+
+// 🔴 CAMP-523: the widget path, and why each key is detached first.
+//
+// Cloudflare does not override a header set by an earlier matching rule,
+// it JOINS the two values with a comma. Two policies joined are two
+// policies enforced, and `frame-ancestors 'none'` from `/*` would win —
+// the widget would be an empty box on every campsite's website. `! Name`
+// removes the inherited value; the line after it sets ours.
+//
+// 🔴 NOT MEASURED ON CLOUDFLARE. Nothing in this repository deploys to
+// Pages (see src/middleware.ts), so this block follows their documented
+// syntax and has never met their edge. What IS measured is `next start`,
+// which is what production runs: tests/e2e/provider-widget.spec.ts.
+lines.push(`${EMBED_PREFIX}/*`);
+for (const [k, v] of Object.entries(EMBED_HEADERS)) {
+  lines.push(`  ! ${k}`, `  ${k}: ${v}`);
+}
 lines.push('');
 
 mkdirSync(path.dirname(OUT), { recursive: true });
