@@ -766,7 +766,9 @@ describe('a measure that breaks', () => {
       {
         ...broken,
         key: 'fraction',
-        sql: 'SELECT NULL AS label, 1.5 AS n, 2 AS of',
+        // float8, so that it reaches us as a JS number: `numeric` arrives
+        // as the string '1.5', which the digits-only test refuses first.
+        sql: 'SELECT NULL AS label, 1.5::float8 AS n, 2 AS of',
       },
     ]);
     expect(r.lines).toEqual([]);
