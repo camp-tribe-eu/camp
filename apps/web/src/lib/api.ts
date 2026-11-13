@@ -757,7 +757,13 @@ export interface CampServicesPayload {
     kind: string;
     /** CAMP-506: the traveller's need the kind answers (before/stay/trouble). */
     group?: string;
+    /** Inside the campsite's mapped outline — the only "on site". */
     onSite: { name: string | null; metres: number; seen?: string | null } | null;
+    /**
+     * Water and dump only, no outline mapped: within `onSiteM` of the marked
+     * point. A distance, not "on site". Optional: an API older than this field.
+     */
+    withinRadius?: { name: string | null; metres: number; seen?: string | null } | null;
     nearby: { name: string | null; metres: number; seen?: string | null } | null;
   }[];
 }

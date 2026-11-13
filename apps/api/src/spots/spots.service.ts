@@ -45,6 +45,7 @@ import {
   NEARBY_RADIUS_M,
   ONSITE_RADIUS_M,
   readCampServices,
+  reconcileGroceries,
   type CampServicesPayload,
 } from './camp-services';
 import {
@@ -1011,7 +1012,11 @@ export function toView(row: Record<string, unknown>): SpotView {
     campServices: {
       nearbyM: NEARBY_RADIUS_M,
       onSiteM: ONSITE_RADIUS_M,
-      items: readCampServices(row.camp_services),
+      // 🔴 One nearest food shop per page: see reconcileGroceries.
+      items: reconcileGroceries(
+        readCampServices(row.camp_services),
+        row.context,
+      ),
     },
     // 🔴 CAMP-502. A query that did not select the column reads as `[]`: no
     // computed distance, so no block — never "unknown".

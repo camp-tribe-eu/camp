@@ -3,8 +3,9 @@ import { renderComponent } from './render-component';
 import CampDisturbance from '@/components/camp-disturbance';
 import { DISTURBANCE_SLOTS, disturbanceView } from '@/lib/disturbance';
 import type { DisturbancePayload } from '@/lib/api';
-import type { SectionView } from '@/lib/page-content';
-import { DISTURBANCE_SECTIONS } from '../../../api/src/migrations/1797100000000-Disturbance';
+import { applyValues, type SectionView } from '@/lib/page-content';
+import { DISTURBANCE_SECTIONS as SEEDED_FIRST } from '../../../api/src/migrations/1797100000000-Disturbance';
+import { DISTURBANCE_SECTIONS_NOW as DISTURBANCE_SECTIONS } from '../../../api/src/migrations/1797100400000-DisturbanceMapLabelBody';
 import { DISTURBANCE_RADIUS_M } from '../../../api/src/spots/disturbance';
 
 // CAMP-502 — the «Possible disturbance» block, read out of the RENDERED HTML.
@@ -34,7 +35,36 @@ const payload: DisturbancePayload = {
 };
 const html = (p: DisturbancePayload | undefined, s: SectionView[] | null = sections) =>
   renderComponent(CampDisturbance, { view: disturbanceView(p, s) });
+// Typed here by hand, not read from the migration: the expected side of a
+// comparison must not be the thing under test.
+const CAVEAT =
+  'We have not measured noise or air on the spot. These are distances we calculated from OpenStreetMap. Being close to such objects often means noise — decide for yourself.';
 const text = (h: string) => h.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+
+// 🔴 THE PATH PRODUCTION TAKES. Every test below hands `disturbanceView` the
+// sections directly; the site gets them through `pageContent` → `applyValues`,
+// which substitutes every HEADING from the site's own value list and throws on
+// an unknown key. The first seed had `{{kind}}` in a heading: the page could
+// not be loaded, page.tsx read that as "the CMS did not answer", and the block
+// was drawn on no campsite page while this whole file stayed green.
+const asServed = (list: typeof DISTURBANCE_SECTIONS) =>
+  applyValues({
+    slug: 'camp-disturbance', title: 'Possible disturbance', metaTitle: null,
+    metaDescription: null, noindex: true, sections: toSections(list),
+  }).sections;
+
+test('🔴 the CMS page survives the loader, and the block is drawn from what it returns', async () => {
+  const h = await html(payload, asServed(DISTURBANCE_SECTIONS));
+  expect(text(h)).toContain('Motorway or trunk road');
+  expect(text(h)).toContain('We have not measured noise or air on the spot');
+  expect(disturbanceView(payload, asServed(DISTURBANCE_SECTIONS))!.markers[0].label).toBe(
+    'Possible disturbance: Motorway or trunk road, 556 m',
+  );
+});
+
+test('the first seed is what broke it: a placeholder in a heading stops the loader', () => {
+  expect(() => asServed(SEEDED_FIRST)).toThrow(/kind/);
+});
 
 test('the slots the page reads are exactly the slots the migration seeds', () => {
   expect([...DISTURBANCE_SLOTS].sort()).toEqual(DISTURBANCE_SECTIONS.map((s) => s.slot).sort());
@@ -87,7 +117,7 @@ test('🔴 no computed distance, no block — not "unknown"', async () => {
 test('map pins: one per computed distance, with the CMS words and the point on the object', () => {
   const v = disturbanceView(payload, sections)!;
   expect(v.markers).toEqual([
-    { kind: 'road', lat: 50.005, lon: 5.0, label: 'Possible disturbance: Motorway or trunk road, 556 m' },
-    { kind: 'airport', lat: 50.04, lon: 5.0, label: 'Possible disturbance: Airport, 4.4 km' },
+    { kind: 'road', lat: 50.005, lon: 5.0, label: 'Possible disturbance: Motorway or trunk road, 556 m', caveat: CAVEAT },
+    { kind: 'airport', lat: 50.04, lon: 5.0, label: 'Possible disturbance: Airport, 4.4 km', caveat: CAVEAT },
   ]);
 });

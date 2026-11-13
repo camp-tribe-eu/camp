@@ -124,7 +124,7 @@ test.describe('the paragraph does the job it exists for', () => {
     const text = settingParagraph(ZADAR[0]);
     expect(text).toMatch(/Biograd na Moru/);
     expect(text).toMatch(/shore|sea/);
-    expect(text).toMatch(/food shop/);
+    expect(text).toMatch(/food shop|supermarket/);
   });
 });
 
@@ -216,6 +216,22 @@ test.describe('each fact branches on its value, not on a template', () => {
   test('the town reads differently at the gate and over the horizon', () => {
     const s = shapes((m) => townClause({ m, name: 'Nin' }), [500, 3000, 12_000, 40_000]);
     expect(s.size, [...s].join(' | ')).toBe(4);
+  });
+
+
+  test('🔴 "the nearest" is said of a SUPERMARKET, never of "a food shop"', () => {
+    // `context.supermarket` is shop=supermarket only; the services block on
+    // the same page prints the nearest food shop of any size, often nearer.
+    // MUTATION (done): put "the nearest food shop is" back → red.
+    for (const m of [400, 3000, 20_000])
+      for (const shop of [{ m }, { m, name: 'Mercator' }]) {
+        const c = shopClause(shop)!;
+        expect(c, c).not.toMatch(/nearest food shop/);
+      }
+    expect(shopClause({ m: 3000, name: 'Mercator' })).toBe(
+      'the nearest supermarket is Mercator, 3 km away',
+    );
+    expect(shopClause({ m: 20_000 })).toMatch(/the nearest supermarket is 20 km off/);
   });
 
   test('the shop reads differently in walking distance and far off', () => {
@@ -411,7 +427,7 @@ test.describe('five countries the seed does not reach', () => {
     for (const r of paragraphs) {
       const kind = /station|railway|arrive by train/.test(opener(r.p))
         ? 'station'
-        : /food shop|for food|walk away/.test(opener(r.p))
+        : /food shop|supermarket|for food|walk away/.test(opener(r.p))
           ? 'shop'
           : /sea|lake|river|reservoir|water|shore|pitches run/.test(opener(r.p))
             ? 'water'

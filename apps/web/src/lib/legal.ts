@@ -175,7 +175,10 @@ export const LEGAL_PAGES: LegalPage[] = [
     // 2.7 (12.11.2026, CAMP-504): сайт лічить перегляди, кліки й порожні
     // пошуки — денні суми без IP, cookie й тексту пошуку; хеш дедуплікації
     // лише в памʼяті на добу. Міграція 1796800000000-PrivacyEventCounts.
-    version: '2.7',
+    // 2.8 (12.11.2026, CAMP-501): п'ятий запис у сховищі браузера — вибір
+    // «маю кемпер / орендую» (`camptribe.persona`). Міграція
+    // 1797100100000-PrivacyPersonaChoice.
+    version: '2.8',
     effectiveFrom: '2026-11-12',
   },
   {
@@ -192,8 +195,10 @@ export const LEGAL_PAGES: LegalPage[] = [
     // 1795100000000-ThemeChoiceStorage разом із цим рядком.
     // 🔴 Підняття версії ОДИН РАЗ знеціннює збережену згоду — сайт
     // закритий, тож ціна цього сьогодні нульова.
-    version: '1.2',
-    effectiveFrom: '2026-11-10',
+    // 1.3 (12.11.2026, CAMP-501): записів стало п'ять — додався
+    // `camptribe.persona`. Міграція 1797100200000-PersonaChoiceCookies.
+    version: '1.3',
+    effectiveFrom: '2026-11-12',
   },
   {
     slug: 'disclaimer',

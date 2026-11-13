@@ -963,3 +963,31 @@ summary.ct-disclosure {
 summary.ct-disclosure::-webkit-details-marker {
   display: none;
 }
+
+/* CAMP-501 — дві людини, один сайт: «маю кемпер» і «орендую».
+   Вибір лежить на <html data-persona> (скрипт у <head>, components/
+   persona-toggle.tsx). Без вибору атрибута немає, і жодне правило нижче
+   не спрацьовує: сайт такий, яким був.
+
+   🔴 ЛИШЕ ПОРЯДОК І ВИДИМІСТЬ. Дані одні; міняється, що першим.
+   `[data-persona-zone]` стає колонкою тільки за наявності вибору, тож без
+   нього розмітка (і схлопування полів) ті самі, що були. Шапка й
+   «хлібні крихти» закріплені першими, інакше піднятий блок опинився б
+   над заголовком.
+   `display:none` прибирає блок і з доступного дерева: «немає блоку для
+   цього читача» — це не візуальна хитрість. */
+html[data-persona] [data-persona-zone] {
+  display: flex;
+  flex-direction: column;
+}
+html[data-persona] [data-persona-zone] > :is(nav, header) {
+  order: -2;
+}
+html[data-persona="owner"] [data-persona-first="owner"],
+html[data-persona="renter"] [data-persona-first="renter"] {
+  order: -1;
+}
+html[data-persona="owner"] [data-persona-only="renter"],
+html[data-persona="renter"] [data-persona-only="owner"] {
+  display: none;
+}
