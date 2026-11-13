@@ -6,6 +6,7 @@ import { RoutePoiGas1791700000000 } from '../migrations/1791700000000-RoutePoiGa
 import { RoutePoiHelp1797000000000 } from '../migrations/1797000000000-RoutePoiHelp';
 import {
   CAMP_SERVICE_KINDS,
+  RADIUS_KINDS,
   campServicesSql,
   NEARBY_RADIUS_M,
   ONSITE_RADIUS_M,
@@ -24,8 +25,18 @@ import {
 //
 // MUTATION (done, see the PR): delete `AND ST_DWithin(… ${nearbyM})` from the
 // `around` branch → the fuel point 11.8 km away (inside the search box, outside
-// the radius) appears and "no fuel" goes red. Delete the on-site distance test
-// (`ST_DWithin(… ${onSiteM})`) → the 400 m tap becomes "on site".
+// the radius) appears and "no fuel" goes red. Delete the radius distance test
+// (`ST_DWithin(… ${onSiteM})`) → the 400 m tap becomes "within the radius".
+//
+// Review of #555 (13.11.2026), each done and red:
+//   * `outline IS NULL AND` dropped from the radius test (the radius applied
+//     beside an outline — the CASE→OR mutation that had survived) → spot b's
+//     tap over the fence, 77 m from the point and OUTSIDE the outline, stops
+//     being "nearby".
+//   * RADIUS_KINDS widened to every kind → spot f's fuel station at 120 m
+//     gets a `withinRadius`.
+//   * `onSite` taken from the radius where there is no outline (the rule as
+//     it was merged) → spot a's and spot f's `onSite` are no longer null.
 
 jest.setTimeout(120_000);
 const URL =
@@ -50,7 +61,7 @@ const poi = (
     [ref, kind, name, lon, lat, swap],
   );
 
-const run = async (spot: 'a' | 'b' | 'c' | 'd' | 'e') => {
+const run = async (spot: 'a' | 'b' | 'c' | 'd' | 'e' | 'f') => {
   const r = await db.query(
     `SELECT ${campServicesSql('s.location', 's.outline')} AS v FROM spots s WHERE s.id = $1`,
     [spot],
@@ -84,7 +95,8 @@ beforeAll(async () => {
           ST_Multi(ST_MakeEnvelope(14.1, 46.0, 14.106, 46.002, 4326))),
     ('c', ST_SetSRID(ST_MakePoint(16.5, 46.5), 4326), NULL),
     ('d', ST_SetSRID(ST_MakePoint(20.0, 46.0), 4326), NULL),
-    ('e', ST_SetSRID(ST_MakePoint(12.0, 58.4), 4326), NULL)`);
+    ('e', ST_SetSRID(ST_MakePoint(12.0, 58.4), 4326), NULL),
+    ('f', ST_SetSRID(ST_MakePoint(15.0, 47.0), 4326), NULL)`);
 
   // spot a
   await poi('n1', 'water', 'Tap A near', 14.001, 46.0); // 77 m  -> on site
@@ -117,6 +129,17 @@ beforeAll(async () => {
   await poi('n14', 'car_repair', 'Garage in range', 14.0, 46.0853); // 9.50 km
   await poi('n15', 'car_repair', 'Garage too far', 14.0, 46.0952); // 10.60 km
   await poi('n16', 'groceries', 'Spar', 14.0, 46.005); // 556 m
+  // Review of #555, spot b: OUTSIDE the outline (west of 14.1) yet 77 m from
+  // the campsite's point (0.001 deg of longitude at 46 N) — closer than the
+  // radius. With an outline the radius must not exist.
+  await poi('n17', 'water', 'Tap over the fence', 14.0995, 46.0005);
+  // Review of #555, spot f: NO outline, and everything a road has within the
+  // 150 m radius, all due north (1 deg of latitude = 111.3 km): a fuel station
+  // that swaps bottles 120 m away, a kiosk 100 m, a charger 90 m, a dump 60 m.
+  await poi('n18', 'fuel', 'Shell 120', 15.0, 47.00108, 'yes');
+  await poi('n19', 'groceries', 'Kiosk 100', 15.0, 47.0009);
+  await poi('n20', 'charging', 'EV 90', 15.0, 47.00081);
+  await poi('n21', 'dump', 'Dump 60', 15.0, 47.00054);
 });
 
 afterAll(async () => {
@@ -140,16 +163,18 @@ test('the constants are the ones the comment measured', () => {
   ]);
 });
 
-test('spot a: nearest on site and nearest nearby, with names and metres', async () => {
+test('spot a (no outline): water within the radius is a DISTANCE, never "on site"', async () => {
   const v = await run('a');
   const w = of(v, 'water')!;
-  expect(w.onSite).toEqual({
+  // 🔴 no outline, so nothing is claimed to be inside the campsite
+  expect(w.onSite).toBeNull();
+  expect(w.withinRadius).toEqual({
     name: 'Tap A near',
     metres: expect.any(Number),
     seen: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
   });
-  expect(Math.abs(w.onSite!.metres - 77)).toBeLessThanOrEqual(3);
-  // 🔴 the 400 m tap is NOT on site and the nearest "nearby" is the 401 m one,
+  expect(Math.abs(w.withinRadius!.metres - 77)).toBeLessThanOrEqual(3);
+  // 🔴 the 400 m tap is NOT within the radius and the nearest "nearby" is the 401 m one,
   // not the 773 m one: nearest means nearest.
   expect(w.nearby!.name).toBe('Tap 400');
   expect(Math.abs(w.nearby!.metres - 401)).toBeLessThanOrEqual(4);
@@ -222,7 +247,38 @@ test('spot b: with an outline, "on site" means inside it, whatever the distance'
   const w = of(await run('b'), 'water')!;
   expect(w.onSite!.name).toBe('Tap inside'); // 390 m from the point, > 150
   expect(Math.abs(w.onSite!.metres - 390)).toBeLessThanOrEqual(6);
-  expect(w.nearby!.name).toBe('Tap outside');
+  // 🔴 the tap over the fence is 77 m from the point — inside the 150 m
+  // radius — and OUTSIDE the outline: it is "nearby", and it is the nearest
+  // nearby (the other outside tap is 541 m away). The radius is not used.
+  expect(w.withinRadius).toBeNull();
+  expect(w.nearby!.name).toBe('Tap over the fence');
+  expect(Math.abs(w.nearby!.metres - 77)).toBeLessThanOrEqual(3);
+  for (const e of await run('b')) expect(e.withinRadius).toBeNull();
+});
+
+test('🔴 no outline: fuel, groceries, EV charging and gas 60–120 m away are "nearby" — nothing is claimed on site', async () => {
+  const v = await run('f');
+  const near = (k: string) => {
+    const e = of(v, k)!;
+    expect(e.onSite).toBeNull();
+    expect(e.withinRadius).toBeNull();
+    return e.nearby!;
+  };
+  expect(near('fuel').name).toBe('Shell 120');
+  expect(Math.abs(near('fuel').metres - 120)).toBeLessThanOrEqual(3);
+  expect(near('gas').name).toBe('Shell 120');
+  expect(near('groceries').name).toBe('Kiosk 100');
+  expect(Math.abs(near('groceries').metres - 100)).toBeLessThanOrEqual(3);
+  expect(near('ev_charging').name).toBe('EV 90');
+  expect(Math.abs(near('ev_charging').metres - 90)).toBeLessThanOrEqual(3);
+  // the dump station is one of the two radius kinds: a distance, still not
+  // "on site", and it is not repeated as "nearby"
+  const d = of(v, 'dump')!;
+  expect(d.onSite).toBeNull();
+  expect(d.withinRadius!.name).toBe('Dump 60');
+  expect(Math.abs(d.withinRadius!.metres - 60)).toBeLessThanOrEqual(3);
+  expect(d.nearby).toBeNull();
+  expect([...RADIUS_KINDS]).toEqual(['water', 'dump']);
 });
 
 test('🔴 spot c: nothing in range is an empty list, so the page draws nothing', async () => {
