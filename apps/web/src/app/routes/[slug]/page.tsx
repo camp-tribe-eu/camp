@@ -30,6 +30,11 @@ import RouteStageServices, {
   RouteFuelPrices,
 } from '@/components/route-services';
 import { Block } from '@/components/layout';
+import RouteRental from '@/components/route-rental';
+import { pageContent } from '@/lib/page-content';
+import { PERSONA_PAGE } from '@/lib/persona';
+import { personaSection } from '@/lib/persona-labels';
+import { publishableCountries } from '@/lib/rental';
 
 // CAMP-3 / CAMP-45 — one curated route.
 //
@@ -97,11 +102,20 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
   // after them. Both are one request for the whole page and neither
   // needs the other, so a serial await would add the slower one's
   // latency to every page in the build for nothing.
-  const [neighbours, measured, services] = await Promise.all([
+  const [neighbours, measured, services, personaPage, rentalPages] =
+    await Promise.all([
     getRouteNeighbours(route),
     measureRoute(route),
     getRouteServices(route),
+    // CAMP-501: слова блоку оренди — із CMS; сторінки оренди — ті, що
+    // справді існують. Збій читання лишає сторінку без блоку, а не без
+    // маршруту.
+    pageContent(PERSONA_PAGE).catch(() => null),
+    publishableCountries().catch(() => []),
   ]);
+  const rentalHere = rentalPages.filter((c) =>
+    route.countries.some((r) => r.toLowerCase() === c.code.toLowerCase()),
+  );
 
   const path = `/routes/${slug}`;
   const allSpots = neighbours.groups.flatMap((g) => g.spots);
@@ -324,6 +338,11 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
           })}
         </ol>
       </section>
+
+      <RouteRental
+        section={personaSection(personaPage?.sections ?? null, 'route-rental')}
+        countries={rentalHere.map((c) => ({ code: c.code, name: c.name }))}
+      />
 
       <RouteSources
         sources={allSources}

@@ -9,6 +9,10 @@ import CookieConsent from "@/components/cookie-consent";
 import ErrorReporter from "@/components/error-reporter";
 import { BOOTSTRAP } from "@/lib/error-bootstrap";
 import { THEME_BOOTSTRAP } from "@/lib/theme-bootstrap";
+import { PERSONA_BOOTSTRAP, PERSONA_PAGE } from "@/lib/persona";
+import { pageContent } from "@/lib/page-content";
+import PersonaOrder from "@/components/persona-order";
+import { personaLabels } from "@/lib/persona-labels";
 import { BRAND_TITLE } from "@/lib/brand";
 
 // Canonical domain from Facts/project-identity.md in the Camping brain.
@@ -87,10 +91,14 @@ export default async function RootLayout({
   // Один запит на налаштування поруч із двома на меню: усі троє живуть
   // у кореневому макеті, тож ходити по них послідовно означало б додати
   // їхні затримки одна до одної на КОЖНІЙ сторінці сайту.
-  const [nav, footerLinks, settings] = await Promise.all([
+  const [nav, footerLinks, settings, personaPage] = await Promise.all([
     headerNav(),
     footerNav(),
     siteSettings(),
+    // CAMP-501: підписи перемикача «маю кемпер / орендую» — у CMS. Збій
+    // читання не валить сторінку: без підписів перемикач просто не
+    // малюється (порожнє не малюємо).
+    pageContent(PERSONA_PAGE).catch(() => null),
   ]);
   // 🔴 CAMP-40: the language comes from the registry, not from a string
   // written here. This attribute and the `hreflang` on every page have to
@@ -98,7 +106,15 @@ export default async function RootLayout({
   // copies of that fact are two chances to disagree — silently, because
   // nothing validates it.
   return (
-    <html lang={DEFAULT_LOCALE}>
+    // 🔴 `suppressHydrationWarning` ЛИШЕ НА `<html>`, І ТІЛЬКИ ДЛЯ АТРИБУТІВ,
+    // ЯКІ СТАВЛЯТЬ СКРИПТИ В `<head>` ДО ПЕРШОГО МАЛЮВАННЯ: `data-theme`
+    // (CAMP-448) і `data-persona` (CAMP-501). Сервер не знає, що лежить у
+    // `localStorage` читача, тож розбіжність ТУТ — задум, а не дефект.
+    // Заміряно в браузері: без цього кожне перезавантаження зі збереженим
+    // вибором друкує в консоль «A tree hydrated but some attributes … didn't
+    // match». Прапорець не діє на дітей, тож справжні розбіжності нижче
+    // все одно звітуються.
+    <html lang={DEFAULT_LOCALE} suppressHydrationWarning>
       <head>
         {/* CAMP-88: only the `latin` cuts are preloaded — every visitor needs
             them, so waiting for the CSS to be parsed first costs visible text
@@ -133,6 +149,9 @@ export default async function RootLayout({
             Скрипт синхронний і крихітний; він нічого не вирішує сам,
             лише переносить збережений вибір на `<html>`. */}
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
+        {/* CAMP-501: те саме для вибору «маю кемпер / орендую» — інакше
+            порядок блоків перестрибнув би після гідратації. */}
+        <script dangerouslySetInnerHTML={{ __html: PERSONA_BOOTSTRAP }} />
       </head>
       {/* 🔴 `id="top"` — ціль посилання «Back to top» у підвалі (CAMP-448).
           Якір, а не кнопка з JS: підвал опиняється під читачем після
@@ -141,7 +160,8 @@ export default async function RootLayout({
       <body id="top" className="flex min-h-screen flex-col antialiased">
         {/* Drains what the head script caught. Renders null. */}
         <ErrorReporter />
-        <SiteHeader nav={nav} />
+        <PersonaOrder />
+        <SiteHeader nav={nav} persona={personaLabels(personaPage?.sections ?? null)} />
         <div className="flex-1">{children}</div>
         <SiteFooter nav={footerLinks} footerNote={settings.footerNote} />
         {/* 🔴 Last in the document, and it blocks nothing above it. The
