@@ -1,21 +1,43 @@
 import { expect, test } from '@playwright/test';
 import { renderComponent } from './render-component';
 import CampServices from '@/components/camp-services';
-import { GROUPS, SLOTS, servicesView } from '@/lib/camp-services';
+import { GROUPS, RADIUS_KINDS, SLOTS, TEMPLATE_SLOTS, servicesView } from '@/lib/camp-services';
 import type { CampServicesPayload } from '@/lib/api';
-import type { SectionView } from '@/lib/page-content';
+import { applyValues, type PageView, type SectionView } from '@/lib/page-content';
 import { CAMP_SERVICES_SECTIONS as V1 } from '../../../api/src/migrations/1796900000000-CampServicesText';
 import {
   CAMP_SERVICES_ADDED_SECTIONS,
   NEW_INTRO_HEADING,
 } from '../../../api/src/migrations/1797000100000-CampServicesGroups';
-import { CAMP_SERVICE_GROUPS } from '../../../api/src/spots/camp-services';
+import {
+  NEW_GROCERIES_BODY,
+  NEW_GROCERIES_HEADING,
+  NEW_INTRO_BODY,
+  NEW_SOURCE_BODY,
+  NEW_SOURCE_HEADING,
+  WITHIN_SECTION,
+} from '../../../api/src/migrations/1797140000000-CampServicesOnSiteTruth';
+import {
+  CAMP_SERVICE_GROUPS,
+  RADIUS_KINDS as API_RADIUS_KINDS,
+} from '../../../api/src/spots/camp-services';
 
-// What the page holds after BOTH migrations: the first seed with the intro
-// heading the second one gives it, plus the slots it adds.
+// What the page holds after ALL THREE migrations: the first seed with the
+// intro heading the second gives it and the intro body and groceries words the
+// third gives, plus the slots the second and third add. (That the migrations
+// really leave the database like this is camp-services-text.db.spec.ts.)
 const CAMP_SERVICES_SECTIONS = [
-  ...V1.map((s) => (s.slot === 'intro' ? { ...s, heading: NEW_INTRO_HEADING } : s)),
-  ...CAMP_SERVICES_ADDED_SECTIONS,
+  ...V1.map((s) =>
+    s.slot === 'intro' ? { ...s, heading: NEW_INTRO_HEADING, body: NEW_INTRO_BODY } : s,
+  ),
+  ...CAMP_SERVICES_ADDED_SECTIONS.map((s) =>
+    s.slot === 'kind-groceries'
+      ? { ...s, heading: NEW_GROCERIES_HEADING, body: NEW_GROCERIES_BODY }
+      : s.slot === 'source'
+        ? { ...s, heading: NEW_SOURCE_HEADING, body: NEW_SOURCE_BODY }
+        : s,
+  ),
+  WITHIN_SECTION,
 ];
 
 // CAMP-503 — the services block, read out of the RENDERED HTML.
@@ -24,16 +46,46 @@ const CAMP_SERVICES_SECTIONS = [
 // the API serves a CMS page — not constants of this file, and not the classes
 // of the component. Every assertion reads text a reader reads.
 
-const sections: SectionView[] = CAMP_SERVICES_SECTIONS.map((s) => ({
-  type: 'prose', variant: null, slot: s.slot, heading: s.heading, subheading: null,
-  body: s.body, imageUrl: null, imageAlt: null, ctaHref: null, ctaLabel: null, items: [],
-}));
+const asPage = (ss: ReadonlyArray<{ slot: string; heading: string; body: string | null }>): PageView => ({
+  slug: 'camp-services', title: 'Campsite services', metaTitle: null, metaDescription: null, noindex: true,
+  sections: ss.map((s) => ({
+    type: 'prose', variant: null, slot: s.slot, heading: s.heading, subheading: null,
+    body: s.body, imageUrl: null, imageAlt: null, ctaHref: null, ctaLabel: null, items: [],
+  })),
+} as PageView);
+
+// 🔴 THROUGH THE REAL LOADER. The page gets its sections from `pageContent`,
+// which runs `applyValues` over them — and that throws on a `{{key}}` it does
+// not know in ANY heading. This spec used to hand the migration's rows
+// straight to the view, so it stayed green while CAMP-506's `{{date}}` in the
+// `source` heading made the loader throw and the block vanish from every page.
+const sections: SectionView[] = applyValues(asPage(CAMP_SERVICES_SECTIONS)).sections;
+
+test('🔴 the page as CAMP-506 left it does not survive the loader — the reason the block was not drawn', () => {
+  // The defect, pinned: if this ever stops throwing, the loader changed and
+  // the "templates live in a body" rule below needs a second look.
+  expect(() => applyValues(asPage([...V1, ...CAMP_SERVICES_ADDED_SECTIONS]))).toThrow(/date/);
+});
+
+test('🔴 no heading of the seeded page carries a {{placeholder}}; the two templates are bodies', () => {
+  // MUTATION (done): put "{{onsite}}" into WITHIN_SECTION.heading → this is
+  // red AND every render test above/below is (the loader throws at import).
+  for (const s of CAMP_SERVICES_SECTIONS) expect(s.heading, s.slot).not.toContain('{{');
+  expect(TEMPLATE_SLOTS).toEqual(['source', 'within']);
+  expect(CAMP_SERVICES_SECTIONS.find((s) => s.slot === 'source')!.body).toContain('{{date}}');
+  expect(WITHIN_SECTION.body).toContain('{{onsite}}');
+});
+
+test('🔴 a template slot with an empty body draws nothing, not a line without its label', async () => {
+  const blank = sections.map((s) => (s.slot === 'within' ? { ...s, body: ' ' } : s));
+  expect(await html(payload, undefined as never, blank)).toBe('');
+});
 
 const payload: CampServicesPayload = {
   nearbyM: 10_000,
   onSiteM: 150,
   items: [
-    { kind: 'water', onSite: { name: 'Tap by the gate', metres: 73, seen: '2026-11-05' }, nearby: { name: 'Village fountain', metres: 773, seen: '2026-11-05' } },
+    { kind: 'water', onSite: { name: 'Tap by the gate', metres: 73, seen: '2026-11-05' }, withinRadius: null, nearby: { name: 'Village fountain', metres: 773, seen: '2026-11-05' } },
     { kind: 'ev_charging', onSite: null, nearby: { name: 'Ionity Zell', metres: 4210, seen: '2026-11-05' } },
     { kind: 'gas', onSite: null, nearby: { name: null, metres: 5558, seen: null } },
     { kind: 'pharmacy', onSite: null, nearby: { name: 'Lekarna Bled', metres: 2310, seen: '2026-11-12' } },
@@ -60,8 +112,58 @@ test('names and distances are in the HTML, on site apart from nearby', async () 
 
 test('the radii in the intro are the ones the payload carries', async () => {
   const t = text(await html({ ...payload, nearbyM: 7000, onSiteM: 90 }));
-  expect(t).toContain('within 90 m of its marked point');
+  expect(t).toContain('Within 90 m, by distance: where no outline is mapped');
   expect(t).toContain('up to 7.0 km');
+});
+
+// Review of #555. A campsite with NO outline: the tap 77 m from its point and
+// the fuel station 120 m from it. Nothing here is inside anything.
+const noOutline: CampServicesPayload = {
+  nearbyM: 10_000,
+  onSiteM: 150,
+  items: [
+    { kind: 'fuel', onSite: null, withinRadius: null, nearby: { name: 'Shell', metres: 120, seen: '2026-11-10' } },
+    { kind: 'water', onSite: null, withinRadius: { name: 'Tap A near', metres: 77, seen: '2026-11-10' }, nearby: { name: 'Tap 400', metres: 401, seen: '2026-11-10' } },
+  ],
+};
+
+test('🔴 without an outline the HTML never says "On site": water is "within 150 m, by distance", fuel is "Nearby"', async () => {
+  // MUTATION (done): label the `within` line with the `onsite` slot → red;
+  // drop the `within` line from the view → red.
+  const h = await html(noOutline);
+  const t = text(h);
+  expect(h).toMatch(/data-where="within"[^>]*>\s*<dt[^>]*>Within 150 m, by distance<\/dt>\s*<dd[^>]*>Tap A near, 77 m/);
+  expect(h).toMatch(/data-where="nearby"[^>]*>\s*<dt[^>]*>Nearby<\/dt>\s*<dd[^>]*>Shell, 120 m/);
+  expect(h).not.toContain('data-where="onsite"');
+  // the only "On site" left on the page is the intro's definition of the term
+  expect(t.match(/On site/g)).toEqual(['On site']);
+  expect(t).toContain('outline, and said only where OpenStreetMap maps one.');
+  expect(t).toContain('the distance alone does not tell whether it belongs to the campsite');
+});
+
+test('🔴 a "within the radius" answer on fuel is not drawn at all — the page keeps its own list of the two kinds', async () => {
+  // MUTATION (done): take `item.withinRadius` for every kind → red.
+  const lying: CampServicesPayload = {
+    ...noOutline,
+    items: [{ kind: 'fuel', onSite: null, withinRadius: { name: 'Shell', metres: 120, seen: null }, nearby: null }],
+  };
+  expect(await html(lying)).toBe('');
+  expect([...RADIUS_KINDS]).toEqual([...API_RADIUS_KINDS]);
+});
+
+test('an API older than the field (no `withinRadius`) still draws the rest', async () => {
+  const old = { nearbyM: 10_000, onSiteM: 150, items: [{ kind: 'water', onSite: null, nearby: { name: 'Tap', metres: 300, seen: null } }] };
+  expect(text(await html(old))).toContain('Tap, 300 m');
+});
+
+test('🔴 the groceries row says it is the nearest food shop of either size, and how it differs from the supermarket figure', async () => {
+  const h = await html({ ...noOutline, items: [{ kind: 'groceries', onSite: null, withinRadius: null, nearby: { name: 'Spar express', metres: 900, seen: null } }] });
+  const t = text(h.match(/<li[^>]*data-kind="groceries".*?<\/li>/s)![0]);
+  expect(t).toContain('Nearest food shop');
+  expect(t).toContain('A supermarket or a convenience shop, whichever is closer.');
+  expect(t).toContain('counts supermarkets only');
+  expect(t).toContain('Nearby Spar express, 900 m');
+  expect(t).not.toContain('Supermarket or shop');
 });
 
 test('🔴 EV charging is labelled as electric-car charging, not as camper power', async () => {
