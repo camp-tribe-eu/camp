@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
+import { createElement } from 'react';
 
+import PersonaToggle from '@/components/persona-toggle';
 import RouteRental from '@/components/route-rental';
 import { SiteHeader } from '@/components/site-chrome';
 import type { SectionView } from '@/lib/page-content';
@@ -23,13 +25,17 @@ const CMS = [
   sec('route-rental', 'Заголовок оренди із CMS', 'Текст оренди із CMS'),
 ];
 
-test('підписи перемикача у відданій шапці — із CMS, обидві кнопки', () => {
-  const html = renderComponent(SiteHeader, { nav: [], persona: personaLabels(CMS) });
-  expect(html).toContain('data-testid="persona-owner"');
-  expect(html).toContain('data-testid="persona-renter"');
-  expect(html).toContain('Кнопка власника із CMS');
-  expect(html).toContain('Кнопка орендаря із CMS');
-  expect(html).toContain('aria-label="Слова групи із CMS"');
+test('підписи перемикача — із CMS: кнопка в шапці несе слова групи, шухляда — обидві кнопки', () => {
+  const labels = personaLabels(CMS)!;
+  const head = renderComponent(SiteHeader, { nav: [], persona: labels });
+  expect(head).toContain('data-testid="persona-trigger"');
+  expect(head).toContain('aria-label="Слова групи із CMS"');
+  // Шухляда малюється лише відкритою, тож її вміст читається з самого компонента.
+  const drawer = renderComponent(() => createElement(PersonaToggle, { labels, variant: 'drawer' }), {});
+  expect(drawer).toContain('data-testid="persona-drawer-owner"');
+  expect(drawer).toContain('data-testid="persona-drawer-renter"');
+  expect(drawer).toContain('Кнопка власника із CMS');
+  expect(drawer).toContain('Кнопка орендаря із CMS');
 });
 
 test('без підпису в CMS перемикач не малюється, а не малюється з порожнім', () => {
@@ -37,7 +43,7 @@ test('без підпису в CMS перемикач не малюється, �
     const cut = CMS.filter((s) => s.slot !== slot);
     expect(personaLabels(cut), `без «${slot}» усе одно щось малюється`).toBeNull();
     expect(renderComponent(SiteHeader, { nav: [], persona: personaLabels(cut) })).not.toContain(
-      'persona-toggle',
+      'persona-trigger',
     );
   }
   expect(personaLabels([...CMS.filter((s) => s.slot !== 'owner'), sec('owner', '')])).toBeNull();
