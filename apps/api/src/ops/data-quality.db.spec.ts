@@ -56,7 +56,8 @@ type Row = {
   overnight?: string;
 };
 
-// Numbers 1–12 are OpenStreetMap rows, 13–19 DATAtourisme, 20–21 neither.
+// Numbers 1–12 and 22 are OpenStreetMap rows, 13–19 and 23 DATAtourisme,
+// 20–21 neither.
 const A = (n: number, r: Omit<Row, 'n' | 'src'>): Row => ({
   n,
   src: 'osm',
@@ -187,13 +188,14 @@ const ROWS: Row[] = [
     contact: { openingHours: 'Jun-Aug' },
     amenities: { water: 'yes' },
   }),
-  // A10 — the same name again, 1.1 km north: not a suspect.
+  // A10 — the same name again, 0.004° north: INSIDE the degree prefilter
+  // (0.005°) and 445 m away. Only the test in metres keeps it out.
   A(10, {
     country: 'FI',
     region: 'Lappi',
     name: 'Camping Municipal',
     lon: 25,
-    lat: 69.01,
+    lat: 69.004,
     seen: 1,
     contact: { openingHours: 'Jun-Aug' },
     amenities: { shower: 'yes', water: 'no' },
@@ -342,6 +344,29 @@ const ROWS: Row[] = [
     description: 'Een.',
     amenities: { electricity: 'yes', toilets: 'yes', shower: 'no' },
   },
+
+  // A22, D23 — a pair in which each side says what the other does not:
+  // only A22 names a website, only D23 gives stars. They cannot disagree,
+  // so they belong in neither "both name a website" nor "both give stars".
+  A(22, {
+    country: 'PT',
+    region: 'Algarve',
+    name: 'Um',
+    lon: -8,
+    lat: 37,
+    seen: 1,
+    contact: { website: 'https://um.pt' },
+  }),
+  D(23, {
+    country: 'PT',
+    region: 'Algarve',
+    name: 'Um',
+    lon: -8.0005,
+    lat: 37,
+    seen: 50,
+    upd: 30,
+    stars: 2,
+  }),
 ];
 
 // primary, secondary, metres, undone
@@ -349,6 +374,7 @@ const LINKS: [number, number, number, boolean][] = [
   [1, 13, 40, false],
   [2, 14, 200, false],
   [11, 18, 10, false],
+  [22, 23, 60, false],
   [3, 12, 300, false], // same source
   [7, 15, 500, false], // primary gone
   [8, 19, 400, false], // secondary gone
@@ -486,30 +512,30 @@ describe('the data-quality measures', () => {
   });
 
   it('counts campsites, not rows', () => {
-    // 21 rows; 3 gone (A6 A7 D19); 4 folded (A12 D13 D14 D18) → 14.
-    expect(got('unique_campsites')).toEqual([14, 21]);
-    // the 14 without A4 and X21 (no region) and A5 (unpublished country).
-    expect(got('campsites_with_a_page')).toEqual([11, 21]);
+    // 23 rows; 3 gone (A6 A7 D19); 5 folded (A12 D13 D14 D18 D23) → 15.
+    expect(got('unique_campsites')).toEqual([15, 23]);
+    // the 15 without A4 and X21 (no region) and A5 (unpublished country).
+    expect(got('campsites_with_a_page')).toEqual([12, 23]);
   });
 
   it('counts a position as confirmed only by a second, live, DIFFERENT source', () => {
-    // A1, A2, A11. Not A3 (same source; and an undone link to D17),
+    // A1, A2, A11, A22. Not A3 (same source; and an undone link to D17),
     // not A8 (its second copy is gone).
-    expect(got('position_given_by_two_sources')).toEqual([3, 14]);
+    expect(got('position_given_by_two_sources')).toEqual([4, 15]);
     // A1 A3 A8. Not A6 (gone), not D13 (folded into A1).
-    expect(got('position_with_an_outline')).toEqual([3, 14]);
+    expect(got('position_with_an_outline')).toEqual([3, 15]);
   });
 
   it('counts folded duplicates and the suspects still shown apart', () => {
-    // A12 D13 D14 D18 of the 18 rows still in their source. D15 is not:
+    // A12 D13 D14 D18 D23 of the 20 rows still in their source. D15 is not:
     // the row that carried it is gone, so it is shown again.
-    expect(got('duplicate_rows_folded')).toEqual([4, 18]);
-    // A8 and A9. Not A10 (1.1 km), not A1 (its namesake D13 is folded).
-    expect(got('duplicate_suspects_still_separate')).toEqual([2, 14]);
+    expect(got('duplicate_rows_folded')).toEqual([5, 20]);
+    // A8 and A9. Not A10 (445 m), not A1 or A22 (the namesake is folded).
+    expect(got('duplicate_suspects_still_separate')).toEqual([2, 15]);
   });
 
   it('counts the rows that left their source', () => {
-    expect(got('rows_gone_from_their_source')).toEqual([3, 21]);
+    expect(got('rows_gone_from_their_source')).toEqual([3, 23]);
   });
 
   it('says, per source, how many rows the source confirmed lately', () => {
@@ -519,11 +545,11 @@ describe('the data-quality measures', () => {
       'no source recorded',
       'osm',
     ]);
-    // A1–A5, A8–A12 are live; A11 and A12 were last seen 30 days ago.
-    expect(got('rows_seen_by_their_source_lately', 'osm')).toEqual([8, 10]);
-    // D13–D18 are live; only D13 and D16 were seen lately.
+    // A1–A5, A8–A12, A22 are live; A11 and A12 were last seen 30 days ago.
+    expect(got('rows_seen_by_their_source_lately', 'osm')).toEqual([9, 11]);
+    // D13–D18 and D23 are live; only D13 and D16 were seen lately.
     expect(got('rows_seen_by_their_source_lately', 'datatourisme')).toEqual([
-      2, 6,
+      2, 7,
     ]);
     expect(got('rows_seen_by_their_source_lately', 'acsi')).toEqual([1, 1]);
     // never seen is "not lately", and the row is still in the population.
@@ -538,12 +564,12 @@ describe('the data-quality measures', () => {
   });
 
   it('reads the date of the last change from the edit, not from our import', () => {
-    // A1 A2 A4 A5 A8 A11 A12; A3 A9 A10 carry no edit date — though all
-    // ten carry `updatedAt`, which is the day we imported them.
-    expect(got('rows_with_a_date_of_last_change', 'osm')).toEqual([7, 10]);
+    // A1 A2 A4 A5 A8 A11 A12; A3 A9 A10 A22 carry no edit date — though
+    // all eleven carry `updatedAt`, which is the day we imported them.
+    expect(got('rows_with_a_date_of_last_change', 'osm')).toEqual([7, 11]);
     // all but D17.
     expect(got('rows_with_a_date_of_last_change', 'datatourisme')).toEqual([
-      5, 6,
+      6, 7,
     ]);
     expect(got('rows_with_a_date_of_last_change', 'acsi')).toEqual([1, 1]);
     expect(
@@ -554,8 +580,8 @@ describe('the data-quality measures', () => {
   it('counts recent changes among the DATED rows only', () => {
     // of the 7 dated: not A2 (800 days), not A11 (400).
     expect(got('rows_changed_within_a_year', 'osm')).toEqual([5, 7]);
-    // of the 5 dated: D13 D16 D18; not D14 (600), not D15 (500).
-    expect(got('rows_changed_within_a_year', 'datatourisme')).toEqual([3, 5]);
+    // of the 6 dated: D13 D16 D18 D23; not D14 (600), not D15 (500).
+    expect(got('rows_changed_within_a_year', 'datatourisme')).toEqual([4, 6]);
     expect(got('rows_changed_within_a_year', 'acsi')).toEqual([1, 1]);
     // 🔴 no dated row, so no line — not "0 of 0" dressed as a result.
     expect(labelsOf('rows_changed_within_a_year')).not.toContain(
@@ -564,9 +590,12 @@ describe('the data-quality measures', () => {
   });
 
   it('finds the contradictions between two sources of one campsite', () => {
-    // three pairs: A1–D13 (40 m), A2–D14 (200 m), A11–D18 (10 m).
-    expect(got('pairs_further_apart_than_one_site')).toEqual([1, 3]);
-    // 🔴 THREE pairs with one odd one out each time, never two and two:
+    // four pairs: A1–D13 (40 m), A2–D14 (200 m), A11–D18 (10 m),
+    // A22–D23 (60 m).
+    expect(got('pairs_further_apart_than_one_site')).toEqual([1, 4]);
+    // 🔴 Of the four, A22–D23 is in neither population below: one side
+    // is silent each time. And the THREE that remain split one against
+    // two, never two and two:
     // on a symmetric fixture `<>` and `=` count the same and a flipped
     // comparison passes. `www.lac.fr`/`lac.fr` and `vieux.se`/
     // `www.vieux.se` are one domain each; `lespins.fr`/`autre.com` are not.
@@ -582,19 +611,19 @@ describe('the data-quality measures', () => {
       'no licence on file — no source recorded',
       'Open Database License (ODbL) 1.0 — osm',
     ]);
-    // A1–A12 and X21, which carries two sources and is counted under both.
+    // A1–A12, A22, and X21, which carries two sources and is counted under both.
     expect(
       got('rows_by_licence', 'Open Database License (ODbL) 1.0 — osm'),
-    ).toEqual([13, 21]);
+    ).toEqual([14, 23]);
     expect(
       got('rows_by_licence', 'Licence Ouverte 2.0 (Etalab) — datatourisme'),
-    ).toEqual([7, 21]);
+    ).toEqual([8, 23]);
     expect(got('rows_by_licence', 'no licence on file — acsi')).toEqual([
-      1, 21,
+      1, 23,
     ]);
     expect(
       got('rows_by_licence', 'no licence on file — no source recorded'),
-    ).toEqual([1, 21]);
+    ).toEqual([1, 23]);
   });
 
   it('asks each attribute of the CAMPSITE: its own row or a live row folded into it', () => {
@@ -605,35 +634,35 @@ describe('the data-quality measures', () => {
     );
     expect(filled).toEqual({
       // not A4, D17, X20. A11 has one only through D18.
-      name: [11, 14],
+      name: [12, 15],
       // not A4, X21.
-      region: [12, 14],
-      // A1 A2 A5 A11 in `contact`, D16 in the column. Not A8: D19 is gone.
-      website: [5, 14],
+      region: [13, 15],
+      // A1 A2 A5 A11 A22 in `contact`, D16 in the column. Not A8: D19 is gone.
+      website: [6, 15],
       // A1; A3 through A12.
-      phone: [2, 14],
+      phone: [2, 15],
       // A2.
-      email: [1, 14],
+      email: [1, 15],
       // A3 A4 A8 A9 A10.
-      'opening hours': [5, 14],
+      'opening hours': [5, 15],
       // A1 (D13), A2 (D14), D15 D16 D17, X21.
-      description: [6, 14],
-      // A1 A2 A5 A11 D15 D16 D17 X21.
-      stars: [8, 14],
+      description: [6, 15],
+      // A1 A2 A5 A11 D15 D16 D17 X21, and A22 through D23.
+      stars: [9, 15],
       // A1 A2 A4 A5 A8 A9 A10 X21, and A11 through D18. Not A3: all "unknown".
-      'any amenity answered': [9, 14],
+      'any amenity answered': [9, 15],
       // A1 A4 A8 X21.
-      'electricity answered': [4, 14],
+      'electricity answered': [4, 15],
       // A8 A9 A10. Not A1: "unknown".
-      'drinking water answered': [3, 14],
+      'drinking water answered': [3, 15],
       // A2 X21.
-      'toilets answered': [2, 14],
+      'toilets answered': [2, 15],
       // A2 A10 X21.
-      'showers answered': [3, 14],
+      'showers answered': [3, 15],
       // A1, A9, and A2 through D14.
-      'overnight stay answered': [3, 14],
+      'overnight stay answered': [3, 15],
       // A1, A3, D16, and A2 through D14. Not A6: gone.
-      'a published tariff': [4, 14],
+      'a published tariff': [4, 15],
     });
     expect(Object.keys(filled)).toHaveLength(ATTRIBUTES.length);
   });
@@ -700,7 +729,7 @@ describe('a measure that breaks', () => {
       MEASURES[0].key,
       MEASURES[1].key,
     ]);
-    expect(r.lines.map((l) => l.n)).toEqual([14, 11]);
+    expect(r.lines.map((l) => l.n)).toEqual([15, 12]);
     expect(r.failures).toHaveLength(1);
     expect(r.failures[0].key).toBe('broken');
     expect(r.failures[0].error).toMatch(/no_such_table/);
@@ -716,7 +745,7 @@ describe('a measure that breaks', () => {
     const r = await measure(db, [slow, MEASURES[0]], 200);
     expect(r.failures.map((f) => f.key)).toEqual(['slow']);
     expect(r.failures[0].error).toMatch(/statement timeout/);
-    expect(r.lines.map((l) => l.n)).toEqual([14]);
+    expect(r.lines.map((l) => l.n)).toEqual([15]);
   });
 
   it('is reported when the answer is not a count, or is no answer', async () => {
@@ -761,7 +790,7 @@ describe('a measure that breaks', () => {
     const { rows } = await db.query(
       'SELECT count(*)::int AS n FROM camping_spots',
     );
-    expect((rows[0] as { n: number }).n).toBe(21);
+    expect((rows[0] as { n: number }).n).toBe(23);
   });
 
   it('leaves no transaction open behind it', async () => {
