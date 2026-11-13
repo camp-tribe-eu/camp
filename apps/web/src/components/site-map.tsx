@@ -10,6 +10,7 @@ import {
 } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { MAP_SOURCES } from '@/lib/map-sources';
+import type { DisturbanceMarker } from '@/lib/disturbance';
 import { TYPE_COLOUR } from '@/lib/map-palette';
 import {
   outlineBounds,
@@ -42,6 +43,20 @@ import {
 // Область модуля, тож виконується до того, як збудується перша мапа.
 setWorkerUrl('/maplibre/maplibre-gl-worker.mjs');
 
+type Box = [[number, number], [number, number]];
+
+/** CAMP-502: the box widened to hold every pin, so a far pin is not off-screen. */
+function withPins(box: Box, pins: readonly DisturbanceMarker[]): Box {
+  let [[w, so], [e, n]] = box;
+  for (const d of pins) {
+    w = Math.min(w, d.lon);
+    e = Math.max(e, d.lon);
+    so = Math.min(so, d.lat);
+    n = Math.max(n, d.lat);
+  }
+  return [[w, so], [e, n]];
+}
+
 /** Zoom, на якому видно ділянку і дорогу до неї, але ще читається село. */
 const ZOOM = 15;
 
@@ -52,12 +67,15 @@ export default function SiteMap({
   type,
   label,
   outline = null,
+  disturbance = [],
 }: {
   lat: number;
   lon: number;
   type: string;
   label: string;
   outline?: Outline | null;
+  /** CAMP-502: where the nearest motorway / railway line / airport comes closest. */
+  disturbance?: readonly DisturbanceMarker[];
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
@@ -79,6 +97,7 @@ export default function SiteMap({
   // атрибути на місці. Ключ лишається як запобіжник, а не як ліки від
   // доведеної хвороби.
   const outlineKey = outline ? JSON.stringify(outline) : '';
+  const disturbanceKey = JSON.stringify(disturbance);
 
   useEffect(() => {
     if (!box.current) return;
@@ -187,7 +206,11 @@ export default function SiteMap({
             box.current?.setAttribute('data-outline-layer', 'false');
             return;
           }
-          map.fitBounds(bounds, { padding: 28, animate: false, maxZoom: ZOOM });
+          map.fitBounds(withPins(bounds, disturbance), {
+            padding: 28,
+            animate: false,
+            maxZoom: ZOOM,
+          });
           // 🔴 СИГНАЛ ПРО СТАН МАПИ, А НЕ ПРО ПІКСЕЛІ.
           //
           // Перша редакція ставила його через `queryRenderedFeatures` по
@@ -226,6 +249,29 @@ export default function SiteMap({
       new Marker({ color: TYPE_COLOUR[type] ?? TYPE_COLOUR.paid })
         .setLngLat([lon, lat])
         .addTo(map);
+      // CAMP-502: a pin where each possible disturbance comes closest. The words
+      // are the CMS's (`map-label`); the pin says "possible", never "noise".
+      for (const d of disturbance) {
+        const el = document.createElement('div');
+        el.setAttribute('data-testid', 'disturbance-marker');
+        el.setAttribute('data-kind', d.kind);
+        el.setAttribute('role', 'img');
+        el.setAttribute('aria-label', d.label);
+        el.title = d.label;
+        el.textContent = '!';
+        el.style.cssText =
+          'width:22px;height:22px;border-radius:50%;background:#B45309;color:#fff;' +
+          'font:700 14px/22px sans-serif;text-align:center;border:2px solid #fff;' +
+          'box-shadow:0 1px 3px rgba(0,0,0,.4)';
+        new Marker({ element: el }).setLngLat([d.lon, d.lat]).addTo(map);
+      }
+      // A pin 4 km away is off-screen at the campsite's own zoom: frame them all.
+      if (disturbance.length > 0)
+        map.fitBounds(withPins([[lon, lat], [lon, lat]], disturbance), {
+          padding: 48,
+          animate: false,
+          maxZoom: ZOOM,
+        });
       // 🔴 ВІДКАТ ЛИШЕ ДО ЗАВАНТАЖЕННЯ, А НЕ НА БУДЬ-ЯКУ ПОМИЛКУ.
       // Перша редакція ставила `failed` на кожну подію `error` — а
       // MapLibre шле її і за одну плитку, що не приїхала. Мапа,
@@ -289,7 +335,7 @@ export default function SiteMap({
     // біля оголошення ключа. Значення читається із замикання, і воно те
     // саме, бо ключ міняється рівно тоді, коли міняється обʼєкт.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lat, lon, type, outlineKey]);
+  }, [lat, lon, type, outlineKey, disturbanceKey]);
 
   // 🔴 КОНТЕЙНЕР РЕНДЕРИТЬСЯ ЗАВЖДИ, А ЗАПАСНИЙ ТЕКСТ ЛЯГАЄ ПОВЕРХ.
   // Перша редакція повертала при `failed` зовсім іншу гілку — БЕЗ `ref`.

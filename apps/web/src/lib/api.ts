@@ -452,6 +452,8 @@ export interface Spot {
    * and a payload without it must draw nothing, not throw.
    */
   campServices?: CampServicesPayload;
+  /** CAMP-502: possible disturbance (distances). Absent or empty = no block. */
+  disturbance?: DisturbancePayload;
   /** CAMP-503: the owner's pitch hookup. Absent unless the owner filled it. */
   hookup?: Hookup;
   /**
@@ -758,6 +760,12 @@ export interface CampServicesPayload {
     onSite: { name: string | null; metres: number; seen?: string | null } | null;
     nearby: { name: string | null; metres: number; seen?: string | null } | null;
   }[];
+}
+
+/** CAMP-502: distances to a motorway / railway line / airport — never a noise measurement. */
+export interface DisturbancePayload {
+  radiusM: { road: number; rail: number; airport: number };
+  items: { kind: string; metres: number; lon: number; lat: number; name: string | null }[];
 }
 
 /** CAMP-503: what the OWNER says about the pitch's mains socket. */
