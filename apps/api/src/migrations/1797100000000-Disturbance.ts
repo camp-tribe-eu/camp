@@ -9,9 +9,11 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *    this table on every page. Without it a deploy would turn every campsite
  *    page into an error until someone ran the import. Empty means "no computed
  *    distance", and the page then draws no block. The table is FILLED by
- *    `scripts/osm-pipeline/load-context.sh` (ogr2ogr `-overwrite` recreates it
- *    with whatever OSM tags the extracts carry — the columns below are the ones
- *    the query reads), not by the weekly route-POI workflow.
+ *    `scripts/osm-pipeline/load-hazard.mjs` (called by load-context.sh), which
+ *    never creates, drops or truncates it: the columns below are the ones the
+ *    query reads AND the ones the loader writes, whatever tags an export holds
+ *    (the loader's self-test compares the two lists). An empty table is not
+ *    silent: `camptribe-disturbance-check` turns red on it every day.
  *
  * 2. The words of the block, in the CMS (page `camp-disturbance`, type `page`,
  *    `noindex`; no new collection — production stands at 25 of 25). 🔴 `caveat`

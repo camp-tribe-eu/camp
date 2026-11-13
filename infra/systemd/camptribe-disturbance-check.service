@@ -1,0 +1,29 @@
+# CAMP-502: сторож блоку «Possible disturbance» — міряє БАЗУ, а не код.
+#
+# 🔴 ЧОМУ ВІН Є (рецензія #557). Міграція створює `osm_ctx_hazard` ПОРОЖНЬОЮ,
+# щоб деплой не зламав сторінку кемпінга; порожня таблиця означає «відстані
+# немає», і сторінка не малює блок. Тобто після деплою блок мовчки відсутній
+# на кожній сторінці — так само, як там, де поруч справді нічого немає.
+# Відрізнити одне від іншого може лише лічильник у базі.
+#
+# 🔴 ЧЕРВОНЕ: шар порожній; у шарі немає жодного рядка одного з трьох видів;
+# блок не намальовано на жодному кемпінгу; або в країні, де 100+ кемпінгів,
+# його немає на жодному (шар завантажили без цієї країни). Лист називає число
+# зі знаменником: «0 of 57 128 campsite pages», «FR (0 of 9 114)».
+#
+# Рахує ТИМ САМИМ SQL, що й сторінка (`disturbanceSql`), одним читанням у
+# READ ONLY транзакції. Заміряно 13.11.2026 на повному шарі ЄС-27
+# (2 985 001 рядок) і 52 549 кемпінгах: 11,6 с на ноутбуці.
+[Unit]
+Description=CampTribe «Possible disturbance» coverage check
+After=postgresql.service
+OnFailure=camptribe-failed@%n.service
+
+[Service]
+Type=oneshot
+User=camptribe
+Group=camptribe
+WorkingDirectory=/srv/camptribe/current/apps/api
+EnvironmentFile=/srv/camptribe/current/apps/api/.env
+ExecStart=/usr/bin/node dist/spots/check-disturbance.js
+ExecStartPost=/bin/rm -f /srv/camptribe/failed/camptribe-disturbance-check.service

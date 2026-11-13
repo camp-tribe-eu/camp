@@ -44,6 +44,8 @@ status=200/CHDIR
 | `systemd/camptribe-elevation.timer` | 05:15 UTC щодня, `Persistent=true`; нема чого добирати — виходить за секунду |
 | `systemd/camptribe-elevation-check.service` | 🔴 сторож по БАЗІ: `check-elevation-coverage.mjs --db`, норма «0 із <живих>», інакше червоне з числом і знаменником |
 | `systemd/camptribe-elevation-check.timer` | 06:15 UTC щодня, після заповнювача |
+| `systemd/camptribe-disturbance-check.service` | 🔴 CAMP-502, сторож по БАЗІ: `dist/spots/check-disturbance.js` рахує тим самим SQL, що й сторінка; червоне, коли `osm_ctx_hazard` порожня, у шарі немає одного з трьох видів, блок не намальовано ніде, або в країні зі 100+ кемпінгами його немає на жодному. Число завжди зі знаменником («0 of 52 549 campsite pages») |
+| `systemd/camptribe-disturbance-check.timer` | 06:45 UTC щодня, `Persistent=true` |
 | `systemd/camptribe-route-poi-import.service` | 🔴 вівторок 05:30 UTC: `import-route-poi.mjs --max-age-days 9` (той самий реліз `osm-weekly` → `osm_route_poi`; CAMP-113, рішення 28.10.2026). Усі країни релізу — в одну `osm_route_poi_staging`, лоадер один раз; невидані рядки видаляються лише в країнах, чий файл приїхав |
 | `systemd/camptribe-route-poi-import.timer` | вівторок 05:30 UTC, `Persistent=true` — через годину після імпорту кемпінгів (одне ядро Postgres), за пів години до сторожа свіжості |
 | `systemd/camptribe-fuel-prices.service` | 🔴 щодня: `import-stations.js --report` (ES/FR/IT → `fuel_station_prices`) |
