@@ -22,12 +22,12 @@
 // the campsite page uses, over the same `context` — so a distance that is
 // not a number is not a row here either, and the widget cannot say
 // something the page does not. What the card also lists and this does NOT
-// show, each for a stated reason: a map (`maplibre-gl/dist/maplibre-gl.js`
-// is 0 bytes, against a budget of 14 000), weather warnings
-// (the page keeps them no older than ten minutes — `FRESH_FOR_MINUTES`,
-// components/warnings-for-spot.tsx — which needs script), a route to the
-// campsite (no router is running) and an accessibility profile (all we
-// hold is one OpenStreetMap tag: a record, not a profile).
+// show, each for a stated reason: a map (`maplibre-gl.mjs` and its worker
+// are 1 616 868 bytes in `maplibre-gl/dist`, against a budget of 14 000),
+// weather warnings (the page keeps them no older than ten minutes —
+// `FRESH_FOR_MINUTES` in lib/warnings.ts — which needs script), a route to
+// the campsite (no router is running) and an accessibility profile (all
+// we hold is one OpenStreetMap tag: a record, not a profile).
 
 import { WIDGET_CSS } from "../../scripts/embed-policy.mjs";
 import { SPOT_TYPE_LABEL, withOwnerOverrides, type Spot } from "./api";
