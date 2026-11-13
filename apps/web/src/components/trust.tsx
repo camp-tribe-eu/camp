@@ -49,11 +49,14 @@ export function TrustLegend({
         {rows.map((r) => (
           <div key={r.status} data-trust-meaning={r.status}>
             <dt className="inline font-semibold text-heading">{r.label}</dt>
-            {' — '}
+            {/* 🔴 The dash lives INSIDE the <dd>: a <div> in a <dl> may hold
+                only <dt>/<dd>, and a text node between them fails axe
+                `definition-list` (CI run 43404874065, three projects). */}
             {/* 🔴 The same sentence on every page that uses the word, so
                 the near-duplicate guard leaves it out — the sentence only,
                 not the row: WHICH words a page uses is the page's own. */}
             <dd className="inline" data-boilerplate="trust-meaning">
+              {' — '}
               {r.meaning}
             </dd>
           </div>
