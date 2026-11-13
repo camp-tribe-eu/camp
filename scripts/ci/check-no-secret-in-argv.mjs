@@ -130,7 +130,7 @@ function selfTest() {
   const names = (l) => secretsInArgv(l);
 
   t('🔴 саме та команда, що витекла 02.11',
-    names('sudo -u camptribe env DATABASE_URL=postgres://u:p@h/db WINDY_WEBCAMS_API_KEY=abc node dist/x.js'),
+    names('sudo -u camptribe env DATABASE_URL=postgres://u:p@db.invalid/db WINDY_WEBCAMS_API_KEY=abc node dist/x.js'),
     ['DATABASE_URL', 'WINDY_WEBCAMS_API_KEY']);
   t('🔴 без env, одразу після sudo', names('sudo DATABASE_URL=… node x'), ['DATABASE_URL']);
   t('🔴 заповнювач «…» теж зразок, з якого списують', names('`sudo -u … env API_BUILD_TOKEN=… npm run build`'), ['API_BUILD_TOKEN']);
