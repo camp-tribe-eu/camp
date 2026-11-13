@@ -77,10 +77,18 @@ describe('the reconciler only ever writes links', () => {
     expect(src).not.toMatch(/UPDATE\s+camping_spots/i);
   });
 
-  it('writes to exactly one table', () => {
-    const writes = src.match(/INSERT\s+INTO\s+(\w+)/gi) ?? [];
-    expect(writes.length).toBeGreaterThan(0);
-    for (const w of writes) expect(w.toLowerCase()).toContain('spot_links');
+  // 🔴 РІВНІСТЬ МНОЖИНИ, А НЕ `toContain`. Звірник пише звʼязки й мітку
+  // власного прогону (`spot_link_runs`, за якою сторож свіжості знає, що
+  // він відпрацював навіть без нових пар) — і більше нічого. Третя
+  // таблиця тут — це падіння, хай як вона називається.
+  it('writes to its links and its own run log, and to nothing else', () => {
+    const writes = [...src.matchAll(/INSERT\s+INTO\s+(\w+)/gi)].map((m) =>
+      m[1].toLowerCase(),
+    );
+    expect([...new Set(writes)].sort()).toEqual([
+      'spot_link_runs',
+      'spot_links',
+    ]);
   });
 });
 

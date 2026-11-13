@@ -37,7 +37,8 @@
 // disagreeing about what "the same campsite" means, and the wrong one
 // winning depending on which ran last.
 //
-// 🔴 IT WRITES ONLY TO spot_links. It never UPDATEs or DELETEs a
+// 🔴 IT WRITES ONLY TO spot_links (and one row per run to its own log,
+// spot_link_runs — see applyLinks). It never UPDATEs or DELETEs a
 // campsite. Both rows survive intact, each source keeps writing to its
 // own row, and the reader-side join in spots.service.ts is what makes
 // them one page. That is why no import has to know this exists.
@@ -565,6 +566,35 @@ export async function writeLinks(
 }
 
 /**
+ * Один прогін `--apply`: звʼязки й МІТКА ПРОГОНУ в одній транзакції.
+ *
+ * 🔴 МІТКА ПИШЕТЬСЯ І ТОДІ, КОЛИ ЗВʼЯЗКІВ НУЛЬ — заради цього вона й є.
+ * Заміряно на проді 13.11.2026: прогін 10.11 05:50 UTC завершився
+ * успішно з «0 links written», а `max(spot_links.created_at)` лишився
+ * 03.11 20:23 — 9,53 доби при бюджеті 10. Сторож свіжості читав дату
+ * останнього НОВОГО звʼязку й назавтра почервонів би на справному
+ * збирачі. Тиждень без нових пар — нормальний стан цієї таблиці, а не
+ * зупинка: пара, яку вже розсудили, вдруге не пишеться ніколи.
+ *
+ * Тому сторож тепер читає `spot_link_runs.finished_at`. Мітка в тій
+ * самій транзакції, що й звʼязки: прогін, який відкотився, не лишає
+ * сліду «я відпрацював».
+ */
+export async function applyLinks(
+  db: LinkWriter,
+  links: Proposal[],
+): Promise<{ written: number; refused: string[] }> {
+  await db.query('BEGIN');
+  const result = await writeLinks(db, links);
+  await db.query(
+    `INSERT INTO spot_link_runs (written, refused) VALUES ($1, $2)`,
+    [result.written, result.refused.length],
+  );
+  await db.query('COMMIT');
+  return result;
+}
+
+/**
  * The OSM↔OSM pairs, counted by the same rule and left alone — a
  * decision, not an oversight.
  *
@@ -967,9 +997,7 @@ async function main(): Promise<void> {
       return;
     }
 
-    await db.query('BEGIN');
-    const { written, refused } = await writeLinks(db, auto);
-    await db.query('COMMIT');
+    const { written, refused } = await applyLinks(db, auto);
     console.log(
       `\n✓ ${written} links written (auto tier). ${held.length} held back, ` +
         'unmarked. No campsite row was touched.',

@@ -292,8 +292,14 @@ export const DB_SOURCES = Object.freeze([
   { name: 'spot_tariffs (тарифи DATAtourisme)', card: 'CAMP-147',
     table: 'spot_tariffs', column: 'fetched_at', budgetHours: 10 * 24,
     unit: 'camptribe-spot-tariffs' },
+  // 🔴 МІТКА ПРОГОНУ, А НЕ `spot_links.created_at`. Звірник пише лише
+  // НОВІ пари, тож тиждень без нових звʼязків лишав `max(created_at)` на
+  // місці при справному юніті. Заміряно на проді 13.11.2026: прогін
+  // 10.11 дав «0 links written», вік за `created_at` — 9,53 доби з 10.
+  // `spot_link_runs` дістає рядок на КОЖЕН успішний `--apply`
+  // (`applyLinks` у reconcile-sources.ts), у тій самій транзакції.
   { name: 'spot_links (звʼязки OSM↔DATAtourisme)', card: 'CAMP-144',
-    table: 'spot_links', column: 'created_at', budgetHours: 10 * 24,
+    table: 'spot_link_runs', column: 'finished_at', budgetHours: 10 * 24,
     unit: 'camptribe-reconcile-sources' },
   { name: 'webcams (камери Windy)', card: 'CAMP-190',
     table: 'webcams', column: 'fetched_at', budgetHours: 10 * 24,
@@ -616,7 +622,7 @@ function selfTest() {
   t('🔴 --db без --stale-only: та сама порожня таблиця дзвонить — режим справді передається',
     runWith(new Set(['--db']), base(fake({ webcams: 'never' }).read)), 1);
   t('🔴 --db --stale-only: таблиця, що зупинилась, дзвонить',
-    runWith(new Set(['--db', '--stale-only']), base(fake({ spot_links: 'stale' }).read)), 1);
+    runWith(new Set(['--db', '--stale-only']), base(fake({ spot_link_runs: 'stale' }).read)), 1);
   t('--db і все свіже → 0',
     runWith(new Set(['--db']), base(fake({}).read)), 0);
   let usage = false;
