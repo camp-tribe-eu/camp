@@ -140,6 +140,26 @@ node scripts/ci/check-server-drift.mjs            # з машини, де є к�
 Повне порівняння з машиною потребує SSH-ключа й у CI не біжить; вдавати
 протилежне було б гірше за відсутність перевірки.
 
+## 🔴 Ручний запуск — лише через файл оточення
+
+Імпорт чи скрипт, якому потрібна база або ключ, запускається руками **однією
+формою**, тією самою, що в юнітах:
+
+```bash
+sudo systemd-run --collect --wait --pipe -p User=camptribe -p Group=camptribe \
+  -p WorkingDirectory=/srv/camptribe/current/apps/api \
+  -p EnvironmentFile=/srv/camptribe/current/apps/api/.env \
+  /usr/bin/node dist/spots/reconcile-sources.js          # без --apply — пробний прогін
+```
+
+Якщо юніт уже є — ще простіше: `sudo systemctl start --wait camptribe-<імʼя>.service`.
+
+**Ніколи** не передавай секрет присвоєнням після `sudo`: командний рядок `sudo`
+цілим лягає в `journald` і `/var/log/auth.log`. Саме так 02.11.2026 туди потрапили
+пароль бази й ключ Windy; 13.11.2026 пароль ротовано, а журнал вибірково не
+чиститься. У CI це стереже `scripts/ci/check-no-secret-in-argv.mjs` — але лише
+зразки в репозиторії: команду, набрану на машині з голови, він не бачить.
+
 ## 🔴 Таймер — не те саме, що ввімкнений таймер
 
 Розкладка копіювала таймери й не вмикала жодного: `daemon-reload` їх

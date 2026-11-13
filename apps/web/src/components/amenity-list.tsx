@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 
 import type { AmenityKey, AmenityValue } from "@/lib/api";
+import type { TrustStatus } from "@/lib/trust";
+import { TrustMark } from "@/components/trust";
 
 /**
  * Зручності кемпінгу значками — CAMP-453, пункт 3 (знімок ревю 441/66).
@@ -108,6 +110,7 @@ const AMENITY_CSS = `
 .ct-amen__label{flex:1 1 auto;min-width:0}
 .ct-amen__state{display:inline-flex;align-items:center;gap:4px;flex:0 0 auto;font-size:.875rem}
 .ct-amen__state svg{width:14px;height:14px;flex:none}
+.ct-amen__trust{color:var(--color-ink-2);font-size:.75rem}
 .ct-amen__item--unknown,.ct-amen__item--unknown .ct-amen__icon{color:var(--color-ink-2)}
 .ct-amen__item--no .ct-amen__state{color:var(--color-ink-2)}
 @media(min-width:768px){.ct-amen__list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:24px}.ct-amen__item+.ct-amen__item{margin-top:0}.ct-amen__item{padding-block:4px}}
@@ -117,11 +120,17 @@ export default function AmenityList({
   keys,
   labels,
   values,
+  trust,
   testId,
 }: {
   keys: readonly AmenityKey[];
   labels: Readonly<Record<AmenityKey, string>>;
   values: Readonly<Record<AmenityKey, AmenityValue>>;
+  /**
+   * 🔴 CAMP-521: REQUIRED, one status per key. "Yes" is the fact; this is
+   * where the fact came from. Derived in `lib/trust.ts` (`amenityTrust`).
+   */
+  trust: Readonly<Record<AmenityKey, TrustStatus>>;
   testId?: string;
 }) {
   // 🔴 Порожній перелік не малює рамки — те саме правило, що в секціях
@@ -148,7 +157,20 @@ export default function AmenityList({
                 <span className="ct-amen__label">{labels[key]}</span>
                 <span className="ct-amen__state">
                   {STATE_ICON[value]}
-                  {STATE_WORD[value]}
+                  {/* 🔴 «Not recorded» — це вже і стан, і статус: одне
+                      слово на одне «не знаємо», а не два поруч. Для решти
+                      статус іде окремим словом після стану. */}
+                  {trust[key] === "unknown" ? (
+                    <TrustMark status="unknown" />
+                  ) : (
+                    <>
+                      {STATE_WORD[value]}
+                      {/* Справжній символ, а не `::before`: без нього
+                          текст сторінки читається як «YesImported». */}
+                      {" · "}
+                      <TrustMark status={trust[key]} className="ct-amen__trust" />
+                    </>
+                  )}
                 </span>
               </li>
             );

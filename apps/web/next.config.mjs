@@ -3,6 +3,8 @@ import {
   SECURITY_HEADERS,
 } from './scripts/security-headers.mjs';
 
+const FONT_CACHE_CONTROL = 'public, max-age=31536000, immutable';
+
 /** @type {import('next').NextConfig} */
 
 // CAMP-90: `X-Robots-Tag` at the transport level, not only in a meta tag.
@@ -88,7 +90,35 @@ const nextConfig = {
       );
       if (i >= 0) headers[i] = { ...headers[i], value: cspForDevServer() };
     }
-    return [{ source: '/:path*', headers }];
+    return [
+      { source: '/:path*', headers },
+      // 🔴 ШРИФТИ КЕШУЮТЬСЯ НА РІК І НЕ ПЕРЕВІРЯЮТЬСЯ ЗАНОВО.
+      //
+      // Файли з `public/` Next віддає з `Cache-Control: public, max-age=0`,
+      // тож браузер на КОЖНІЙ сторінці питав «чи не змінився шрифт» і
+      // отримував 304. У WebKit така відповідь на шрифт із
+      // `<link rel="preload" as="font">` (layout.tsx, CAMP-88) час від часу
+      // лишає сторінку без події `load` назавжди: `readyState` застигає на
+      // `interactive`, відкритих запитів немає.
+      //
+      // Заміряно 13.11.2026, Playwright WebKit, вісім переходів поспіль в
+      // одному контексті, десять серій:
+      //   max-age=0                               зависло 6–9 серій із 10
+      //   те саме, 304 на два preload-шрифти знято   0 із 10
+      //   те саме, 304 на решту лишено                8 із 10
+      //   цей заголовок                              0 із 10
+      // Саме так упав `main` (прогін 43405055548): persona.spec.ts у
+      // webkit-desktop, шрифти 304 — і далі жодного запиту 30 с.
+      //
+      // 🔴 `immutable` ПРИ ІМЕНІ БЕЗ ХЕША — ЦЕ ОБІЦЯНКА. Змінив файл шрифту
+      // — зміни й імʼя (і в layout.tsx, і в globals.css), інакше читач
+      // рік бачитиме старий. Обіцянку тримає
+      // tests/unit/font-cache.spec.ts: він знає відбиток кожного файла.
+      {
+        source: '/fonts/:file*',
+        headers: [{ key: 'Cache-Control', value: FONT_CACHE_CONTROL }],
+      },
+    ];
   },
 };
 
