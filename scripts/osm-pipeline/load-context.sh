@@ -49,6 +49,20 @@
 #           copy of what OSM says. Airports are `aeroway=aerodrome`; the
 #           query keeps those with an `iata` code (scheduled flights), not
 #           every grass strip.
+#           🔴 NOT LOADED BY ogr2ogr (review of #557). The campsite page reads
+#           this table on EVERY request, and ogr2ogr makes a column only for
+#           a tag the export happens to contain: an export with no `tunnel`
+#           gave a table with no `tunnel` column and every campsite page
+#           answered `column x.tunnel does not exist`. `-overwrite` also
+#           DROPs the live table. load-hazard.mjs writes into the table the
+#           migration created, with a fixed column list, and swaps the rows
+#           in one transaction — see its header.
+#
+# 🔴 ONE LAYER ON ITS OWN: CTX_LAYERS="hazard" (space-separated, default all
+# four). The other three are read by compute-context and lose their `country`
+# column on every reload (below); refilling `hazard` must not cost that.
+#
+#   CTX_LAYERS=hazard ./scripts/osm-pipeline/load-context.sh europe/austria …
 #
 # The filters keep ways and relations, not just nodes, because a lake is
 # a polygon and distance to its shore is the number that matters.
@@ -58,7 +72,10 @@ set -euo pipefail
 DB_URL="${DATABASE_URL:-postgres://localhost:5432/camptribe_dev}"
 
 # shellcheck source=_pgconn.sh
-. "$(dirname "$0")/_pgconn.sh"
+# Absolute, and taken BEFORE the `cd "$WORK_DIR"` below: a relative `$0`
+# (`./scripts/osm-pipeline/load-context.sh`) names nothing once we have moved.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$SCRIPT_DIR/_pgconn.sh"
 OGR_CONN="$(pg_conninfo "$DB_URL")"
 # 🔴 NOT /tmp. Twenty-two gigabytes were lost there on 25.09.2026.
 #
@@ -84,6 +101,21 @@ if [ -z "${WORK_DIR:-}" ] && [ -z "${HOME:-}" ]; then
 fi
 WORK_DIR="${WORK_DIR:-$HOME/camptribe-osm}"
 REGIONS=("$@")
+
+# 🔴 Which layers this run rebuilds. An unknown name is refused, not ignored:
+# `CTX_LAYERS=hazzard` would otherwise load nothing and print "ready".
+CTX_LAYERS="${CTX_LAYERS:-water place poi hazard}"
+for L in $CTX_LAYERS; do
+  case "$L" in
+    water|place|poi|hazard) ;;
+    *) echo "::error::CTX_LAYERS names an unknown layer '$L' (known: water place poi hazard)" >&2; exit 1 ;;
+  esac
+done
+if [ -z "${CTX_LAYERS// /}" ]; then
+  echo "::error::CTX_LAYERS is empty — nothing to load" >&2
+  exit 1
+fi
+wants() { case " $CTX_LAYERS " in *" $1 "*) return 0 ;; esac; return 1; }
 
 if [ ${#REGIONS[@]} -eq 0 ]; then
   echo "Usage: $0 <geofabrik-path> [more…]    e.g. europe/slovenia" >&2
@@ -123,6 +155,11 @@ echo $$ > "$LOCK_DIR/pid"
 trap 'rm -rf "$LOCK_DIR"' EXIT INT TERM
 
 MERGE_WATER=() MERGE_PLACE=() MERGE_POI=() MERGE_HAZARD=()
+
+# The hazard loader. HAZARD_LOADER_BIN exists for the self-test, which shims
+# every external program; resolved here, before the `cd` matters to nobody.
+HAZARD_LOADER=(node "$SCRIPT_DIR/load-hazard.mjs")
+if [ -n "${HAZARD_LOADER_BIN:-}" ]; then HAZARD_LOADER=("$HAZARD_LOADER_BIN"); fi
 
 # 🔴 Size and mtime of a file, printed as "<bytes> <epoch>".
 #
@@ -238,7 +275,7 @@ for REGION in "${REGIONS[@]}"; do
   # main host for every EU-27 region, Germany included — measured
   # 11.10.2026 — so asking for the name we want is strictly stronger
   # than following a redirect and hoping.
-  RESOLVED=$("$(dirname "$0")/geofabrik-url.sh" "$REGION")
+  RESOLVED=$("$SCRIPT_DIR/geofabrik-url.sh" "$REGION")
   read -r URL YMD AGE <<< "$RESOLVED"
 
   # Size still comes from a HEAD, because the resolver's job is identity
@@ -349,16 +386,24 @@ for REGION in "${REGIONS[@]}"; do
   # On a 313 MB extract that is waste. On France's 4.74 GB it is waste
   # that has to be exported, parsed and indexed first, and France has far
   # more streams than Slovenia has anything.
-  osmium tags-filter "$SLUG.osm.pbf" -o "$SLUG.water.pbf" --overwrite \
-    n/natural=water w/natural=water r/natural=water \
-    w/waterway=river w/natural=coastline
-  osmium tags-filter "$SLUG.osm.pbf" -o "$SLUG.place.pbf" --overwrite \
-    n/place=city n/place=town n/place=village
-  osmium tags-filter "$SLUG.osm.pbf" -o "$SLUG.poi.pbf" --overwrite \
-    n/shop=supermarket w/shop=supermarket \
-    n/railway=station n/railway=halt
-  osmium tags-filter "$SLUG.osm.pbf" -o "$SLUG.hazard.pbf" --overwrite \
-    w/highway=motorway,trunk w/railway=rail nwr/aeroway=aerodrome
+  if wants water; then
+    osmium tags-filter "$SLUG.osm.pbf" -o "$SLUG.water.pbf" --overwrite \
+      n/natural=water w/natural=water r/natural=water \
+      w/waterway=river w/natural=coastline
+  fi
+  if wants place; then
+    osmium tags-filter "$SLUG.osm.pbf" -o "$SLUG.place.pbf" --overwrite \
+      n/place=city n/place=town n/place=village
+  fi
+  if wants poi; then
+    osmium tags-filter "$SLUG.osm.pbf" -o "$SLUG.poi.pbf" --overwrite \
+      n/shop=supermarket w/shop=supermarket \
+      n/railway=station n/railway=halt
+  fi
+  if wants hazard; then
+    osmium tags-filter "$SLUG.osm.pbf" -o "$SLUG.hazard.pbf" --overwrite \
+      w/highway=motorway,trunk w/railway=rail nwr/aeroway=aerodrome
+  fi
 
   MERGE_WATER+=("$SLUG.water.pbf")
   MERGE_PLACE+=("$SLUG.place.pbf")
@@ -426,6 +471,16 @@ load_layer() {
     --config="export-$name.json" \
     --overwrite -f geojsonseq -u type_id
 
+  if [ "$name" = hazard ]; then
+    # 🔴 NOT ogr2ogr: the page reads this table live, so its shape must not
+    # depend on which tags the export holds, and it must never be dropped.
+    # The loader verifies its own row count (and skips, counts and names a
+    # spoiled line), so the equality check below does not apply to it.
+    DATABASE_URL="$DB_URL" "${HAZARD_LOADER[@]}" --file "ctx_$name.geojsonl"
+    echo "  osm_ctx_$name: loaded by load-hazard.mjs (count above)"
+    return 0
+  fi
+
   ogr2ogr -f PostgreSQL "PG:$OGR_CONN" "ctx_$name.geojsonl" \
     -nln "osm_ctx_$name" -overwrite \
     -lco GEOMETRY_NAME=geom -nlt PROMOTE_TO_MULTI -lco SPATIAL_INDEX=GIST
@@ -462,11 +517,16 @@ load_layer() {
   echo "  osm_ctx_$name: $n features"
 }
 
-echo "→ loading layers"
-load_layer water "${MERGE_WATER[@]}"
-load_layer place "${MERGE_PLACE[@]}"
-load_layer poi   "${MERGE_POI[@]}"
-load_layer hazard "${MERGE_HAZARD[@]}"
+echo "→ loading layers ($CTX_LAYERS)"
+if wants water;  then load_layer water "${MERGE_WATER[@]}"; fi
+if wants place;  then load_layer place "${MERGE_PLACE[@]}"; fi
+if wants poi;    then load_layer poi   "${MERGE_POI[@]}"; fi
+if wants hazard; then load_layer hazard "${MERGE_HAZARD[@]}"; fi
 
-echo "✓ context layers ready — now run:"
-echo "    cd apps/api && npx ts-node src/osm/compute-context.ts"
+if wants water || wants place || wants poi; then
+  echo "✓ context layers ready — now run:"
+  echo "    ./scripts/osm-pipeline/load-country-boundaries.sh --tag-only"
+  echo "    cd apps/api && npx ts-node src/osm/compute-context.ts"
+else
+  echo "✓ hazard layer ready — the campsite page reads it directly, nothing to recompute"
+fi

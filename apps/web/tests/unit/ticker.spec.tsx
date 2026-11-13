@@ -7,6 +7,8 @@
  */
 import { expect, test } from "@playwright/test";
 
+import { CountryTicker } from "@/components/country-ticker";
+import { RegionTicker } from "@/components/region-ticker";
 import { Ticker, TickerImage } from "@/components/ticker";
 import { renderComponent, rendersNothing } from "./render-component";
 
@@ -127,3 +129,69 @@ test("тікер не вживає читальної колонки", () => {
     "max-w-prose",
   );
 });
+
+/**
+ * 🔴 ПРИХОВАНА КОПІЯ НЕ СТОЇТЬ У ПОРЯДКУ Tab — на СПРАВЖНІХ тікерах.
+ *
+ * `hub-axe.spec.ts` це правило (`aria-hidden-focus`) бачить лише тоді,
+ * коли банер згоди ще не зʼявився: axe вимикає його, поки на сторінці
+ * видно `role="dialog"`. Тому e2e ловив дефект раз на кілька прогонів і
+ * лише у webkit — а тут він читається з відданого HTML щоразу.
+ *
+ * Якір проти порожнього: копія мусить МАТИ посилання. Тікер без жодного
+ * посилання задовольнив би «кожне має tabindex» мовчки.
+ */
+function hiddenCopyFocusables(html: string): string[] {
+  const hidden = [
+    ...html.matchAll(
+      /<div class="ct-ticker__item" aria-hidden="true">([\s\S]*?)<\/div>/g,
+    ),
+  ].map((m) => m[1]);
+  return hidden.flatMap(
+    (h) => h.match(/<(?:a|button|input|select|textarea)\b[^>]*>/g) ?? [],
+  );
+}
+
+for (const [name, render] of [
+  [
+    "тікер країн (/camping)",
+    () =>
+      renderComponent(CountryTicker, {
+        countries: [
+          { country: "hr", spots: 37, regions: 7 },
+          { country: "si", spots: 35, regions: 5 },
+        ],
+      }),
+  ],
+  [
+    "тікер регіонів (/camping/{country})",
+    () =>
+      renderComponent(RegionTicker, {
+        country: "hr",
+        countryName: "Croatia",
+        regions: [
+          { slug: "zadarska", region: "Zadarska", spots: 30 },
+          { slug: "istarska", region: "Istarska", spots: 4 },
+        ] as never,
+      }),
+  ],
+] as const) {
+  test(`🔴 ${name}: жодне посилання прихованої копії не стоїть у порядку Tab`, () => {
+    const html = render();
+    const focusables = hiddenCopyFocusables(html);
+    expect(
+      focusables.length,
+      "у прихованій копії немає жодного посилання — замір сліпий",
+    ).toBe(2);
+    expect(
+      focusables.filter((tag) => !/\stabindex="-1"/.test(tag)),
+      "посилання в aria-hidden копії досі фокусуються з клавіатури",
+    ).toEqual([]);
+    // Видима копія лишається в порядку Tab: правка не сміє забрати й її.
+    const visible = [
+      ...html.matchAll(/<div class="ct-ticker__item">([\s\S]*?)<\/div>/g),
+    ].flatMap((m) => m[1].match(/<a\b[^>]*>/g) ?? []);
+    expect(visible.length).toBe(2);
+    expect(visible.filter((tag) => /\stabindex=/.test(tag))).toEqual([]);
+  });
+}

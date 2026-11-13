@@ -15,6 +15,8 @@ import { ThemeChoiceCookies1795100000000 } from '../migrations/1795100000000-The
 import { ThemeChoicePrivacy1795200000000 } from '../migrations/1795200000000-ThemeChoicePrivacy';
 import { PrivacyEventCounts1796800000000 } from '../migrations/1796800000000-PrivacyEventCounts';
 import { AttributionElevationFromBucket1796000000000 } from '../migrations/1796000000000-AttributionElevationFromBucket';
+import { PersonaChoiceCookies1797100200000 } from '../migrations/1797100200000-PersonaChoiceCookies';
+import { PrivacyPersonaChoice1797100100000 } from '../migrations/1797100100000-PrivacyPersonaChoice';
 import { AttributionBannerImages1796600000000 } from '../migrations/1796600000000-AttributionBannerImages';
 
 /**
@@ -70,6 +72,9 @@ const UPDATES: ReadonlyArray<SeededLegalPage> = [
   new AttributionBannerImages1796600000000().page,
   // CAMP-504: сайт лічить перегляди, кліки й порожні пошуки.
   new PrivacyEventCounts1796800000000().page,
+  // CAMP-501: п'ятий запис у сховищі браузера — вибір «маю кемпер / орендую».
+  new PersonaChoiceCookies1797100200000().page,
+  new PrivacyPersonaChoice1797100100000().page,
 ];
 
 export function seededLegalPages(): SeededLegalPage[] {

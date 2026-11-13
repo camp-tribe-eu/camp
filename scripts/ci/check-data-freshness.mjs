@@ -303,8 +303,15 @@ export const DB_SOURCES = Object.freeze([
     unit: 'camptribe-reconcile-sources' },
   { name: 'webcams (камери Windy)', card: 'CAMP-190',
     table: 'webcams', column: 'fetched_at', budgetHours: 10 * 24,
-    unit: null,
-    manual: 'збирач Windy запускається руками; юніта немає — CAMP-400, пункт 2' },
+    // 🔴 ДО 13.11.2026 ТУТ СТОЯЛО `unit: null` І `manual: 'збирач Windy
+    // запускається руками; юніта немає — CAMP-400, пункт 2'`. Тобто
+    // боргова розписка, записана в поле для пояснень: таблицю наповнили
+    // один раз 02.11, і на одинадцяту добу сторож почервонів — 13 422
+    // рядки, 10,4 доби. `check-freshness-has-a-filler` це пропускав, бо
+    // рахував у `manual` літери, а не питав, чи бюджет узагалі виконуваний
+    // руками. Тепер він питає; а юніт — `camptribe-webcams`, пʼятниця
+    // 04:15 UTC.
+    unit: 'camptribe-webcams' },
   { name: 'bathing_waters (купання EEA)', card: 'CAMP-168',
     table: 'bathing_waters', column: 'created_at',
     budgetHours: () => budgetFromSource('apps/web/src/lib/sources.ts', 'ANNUAL_HEALTHY_DAYS') * 24,

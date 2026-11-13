@@ -1,0 +1,11 @@
+[Unit]
+Description=CampTribe «Possible disturbance» coverage check, daily
+
+[Timer]
+# Після сторожів висоти (06:15) і покриття (06:30): три читання бази
+# не стартують в одну мить.
+OnCalendar=*-*-* 06:45:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

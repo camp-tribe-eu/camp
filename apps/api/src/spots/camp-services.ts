@@ -38,15 +38,35 @@
 // campsite look equally supplied. Distance is straight-line, and the page says
 // so.
 //
-// ONSITE_RADIUS_M = 150, used where the campsite has NO outline (the usual
-// case). Where one exists, "on site" is the exact test — the point lies INSIDE
-// the outline — and the radius is not used at all. Measured on the 1 292
-// campsites that have an outline in that database: of the points inside an
-// outline, distance from the campsite's own point is p50 73 m / p90 201 m for
-// water, 75 / 170 for dump, 137 / 251 for charging. 150 m keeps roughly four in
-// five of the true ones. It is chosen LOW on purpose: a false "on site" promises
-// a tap that belongs to the neighbour; a point shown as "nearby" at 180 m costs
-// the reader nothing.
+// 🔴 "ON SITE" IS SAID ONLY BY THE OUTLINE. `onSite` is a point INSIDE the
+// campsite's mapped outline, and nothing else. A campsite with no outline has
+// no `onSite` at all.
+//
+// The first version (CAMP-503) also called a point "on site" when it lay within
+// 150 m of the marked point of a campsite that has no outline. Review measured
+// that claim on production, and it was repeated here 13.11.2026 (read-only, the
+// 33 692 live campsites that DO have an outline, so the truth is known): of the
+// points within 150 m of the campsite's point, the share really inside the
+// outline —
+//
+//   fuel 1.3% (11 of 822)      ev charging 20.2% (493 of 2 439)
+//   groceries 39.0% (1 131 of 2 901)   gas 5.8% (8 of 139)
+//   water 58.7% (4 202 of 7 158)       dump 69.8% (3 482 of 4 990)
+//
+// A fuel station 120 m from the gate is the station on the road, not the
+// campsite's. So:
+//
+//   * fuel, groceries, EV charging, gas, pharmacy, car repair — without an
+//     outline there is NO claim about the campsite; the point is `nearby`, with
+//     its distance (120 m is still worth reading).
+//   * water and dump — the things a campsite does have — keep the radius where
+//     no outline is mapped, but as a THIRD answer, `withinRadius`, which the
+//     page words as a distance ("within 150 m of the campsite's point"), never
+//     as "on site": four in ten of those taps are someone else's.
+//
+// ONSITE_RADIUS_M = 150 is that radius. Where the campsite HAS an outline the
+// radius is not used at all: a point outside the outline is `nearby` however
+// close it is.
 
 export const NEARBY_RADIUS_M = 10_000;
 export const ONSITE_RADIUS_M = 150;
@@ -92,6 +112,12 @@ export const CAMP_SERVICE_KINDS = CAMP_SERVICE_GROUPS.flatMap(
 ];
 export type CampServiceKind = (typeof CAMP_SERVICE_KINDS)[number];
 
+/**
+ * The only kinds that get a `withinRadius` answer where no outline is mapped.
+ * Every other kind is either inside an outline or `nearby` — see the top.
+ */
+export const RADIUS_KINDS: readonly CampServiceKind[] = ['water', 'dump'];
+
 export const groupOf = (kind: CampServiceKind): CampServiceGroup =>
   CAMP_SERVICE_GROUPS.find((g) =>
     (g.kinds as readonly string[]).includes(kind),
@@ -129,9 +155,15 @@ export interface CampServicePoint {
 export interface CampServiceView {
   kind: CampServiceKind;
   group: CampServiceGroup;
-  /** Nearest point inside the campsite, or null. */
+  /** Nearest point INSIDE the campsite's mapped outline, or null. */
   onSite: CampServicePoint | null;
-  /** Nearest point outside it, within NEARBY_RADIUS_M, or null. */
+  /**
+   * RADIUS_KINDS only, and only where the campsite has no outline: the nearest
+   * point within ONSITE_RADIUS_M of its marked point. A distance, NOT a claim
+   * that the point belongs to the campsite.
+   */
+  withinRadius: CampServicePoint | null;
+  /** Nearest point that is neither of the above, within NEARBY_RADIUS_M. */
   nearby: CampServicePoint | null;
 }
 
@@ -165,10 +197,11 @@ export function campServicesSql(
   // has to be generous, and it is what lets the GiST index bound the walk.
   const deg = (m: number): string =>
     `(${m} / (111320.0 * greatest(cos(radians(ST_Y(${spotLocationExpr}))), 0.05)))`;
-  const onSite = `(CASE WHEN ${spotOutlineExpr} IS NOT NULL
-                        THEN ST_Covers(${spotOutlineExpr}, p.location)
-                        ELSE ST_DWithin(${spotLocationExpr}::geography, p.location::geography, ${onSiteM})
-                   END)`;
+  // 🔴 Two tests that cannot both be true: the outline where there is one,
+  // the radius ONLY where there is none. `IS NOT NULL AND` (not a bare
+  // ST_Covers) so each is a plain boolean and `NOT` of it is never NULL.
+  const inOutline = `(${spotOutlineExpr} IS NOT NULL AND ST_Covers(${spotOutlineExpr}, p.location))`;
+  const inRadius = `(${spotOutlineExpr} IS NULL AND ST_DWithin(${spotLocationExpr}::geography, p.location::geography, ${onSiteM}))`;
   const metres = `round(ST_Distance(${spotLocationExpr}::geography, p.location::geography))::int`;
   const point = (kind: CampServiceKind, where: string): string => `(
         SELECT jsonb_build_object('name', p.name, 'metres', ${metres},
@@ -179,26 +212,35 @@ export function campServicesSql(
          ORDER BY ST_Distance(${spotLocationExpr}::geography, p.location::geography), p.osm_ref
          LIMIT 1)`;
   const entries = CAMP_SERVICE_KINDS.map((kind) => {
+    const byRadius = RADIUS_KINDS.includes(kind);
     const inside = point(
       kind,
-      `p.location && ST_Expand(coalesce(${spotOutlineExpr}, ${spotLocationExpr}), ${deg(onSiteM)})
-           AND ${onSite}`,
+      `p.location && ${spotOutlineExpr}
+           AND ${inOutline}`,
     );
+    const within = byRadius
+      ? point(
+          kind,
+          `p.location && ST_Expand(${spotLocationExpr}, ${deg(onSiteM)})
+           AND ${inRadius}`,
+        )
+      : 'NULL::jsonb';
     const around = point(
       kind,
       `p.location && ST_Expand(${spotLocationExpr}, ${deg(nearbyM)})
-           AND NOT ${onSite}
+           AND NOT ${inOutline}${byRadius ? `\n           AND NOT ${inRadius}` : ''}
            AND ST_DWithin(${spotLocationExpr}::geography, p.location::geography, ${nearbyM})`,
     );
-    return `SELECT '${kind}' AS kind, ${inside} AS on_site, ${around} AS nearby`;
+    return `SELECT '${kind}' AS kind, ${inside} AS on_site, ${within} AS within_radius, ${around} AS nearby`;
   });
   return `(
     SELECT coalesce(jsonb_agg(jsonb_build_object(
-             'kind', e.kind, 'onSite', e.on_site, 'nearby', e.nearby
+             'kind', e.kind, 'onSite', e.on_site,
+             'withinRadius', e.within_radius, 'nearby', e.nearby
            ) ORDER BY array_position(
              ARRAY[${CAMP_SERVICE_KINDS.map((k) => `'${k}'`).join(',')}], e.kind)), '[]'::jsonb)
       FROM (${entries.join('\n      UNION ALL\n      ')}) e
-     WHERE e.on_site IS NOT NULL OR e.nearby IS NOT NULL
+     WHERE e.on_site IS NOT NULL OR e.within_radius IS NOT NULL OR e.nearby IS NOT NULL
   )`;
 }
 
@@ -225,11 +267,65 @@ export function readCampServices(raw: unknown): CampServiceView[] {
     if (e === null || typeof e !== 'object') continue;
     const o = e as Record<string, unknown>;
     if (typeof o.kind !== 'string' || !known.includes(o.kind)) continue;
-    const onSite = point(o.onSite);
-    const nearby = point(o.nearby);
-    if (onSite === null && nearby === null) continue;
     const kind = o.kind as CampServiceKind;
-    out.push({ kind, group: groupOf(kind), onSite, nearby });
+    const onSite = point(o.onSite);
+    // 🔴 Checked here too, not only in the SQL: a `withinRadius` on fuel would
+    // be the claim this module exists to refuse.
+    const withinRadius = RADIUS_KINDS.includes(kind)
+      ? point(o.withinRadius)
+      : null;
+    const nearby = point(o.nearby);
+    if (onSite === null && withinRadius === null && nearby === null) continue;
+    out.push({ kind, group: groupOf(kind), onSite, withinRadius, nearby });
   }
   return out;
+}
+
+/**
+ * ONE NEAREST FOOD SHOP PER PAGE. The page already prints the nearest
+ * SUPERMARKET from `context.supermarket` ("What's around it", the opening
+ * sentence, JSON-LD), and this block prints the nearest `groceries` point —
+ * supermarket OR convenience shop. Two sources, and measured on production
+ * 13.11.2026 (every 20th live campsite with the figure, 2 775 rows) they
+ * disagreed where they must not:
+ *
+ *   634 — the supermarket was NEARER than "the nearest food shop". Not two
+ *         shops: the SAME one (21 of the 24 that differ by more than 50 m
+ *         carry the same name), measured twice. `context` measures to the
+ *         building's outline (osm_ctx_poi holds polygons), osm_route_poi to
+ *         its centre point — a hypermarket's wall is 50–75 m nearer than its
+ *         middle. "Super U, 804 m" and "Super U, 877 m" on one page.
+ *
+ * A supermarket IS a food shop, so the nearest food shop can never be farther
+ * than the nearest supermarket. Where the context's supermarket is at least as
+ * near as the groceries point, the groceries line IS that supermarket and
+ * carries the page's one figure for it — the context's name and metres. `seen`
+ * becomes null: the context is not stamped by the route-POI import, and a date
+ * that belongs to another table is not printed. Where the groceries point is
+ * strictly nearer, it is a different, nearer shop, and it stays.
+ *
+ * Only the `nearby` line, and only when nothing is `onSite`: a shop inside the
+ * outline is the nearest by definition and "nearby" then means "outside it".
+ */
+export function reconcileGroceries(
+  items: CampServiceView[],
+  context: unknown,
+): CampServiceView[] {
+  if (context === null || typeof context !== 'object') return items;
+  const sm = (context as Record<string, unknown>).supermarket;
+  if (sm === null || typeof sm !== 'object') return items;
+  const { m, name } = sm as Record<string, unknown>;
+  if (typeof m !== 'number' || !Number.isFinite(m) || m < 0) return items;
+  return items.map((item) => {
+    if (item.kind !== 'groceries' || item.onSite !== null) return item;
+    if (item.nearby === null || m > item.nearby.metres) return item;
+    return {
+      ...item,
+      nearby: {
+        name: typeof name === 'string' && name.trim() !== '' ? name : null,
+        metres: Math.round(m),
+        seen: null,
+      },
+    };
+  });
 }

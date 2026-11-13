@@ -1,0 +1,56 @@
+# CAMP-190: камери Windy → `webcams`, щотижня.
+#
+# 🔴 ЦЕ БУЛО ЛЮДСЬКИМ КРОКОМ, І СТОРОЖ СВІЖОСТІ ПОЧЕРВОНІВ ПРАВДИВО.
+# Заміряно на проді 13.11.2026: `webcams` 13 422 рядки, 10,4 доби від
+# 2026-11-02T21:25:33Z при бюджеті 10 діб. `systemctl list-timers` —
+# жодного рядка про камери. Таблицю наповнили рівно один раз, 02.11.2026
+# 20:48–21:25 UTC, руками з root-сесії; відтоді ніхто.
+#
+# 🔴 ТОЙ РУЧНИЙ ЗАПУСК ПЕРЕДАВ СЕКРЕТИ В РЯДКУ КОМАНДИ (`sudo -u camptribe
+# env DATABASE_URL=… WINDY_WEBCAMS_API_KEY=… node …`), і `sudo` записав
+# рядок у journal. Тут обидва приходять із `EnvironmentFile` і в argv не
+# потрапляють — це єдина форма, якою цей збирач можна запускати.
+#
+# 🔴 ЩО ВІН ПИШЕ, І ЧОГО НЕ ВИДАЛЯЄ. У файлі рівно два запити до бази:
+# `INSERT … ON CONFLICT (provider, ref) DO UPDATE` і підсумковий
+# `SELECT count(*)`. Жодного DELETE: камера, якої Windy більше не віддає,
+# лишається зі старою `fetched_at`. Заміряно прогоном 13.11.2026
+# (06:15:58 → 06:53:29 UTC, 37 хв 31 с, CPU 11 с, памʼять 47,5 МБ):
+# 13 422 → 14 921 рядок, із них 12 206 оновлено і 2 715 лишились із
+# міткою 02.11 — жодного не видалено. Девʼять регіонів (Австрія, Баварія,
+# Баден-Вюртемберг, Больцано) вперлись у стелю 1 050 рядків безкоштовного
+# тарифу й побачені частково; скрипт каже це в журналі сам.
+#
+# 🔴 ЦЕ РЕГІОНИ, А НЕ КЕМПІНГИ, І ПРО ЦЕ ДБАЄ САМ СКРИПТ. Один запит на
+# регіон (їх 815 на 13.11.2026), пауза 600 мс перед кожним, 429
+# перечікується. Умови Windy Webcams API (прочитано 13.11.2026, чинна
+# редакція від 01.09.2023) числа запитів не називають, але називають
+# істотним порушенням «continuous scanning of a significant number of
+# available Webcams» та «intensive usage of any API endpoint by means of
+# automated software». Тому розклад — НАЙРІДШИЙ, який ще виконує бюджет,
+# а не найчастіший, який дозволяє машина: див. таймер.
+#
+# Код виходу 1, якщо хоч один регіон не відповів: решта вже записана, а
+# слід і лист називають, що оберт неповний.
+[Unit]
+Description=CampTribe Windy webcams refresh (regions -> webcams)
+After=postgresql.service network-online.target camptribe-api.service
+Wants=network-online.target
+OnFailure=camptribe-failed@%n.service
+
+[Service]
+Type=oneshot
+User=camptribe
+Group=camptribe
+WorkingDirectory=/srv/camptribe/current
+# Дає WINDY_WEBCAMS_API_KEY і DATABASE_URL. Перелік регіонів скрипт читає
+# з нашого API на localhost:3001 (`CAMPTRIBE_API` не задано — це типове).
+EnvironmentFile=/srv/camptribe/current/apps/api/.env
+Nice=10
+# Заміряно двічі: 37 хв 02.11.2026 і 37 хв 31 с 13.11.2026. Дві години — стеля на
+# серію 429 із перечікуванням, а не очікування.
+TimeoutStartSec=2h
+ExecStart=/usr/bin/node /srv/camptribe/current/scripts/windy/fetch-webcams.mjs
+# 🔴 Слід знімається лише після УСПІШНОГО прогону: для Type=oneshot
+# ExecStartPost не біжить, якщо ExecStart повернув ненуль.
+ExecStartPost=/bin/rm -f /srv/camptribe/failed/camptribe-webcams.service
