@@ -1,5 +1,6 @@
 import type { AroundRow, SpotFact } from '@/lib/spot-facts';
 import { SCALE_MAX_M } from '@/lib/spot-facts';
+import { TrustMark } from '@/components/trust';
 
 /**
  * The one line under a campsite's heading: what is recorded about THIS
@@ -37,6 +38,10 @@ export function SpotFactsLine({ facts }: { facts: readonly SpotFact[] }) {
           <div className="text-xs text-ink-2">{f.label}</div>
           <div className="break-words text-base font-bold tabular-nums text-heading">
             {glueUnit(f.value)}
+          </div>
+          {/* CAMP-521: where this value came from, in the cell that holds it. */}
+          <div className="text-xs text-ink-2">
+            <TrustMark status={f.trust} />
           </div>
         </li>
       ))}

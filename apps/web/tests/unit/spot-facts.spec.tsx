@@ -111,7 +111,20 @@ async function render(extra: Record<string, unknown>): Promise<string> {
 /** What a reader reads in the line of facts, or null when there is no line. */
 function factsLine(html: string): string | null {
   const m = /<ul[^>]*aria-label="Key facts"[^>]*>[\s\S]*?<\/ul>/.exec(html);
-  return m ? visibleText(m[0]) : null;
+  if (!m) return null;
+  // CAMP-521: each cell also carries the status of its value ("Imported").
+  // This file is about WHICH facts are printed and their values, so the
+  // status word is taken out here — and counted, so a cell without one is
+  // still a failure of this helper. Which word stands where is read, cell
+  // by cell and without this cut, in `trust-status.spec.tsx`.
+  const cells = (m[0].match(/<li\b/g) ?? []).length;
+  let marks = 0;
+  const bare = m[0].replace(
+    /<div[^>]*><span[^>]*data-trust-status="[^"]+"[^>]*>[^<]*<\/span><\/div>/g,
+    () => (marks++, ''),
+  );
+  expect(marks, 'every fact carries exactly one status word').toBe(cells);
+  return visibleText(bare);
 }
 
 /** The "What's around it" section, as markup. */
