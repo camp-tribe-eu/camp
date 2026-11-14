@@ -5,6 +5,7 @@ import type { QueryRunner } from 'typeorm';
 import { SpotOvernight1791500000000 } from '../migrations/1791500000000-SpotOvernight';
 import { SpotRecordEdited1791800000000 } from '../migrations/1791800000000-SpotRecordEdited';
 import { SpotOutline1792100000000 } from '../migrations/1792100000000-SpotOutline';
+import { SpotTravelStyles1797500000000 } from '../migrations/1797500000000-SpotTravelStyles';
 import { assertStoredOutlines } from './import-spots';
 
 // CAMP-256 — the importer's `main()`, RUN.
@@ -102,6 +103,9 @@ beforeAll(async () => {
   // писати outline, усі вісім тестів упали зі статусом 1 — не тому, що
   // зламався імпортер, а тому, що в цій таблиці не було колонки.
   await new SpotOutline1792100000000().up(runner());
+  // CAMP-520: the same hand-kept list, the same reason — the upsert now
+  // writes `travel_styles`.
+  await new SpotTravelStyles1797500000000().up(runner());
 });
 
 afterAll(async () => {

@@ -21,6 +21,12 @@
 import { publishedCountrySql } from './unpublished-countries';
 import { AMENITY_KEYS, type AmenityKey } from '../osm/tag-mapping';
 import {
+  styleKnownSql,
+  styleYesSql,
+  TRAVEL_STYLE_KEYS,
+  type TravelStyleKey,
+} from '../osm/travel-styles';
+import {
   filterSql,
   type MapFilters,
   NO_FILTERS,
@@ -117,11 +123,50 @@ export interface RegionFacets {
   types: Record<SpotType, number>;
   /** For each amenity: `matched` after toggling that amenity. */
   amenities: Record<AmenityKey, number>;
+  /** CAMP-520. For each travel style: the click, and what we know. */
+  styles: Record<TravelStyleKey, StyleFacet>;
+}
+
+/**
+ * 🔴 CAMP-520: A STYLE IS OFFERED BY A MEASUREMENT, NOT BY A CONSTANT.
+ *
+ * A chip the reader can tick is a claim that the filter is worth
+ * ticking. Where a style is recorded for a sliver of a region — adults
+ * only was 4 objects in 12 968 across France on 13.11.2026 — the chip
+ * would answer "1 site" and hide 799 nobody asked about. So the region
+ * counts its own coverage, in the same statement as every other number
+ * here, and the chip exists only at or above this share (and with at
+ * least one sourced yes to show).
+ *
+ * 5 %: «open in winter» was known for ≈ 16 % of French OSM objects on the
+ * day this was written; a twentieth is the point below which the note
+ * "recorded for N of M" stops being a caveat and becomes the whole story.
+ */
+export const STYLE_MIN_KNOWN_SHARE = 0.05;
+
+export interface StyleFacet {
+  /** `matched` after toggling this style — the number on the chip. */
+  toggled: number;
+  /** Sites in the region with a sourced yes OR no, filters ignored. */
+  known: number;
+  /** Sites in the region with a sourced yes, filters ignored. */
+  yes: number;
+  /** `known / total` reaches STYLE_MIN_KNOWN_SHARE and `yes` is not 0. */
+  offered: boolean;
+}
+
+/** The one place the offer is decided. Pure, so the dry spec can drive it. */
+export function isStyleOffered(
+  known: number,
+  yes: number,
+  total: number,
+): boolean {
+  return total > 0 && yes > 0 && known / total >= STYLE_MIN_KNOWN_SHARE;
 }
 
 export interface DropOne {
-  kind: 'type' | 'amenity';
-  key: SpotType | AmenityKey;
+  kind: 'type' | 'amenity' | 'style';
+  key: SpotType | AmenityKey | TravelStyleKey;
   /** How many match with only this filter removed. */
   matched: number;
 }
@@ -150,7 +195,7 @@ export interface RegionListing {
 }
 
 export function isFiltering(f: MapFilters): boolean {
-  return f.types.length > 0 || f.amenities.length > 0;
+  return f.types.length > 0 || f.amenities.length > 0 || f.styles.length > 0;
 }
 
 /** `WHERE` for the region itself; `$1` country, `$2` region name. */
@@ -257,6 +302,24 @@ export function countsSql(filters: MapFilters): {
   for (const k of AMENITY_KEYS) {
     add(`a:${k}`, { ...filters, amenities: toggled(filters.amenities, k) });
   }
+  // CAMP-520. The click, like every chip — and beside it the region's own
+  // coverage, FILTERS IGNORED: "recorded for N of M sites in this region"
+  // is a sentence about the region, not about the current selection.
+  for (const k of TRAVEL_STYLE_KEYS) {
+    add(`s:${k}`, { ...filters, styles: toggled(filters.styles, k) });
+    cols.push(
+      `count(*) FILTER (WHERE ${styleKnownSql(k)})::int AS "known:${k}"`,
+    );
+    names.push(`known:${k}`);
+    cols.push(`count(*) FILTER (WHERE ${styleYesSql(k)})::int AS "yes:${k}"`);
+    names.push(`yes:${k}`);
+  }
+  for (const k of filters.styles) {
+    add(`drop:s:${k}`, {
+      ...filters,
+      styles: filters.styles.filter((x) => x !== k),
+    });
+  }
   for (const t of filters.types) {
     add(`drop:t:${t}`, {
       ...filters,
@@ -312,6 +375,18 @@ export async function listRegion(
   for (const t of SPOT_TYPES) types[t] = num(`t:${t}`);
   const amenities = {} as Record<AmenityKey, number>;
   for (const k of AMENITY_KEYS) amenities[k] = num(`a:${k}`);
+  const total = num('total');
+  const styles = {} as Record<TravelStyleKey, StyleFacet>;
+  for (const k of TRAVEL_STYLE_KEYS) {
+    const known = num(`known:${k}`);
+    const yes = num(`yes:${k}`);
+    styles[k] = {
+      toggled: num(`s:${k}`),
+      known,
+      yes,
+      offered: isStyleOffered(known, yes, total),
+    };
+  }
 
   const dropOne: DropOne[] = [
     ...filters.types.map((t): DropOne => ({
@@ -323,6 +398,11 @@ export async function listRegion(
       kind: 'amenity',
       key: k,
       matched: num(`drop:a:${k}`),
+    })),
+    ...filters.styles.map((k): DropOne => ({
+      kind: 'style',
+      key: k,
+      matched: num(`drop:s:${k}`),
     })),
   ];
 
@@ -339,11 +419,11 @@ export async function listRegion(
   if (page > pages) {
     return {
       region,
-      total: num('total'),
+      total,
       matched,
       unknownExcluded,
       items: [],
-      facets: { types, amenities },
+      facets: { types, amenities, styles },
       dropOne,
       sort,
     };
@@ -372,11 +452,11 @@ export async function listRegion(
 
   return {
     region,
-    total: num('total'),
+    total,
     matched,
     unknownExcluded,
     items,
-    facets: { types, amenities },
+    facets: { types, amenities, styles },
     dropOne,
     sort,
   };

@@ -9,6 +9,8 @@ import {
   receivedSearch,
   type SearchParams,
 } from '@/lib/hub-filters';
+import { pageContent } from '@/lib/page-content';
+import { travelStyleText, TRAVEL_STYLES_PAGE } from '@/lib/travel-styles';
 
 // The region hub with a filter, a sort or both: /camping/{c}/{r}/filter?…
 //
@@ -49,10 +51,19 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
   const q = parseHubQuery(await props.searchParams);
   const cName = countryName(params.country);
   const base = `/camping/${params.country}/${params.region}`;
+  // CAMP-520: a travel style is named by the CMS or not at all; without
+  // the page the title simply does not mention it (and the page itself
+  // is then a 404 — region-listing.tsx).
+  const labels = q.styles.length
+    ? (travelStyleText(
+        (await pageContent(TRAVEL_STYLES_PAGE).catch(() => null))?.sections,
+      )?.labels ?? {})
+    : {};
+  const what = describeQuery(q, labels);
 
   return {
-    title: `${describeQuery(q)} in ${meta.region}, ${cName}`,
-    description: `${describeQuery(q)} in ${meta.region}, ${cName} — filtered from ${meta.spots} listed campsites and motorhome parks.`,
+    title: `${what} in ${meta.region}, ${cName}`,
+    description: `${what} in ${meta.region}, ${cName} — filtered from ${meta.spots} listed campsites and motorhome parks.`,
     // A filtered view is a variant of the region page, not a page of
     // its own: the canonical says which one is the page.
     alternates: { canonical: base },

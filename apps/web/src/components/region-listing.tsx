@@ -27,6 +27,7 @@ import {
   withUnknown,
   type HubQuery,
   type SearchParams,
+  type StyleLabels,
 } from '@/lib/hub-filters';
 import { breadcrumbList, collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { ButtonLink, buttonClasses } from '@/components/button';
@@ -34,6 +35,8 @@ import { Pagination } from '@/components/pagination';
 import RegionInsights from '@/components/region-insights';
 import RegionDriving from '@/components/region-driving';
 import RegionMap from '@/components/region-map';
+import { pageContent } from '@/lib/page-content';
+import { styleChips, travelStyleText, TRAVEL_STYLES_PAGE } from '@/lib/travel-styles';
 import { RegionFilterPanel, RegionToolbar } from '@/components/region-toolbar';
 import { countedAsOf, regionFaq, regionTiles } from '@/lib/hub-stats';
 import { HubFaq, HubStatTiles } from '@/components/hub-stats';
@@ -101,15 +104,29 @@ export default async function RegionListing({
   // unticked. Decided before anything is fetched, so the filter route —
   // hundreds of thousands of addresses — never asks for the figures.
   const baseFirstPage = page === 1 && !live && !hasState(q);
-  const [meta, data, stats] = await Promise.all([
+  const [meta, data, stats, stylePage] = await Promise.all([
     regionMeta(country, region).catch((e: unknown) => {
       if (!live) throw e;
       return null;
     }),
     getRegionSpots(country, region, page, apiSearch(q), { live }),
     baseFirstPage ? getHubStats(country) : Promise.resolve([]),
+    // CAMP-520: the travel-style filter's words. A CMS that cannot be
+    // reached costs the group, never the hub — the same trade the header
+    // makes for its own labels (layout.tsx).
+    pageContent(TRAVEL_STYLES_PAGE).catch(() => null),
   ]);
   if (!meta || !data.region) notFound();
+
+  // 🔴 CAMP-520: A STYLE WE CANNOT NAME, OR CANNOT COUNT, IS NOT A PAGE.
+  // `?styles=winter` with no label from the CMS, or answered by an API
+  // from before the card (which would ignore the parameter and hand back
+  // the whole region under a filter's address), is a 404 — not an
+  // unfiltered list wearing the filter's URL.
+  const styleText = travelStyleText(stylePage?.sections);
+  const chips = styleChips(styleText, data.facets?.styles, data.total, q.styles);
+  const styleLabels = styleText?.labels ?? {};
+  if (q.styles.some((k) => !chips.some((c) => c.key === k))) notFound();
 
   // Design-audit §11, screen 2 and the FAQ: this region's own counts, or
   // nothing at all when its row did not arrive (lib/hub-stats.ts).
@@ -254,8 +271,15 @@ export default async function RegionListing({
           header and the toolbar's own offset (region-toolbar.tsx). */}
       <div id="results" className="ct-region__results" />
 
-      <RegionToolbar base={base} q={q} data={data} pages={pages} />
-      <RegionFilterPanel base={base} q={q} data={data} />
+      <RegionToolbar base={base} q={q} data={data} pages={pages} styleLabels={styleLabels} />
+      <RegionFilterPanel
+        base={base}
+        q={q}
+        data={data}
+        styles={
+          styleText ? { group: styleText.group, chips, mapNote: styleText.mapNote } : undefined
+        }
+      />
 
       {empty ? (
         <EmptyResult
@@ -265,6 +289,7 @@ export default async function RegionListing({
           region={regionName}
           country={country}
           cName={cName}
+          styleLabels={styleLabels}
         />
       ) : (
         /* 🔴 `grid` stays in the class list: tests/e2e/hub-filters.spec.ts
@@ -448,6 +473,7 @@ function EmptyResult({
   region,
   country,
   cName,
+  styleLabels,
 }: {
   base: string;
   q: HubQuery;
@@ -455,12 +481,16 @@ function EmptyResult({
   region: string;
   country: string;
   cName: string;
+  styleLabels: StyleLabels;
 }) {
-  const active = q.types.length + q.amenities.length;
-  const unknown = data.unknownExcluded ?? 0;
+  const active = q.types.length + q.amenities.length + q.styles.length;
+  // The unrecorded count is about facilities only: a travel style is
+  // never "included when unknown" (CAMP-520).
+  const unknown = q.amenities.length ? (data.unknownExcluded ?? 0) : 0;
   const best = (data.dropOne ?? []).reduce<
-    { kind: 'type' | 'amenity'; key: string; matched: number } | null
+    { kind: 'type' | 'amenity' | 'style'; key: string; matched: number } | null
   >((b, d) => (b === null || d.matched > b.matched ? d : b), null);
+  const bestLabel = best ? filterLabel(best.kind, best.key, styleLabels) : '';
 
   return (
     <section
@@ -471,18 +501,18 @@ function EmptyResult({
         {active > 1 ? `Nothing matches all ${active} filters` : 'Nothing matches this filter'}
       </p>
       <h2 id="no-match" className="text-xl">
-        {emptyHeadline(q, region)}
+        {emptyHeadline(q, region, styleLabels)}
       </h2>
       <p className="max-w-[56ch] text-ink-2">
         {unknown > 0
           ? `${unknown} ${unknown === 1 ? 'site has' : 'sites have'} no record of ${amenityList(q)} — not a no, just nothing written down.`
-          : q.amenities.length
+          : q.amenities.length || q.styles.length
             ? `Nobody has recorded that combination anywhere in ${region}.`
             : `There is no site of that type listed in ${region}.`}
         {best && best.matched > 0 && (
           <>
             {' '}
-            Drop &ldquo;{filterLabel(best.kind, best.key)}&rdquo; and{' '}
+            Drop &ldquo;{bestLabel}&rdquo; and{' '}
             {best.matched} {best.matched === 1 ? 'site comes' : 'sites come'} back.
           </>
         )}
@@ -495,7 +525,7 @@ function EmptyResult({
             href={hubHref(base, without(q, best.kind, best.key))}
             rel={relFor(hubHref(base, without(q, best.kind, best.key)))}
           >
-            Remove &ldquo;{filterLabel(best.kind, best.key)}&rdquo;
+            Remove &ldquo;{bestLabel}&rdquo;
           </ButtonLink>
         ) : (
           unknown > 0 && (

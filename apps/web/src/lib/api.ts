@@ -601,9 +601,14 @@ export interface RegionListingData {
   facets?: {
     types: Partial<Record<SpotType, number>>;
     amenities: Partial<Record<AmenityKey, number>>;
+    /**
+     * CAMP-520. `unknown` on purpose: it is read through `readStyleFacet`
+     * (lib/travel-styles.ts), and an API from before the card sends none.
+     */
+    styles?: Partial<Record<string, unknown>>;
   };
   /** One per active filter: how many match with only that one removed. */
-  dropOne?: { kind: 'type' | 'amenity'; key: string; matched: number }[];
+  dropOne?: { kind: 'type' | 'amenity' | 'style'; key: string; matched: number }[];
 }
 
 const NO_REGION: RegionListingData = { region: null, total: 0, items: [] };

@@ -6,6 +6,7 @@ import {
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { Point } from 'geojson';
+import type { TravelStyles } from '../osm/travel-styles';
 import {
   AmenityValue,
   CampingSpotAmenities,
@@ -209,6 +210,16 @@ export class CampingSpot {
   /** The day WE last read that source's tag — not when a mapper edited it. */
   @Column({ name: 'overnight_checked_at', type: 'date', nullable: true })
   overnightCheckedAt: string | null;
+
+  /**
+   * CAMP-520: travel styles, style key → `{ value, source }`. Unknown is
+   * the key being absent; an entry without a source cannot be stored (a
+   * CHECK, migration SpotTravelStyles). Read through `styleYesSql`
+   * (osm/travel-styles.ts), never straight off the column. Written by the
+   * OSM importer and rewritten from the tags on every run.
+   */
+  @Column({ name: 'travel_styles', type: 'jsonb', default: {} })
+  travelStyles: TravelStyles;
 
   /**
    * CAMP-256: the day a MAPPER last edited this OpenStreetMap object — its

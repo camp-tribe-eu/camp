@@ -27,6 +27,10 @@ import {
   type AmenityKey,
   type SpotType,
 } from './api';
+import { TRAVEL_STYLE_KEYS, type TravelStyleKey } from './travel-styles';
+
+/** CAMP-520: a style's label comes from the CMS, so it is handed in. */
+export type StyleLabels = Partial<Record<TravelStyleKey, string>>;
 
 /** The orders our data can honestly produce. Mirrors the API's REGION_SORTS. */
 export const REGION_SORTS = ['name', 'facilities', 'type'] as const;
@@ -43,6 +47,11 @@ export interface HubQuery {
   types: SpotType[];
   /** Every one of these must be a recorded yes — unless `includeUnknown`. */
   amenities: AmenityKey[];
+  /**
+   * CAMP-520: travel styles, each a recorded and SOURCED yes. `unknown=1`
+   * never reaches them (apps/api/src/spots/filters.ts).
+   */
+  styles: TravelStyleKey[];
   /** The reader has seen how many are unrecorded and asked for them too. */
   includeUnknown: boolean;
   sort: RegionSort;
@@ -52,6 +61,7 @@ export interface HubQuery {
 export const EMPTY_HUB_QUERY: HubQuery = {
   types: [],
   amenities: [],
+  styles: [],
   includeUnknown: false,
   sort: 'name',
   page: 1,
@@ -83,6 +93,7 @@ export function parseHubQuery(searchParams: SearchParams): HubQuery {
   return {
     types: pick(first(searchParams.types), SPOT_TYPES),
     amenities: pick(first(searchParams.amenities), AMENITY_KEYS),
+    styles: pick(first(searchParams.styles), TRAVEL_STYLE_KEYS),
     includeUnknown: first(searchParams.unknown) === '1',
     sort: (REGION_SORTS as readonly string[]).includes(sort ?? '')
       ? (sort as RegionSort)
@@ -94,7 +105,7 @@ export function parseHubQuery(searchParams: SearchParams): HubQuery {
 }
 
 export function isFiltering(q: HubQuery): boolean {
-  return q.types.length > 0 || q.amenities.length > 0;
+  return q.types.length > 0 || q.amenities.length > 0 || q.styles.length > 0;
 }
 
 /** Filters or a non-default sort — anything the static page cannot show. */
@@ -107,6 +118,7 @@ function params(q: HubQuery, withPage: boolean): URLSearchParams {
   const p = new URLSearchParams();
   if (q.types.length) p.set('types', q.types.join(','));
   if (q.amenities.length) p.set('amenities', q.amenities.join(','));
+  if (q.styles.length) p.set('styles', q.styles.join(','));
   if (q.includeUnknown && q.amenities.length) p.set('unknown', '1');
   if (q.sort !== 'name') p.set('sort', q.sort);
   if (withPage && q.page > 1) p.set('page', String(q.page));
@@ -187,6 +199,15 @@ export function withAmenity(q: HubQuery, k: AmenityKey): HubQuery {
   };
 }
 
+export function withStyle(q: HubQuery, k: TravelStyleKey): HubQuery {
+  const on = q.styles.includes(k);
+  return {
+    ...q,
+    page: 1,
+    styles: TRAVEL_STYLE_KEYS.filter((x) => (x === k ? !on : q.styles.includes(x))),
+  };
+}
+
 export function withSort(q: HubQuery, sort: RegionSort): HubQuery {
   return { ...q, page: 1, sort };
 }
@@ -199,16 +220,25 @@ export function withPage(q: HubQuery, page: number): HubQuery {
   return { ...q, page };
 }
 
-export type FilterKind = 'type' | 'amenity';
+export type FilterKind = 'type' | 'amenity' | 'style';
 
-/** The chip's wording for a filter — what "Remove …" names. */
-export function filterLabel(kind: FilterKind, key: string): string {
+/**
+ * The chip's wording for a filter — what "Remove …" names.
+ *
+ * 🔴 A style's wording is the CMS's (`styles`), never a word of this file.
+ * The page refuses a style it cannot name before anything is drawn
+ * (region-listing.tsx), so the empty string below is unreachable there —
+ * it is what a caller with no labels gets instead of an invented one.
+ */
+export function filterLabel(kind: FilterKind, key: string, styles: StyleLabels = {}): string {
+  if (kind === 'style') return styles[key as TravelStyleKey] ?? '';
   return kind === 'type'
     ? SPOT_TYPE_LABEL_SHORT[key as SpotType]
     : AMENITY_LABEL_SHORT[key as AmenityKey];
 }
 
 export function without(q: HubQuery, kind: FilterKind, key: string): HubQuery {
+  if (kind === 'style') return withStyle(q, key as TravelStyleKey);
   return kind === 'type'
     ? withType(q, key as SpotType)
     : withAmenity(q, key as AmenityKey);
@@ -216,7 +246,7 @@ export function without(q: HubQuery, kind: FilterKind, key: string): HubQuery {
 
 export interface ActiveFilter {
   kind: FilterKind;
-  key: SpotType | AmenityKey;
+  key: SpotType | AmenityKey | TravelStyleKey;
   /** The chip's wording — what the pill in the toolbar prints. */
   label: string;
 }
@@ -226,13 +256,24 @@ export interface ActiveFilter {
  * (CAMP-452). One entry per pill in the sticky toolbar; the pill's link
  * is `without(q, kind, key)`, the theme's `url_to_remove`.
  */
-export function activeFilters(q: Pick<HubQuery, 'types' | 'amenities'>): ActiveFilter[] {
+export function activeFilters(
+  q: Pick<HubQuery, 'types' | 'amenities'> & { styles?: TravelStyleKey[] },
+  styles: StyleLabels = {},
+): ActiveFilter[] {
   return [
     ...q.types.map((t): ActiveFilter => ({ kind: 'type', key: t, label: filterLabel('type', t) })),
     ...q.amenities.map(
       (k): ActiveFilter => ({ kind: 'amenity', key: k, label: filterLabel('amenity', k) }),
     ),
+    ...(q.styles ?? []).map(
+      (k): ActiveFilter => ({ kind: 'style', key: k, label: filterLabel('style', k, styles) }),
+    ),
   ];
+}
+
+/** The styles that are ON, by the CMS's names, in key order. */
+function styleNames(q: HubQuery, styles: StyleLabels): string[] {
+  return q.styles.map((k) => styles[k]).filter((s): s is string => !!s);
 }
 
 // ── sentences ────────────────────────────────────────────────────────────
@@ -245,7 +286,7 @@ const list = (parts: string[], joiner: 'and' | 'or') =>
     : `${parts.slice(0, -1).join(', ')} ${joiner} ${parts[parts.length - 1]}`;
 
 /** "Free campsites with electricity and showers" — for a `<title>`. */
-export function describeQuery(q: HubQuery): string {
+export function describeQuery(q: HubQuery, styles: StyleLabels = {}): string {
   const types = q.types.length
     ? list(
         q.types.map((t) => `${SPOT_TYPE_LABEL[t]}s`),
@@ -258,7 +299,10 @@ export function describeQuery(q: HubQuery): string {
         'and',
       )}`
     : '';
-  return `${types}${amenities}`;
+  // «Campsites with showers (Open in winter)»: the label as the CMS
+  // spells it, set apart rather than bent into the sentence.
+  const named = styleNames(q, styles);
+  return `${types}${amenities}${named.length ? ` (${named.join(', ')})` : ''}`;
 }
 
 /**
@@ -266,18 +310,19 @@ export function describeQuery(q: HubQuery): string {
  * a claim about the place. "is recorded with" rather than "has", because
  * an unrecorded shower is not a missing one (CAMP-35).
  */
-export function emptyHeadline(q: HubQuery, region: string): string {
+export function emptyHeadline(q: HubQuery, region: string, styles: StyleLabels = {}): string {
   const types = q.types.length
     ? `No ${list(
         q.types.map((t) => lower(SPOT_TYPE_LABEL[t])),
         'or',
       )}`
     : 'No campsite';
-  if (!q.amenities.length) return `${types} is listed in ${region}`;
-  return `${types} in ${region} is recorded with ${list(
-    q.amenities.map((k) => lower(AMENITY_LABEL[k])),
-    'and',
-  )}`;
+  const recorded = [
+    ...q.amenities.map((k) => lower(AMENITY_LABEL[k])),
+    ...styleNames(q, styles).map((s) => `“${s}”`),
+  ];
+  if (!recorded.length) return `${types} is listed in ${region}`;
+  return `${types} in ${region} is recorded with ${list(recorded, 'and')}`;
 }
 
 /** The amenities as a reader reads them: "showers and laundry". */

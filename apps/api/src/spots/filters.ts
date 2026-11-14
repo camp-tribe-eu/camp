@@ -26,6 +26,11 @@
 
 import { AMENITY_KEYS, AmenityKey } from '../osm/tag-mapping';
 import { overnightStatusSql } from './overnight';
+import {
+  styleYesSql,
+  TRAVEL_STYLE_KEYS,
+  type TravelStyleKey,
+} from '../osm/travel-styles';
 
 /** Mirrors CampingSpotType; kept as a union so this file stays ORM-free. */
 export const SPOT_TYPES = [
@@ -62,6 +67,15 @@ export interface MapFilters {
    * counter), which is the honest half of what CAMP-255 asks for.
    */
   overnight: boolean;
+  /**
+   * CAMP-520: travel styles that must be a recorded, SOURCED yes.
+   *
+   * 🔴 STRICT IN BOTH BUILDS, like `overnight`: `includeUnknown` does not
+   * reach it. «Open in winter» beside a site nobody recorded is the label
+   * invented from nothing that the card forbids. The reader is told how
+   * many sites have any record instead (region-listing.ts `styles`).
+   */
+  styles: TravelStyleKey[];
 }
 
 export const NO_FILTERS: MapFilters = {
@@ -69,6 +83,7 @@ export const NO_FILTERS: MapFilters = {
   amenities: [],
   includeUnknown: false,
   overnight: false,
+  styles: [],
 };
 
 /**
@@ -92,6 +107,7 @@ export function parseFilters(query: Record<string, unknown>): MapFilters {
     // Only the one word this codebase defines; `overnight=forbidden`
     // would be a filter for places to AVOID, which nobody has asked for.
     overnight: query.overnight === 'allowed',
+    styles: pickKnown(query.styles, TRAVEL_STYLE_KEYS) as TravelStyleKey[],
   };
 }
 
@@ -174,6 +190,12 @@ function build(
     parts.push(`${overnightStatusSql()} = 'allowed'`);
   }
 
+  // 🔴 CAMP-520: in BOTH builds, no parameter, no alias — the same three
+  // properties as the overnight line above, for the same reasons.
+  for (const style of filters.styles) {
+    parts.push(styleYesSql(style));
+  }
+
   for (const amenity of filters.amenities) {
     // 🔴 The key travels as a parameter, not as text spliced into the
     // query. It is already restricted to AMENITY_KEYS by parseFilters, so
@@ -206,5 +228,6 @@ export function describeFilters(filters: MapFilters): string {
     bits.push(`amenities=${filters.amenities.join('+')}`);
   if (filters.includeUnknown) bits.push('unknown=included');
   if (filters.overnight) bits.push('overnight=allowed');
+  if (filters.styles.length) bits.push(`styles=${filters.styles.join('+')}`);
   return bits.join(' ') || 'none';
 }
