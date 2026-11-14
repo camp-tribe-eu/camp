@@ -5,6 +5,14 @@
 //   node scripts/datatourisme/fetch-regions.mjs ara bfc --out ~/camptribe-data
 //   node scripts/datatourisme/fetch-regions.mjs --metropolitan --out ~/camptribe-data
 //   node scripts/datatourisme/fetch-regions.mjs --self-test
+//   node scripts/datatourisme/fetch-regions.mjs --metropolitan --refetch --out <dir>
+//
+// 🔴 `--refetch` is what a schedule must pass (CAMP-528). Without it a
+// file whose SIZE matches the catalogue is taken as "already here" — a
+// shortcut for a person repeating a download within the hour. A week
+// later the same size can hold different rows (a record re-dated from
+// 2026-11-06 to 2026-11-13 is the same number of bytes), and the refresh
+// would stamp campsites "seen today" from last week's file.
 //
 // 🔴 The URLs are resolved from the data.gouv.fr API on every run, never
 // hard-coded. DATAtourisme rebuilds these files daily and the download
@@ -126,13 +134,13 @@ function human(bytes) {
  * apps/api/src/datatourisme/api-v1.ts (`catalogNodes(apiKey, fetchImpl)`).
  * Типове значення `fetch` лишає поведінку скрипта як була.
  */
-async function download(entry, dir, fetchImpl = fetch) {
+async function download(entry, dir, fetchImpl = fetch, { refetch = false } = {}) {
   const target = join(dir, `${entry.key}.csv`);
   // Re-downloading 280 MB because a later region failed is a waste of
   // somebody else's bandwidth as much as of our time.
   try {
     const existing = await stat(target);
-    if (entry.bytes && existing.size === entry.bytes) {
+    if (!refetch && entry.bytes && existing.size === entry.bytes) {
       console.log(`  ${entry.key}  already here (${human(existing.size)})`);
       return target;
     }
@@ -292,6 +300,17 @@ async function selfTest() {
       [0, null],
     );
 
+    let again = 0;
+    await download(entry(FRESH), dir, async () => {
+      again++;
+      return new Response('z'.repeat(FRESH), { status: 200 });
+    }, { refetch: true });
+    check(
+      '🔴 --refetch ходить у мережу, хоч розмір і збігся (CAMP-528)',
+      [again, await sizeOf(target)],
+      [1, FRESH],
+    );
+
     check(
       'HTTP-помилка названа кодом',
       await failure(entry(1), respond('nope', 503)),
@@ -379,7 +398,9 @@ async function main() {
   await mkdir(dir, { recursive: true });
   console.log(`\ninto ${dir}\n`);
   for (const key of keys) {
-    await download({ key, ...regions[key] }, dir);
+    await download({ key, ...regions[key] }, dir, fetch, {
+      refetch: argv.includes('--refetch'),
+    });
   }
 }
 

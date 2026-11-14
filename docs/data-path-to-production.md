@@ -152,11 +152,12 @@ node -e "…gunzipSync…"  → фіч: 14 | @timestamp: true
 
 | таблиця | що її наповнює | розклад |
 | --- | --- | --- |
-| `camping_spots` | `scripts/osm-pipeline/import-release.mjs --max-age-days 9` | `camptribe-osm-import.timer`, вівторок 04:30 UTC |
+| `camping_spots` (рядки OSM) | `scripts/osm-pipeline/import-release.mjs --max-age-days 9` | `camptribe-osm-import.timer`, вівторок 04:30 UTC |
 | `fuel_station_prices` | `apps/api/dist/fuel/import-stations.js --report` | `camptribe-fuel-prices.timer`, щодня 05:00 UTC |
 | `spot_links` | `reconcile-sources.js --apply` | **юніта ще немає**; сам скрипт з 01.11 придатний до запуску без нагляду: пише лише пари, де назва, відстань **і домен сайту/пошти** кажуть одне (на тих самих 76 парах 28.10: 55 пишуться, 21 лишаються дублями без позначки). Юніт за зразком `camptribe-fuel-prices.service`: `ExecStart=/usr/bin/node dist/spots/reconcile-sources.js --apply`, після `camptribe-osm-import` |
 | `spot_tariffs` | `scripts/datatourisme/fetch-feed.mjs` → `apps/api/dist/datatourisme/import-prices.js --apply` (сторож свіжості читає `fetched_at`, бо `ON CONFLICT DO UPDATE` не рухає `created_at` — заміряно 08.11.2026: дві дати створення на 13 104 рядки) | `camptribe-spot-tariffs.timer`, четвер 05:10 UTC (CAMP-400, пункт 2) |
 | `osm_route_poi` | `scripts/osm-pipeline/import-route-poi.mjs --max-age-days 9` (шар ріже `osm-weekly.yml` з тих самих PBF, що й кемпінги — `extract-route-poi.sh` — і кладе в той самий реліз як `<регіон>.rpoi.geojson.gz`) | `camptribe-route-poi-import.timer`, вівторок 05:30 UTC (CAMP-113, рішення 28.10.2026 — дорога (2) нижче) |
+| `camping_spots` (рядки DATAtourisme, `osm_ref IS NULL`) | `scripts/datatourisme/fetch-regions.mjs --metropolitan --refetch` → `apps/api/dist/datatourisme/refresh.js --apply --no-mark-missing` (оновлює за URI джерела; нових не додає, зниклих не ховає — це окремі рішення; `import.ts --apply` для розкладу НЕ придатний: без ключа, не рухає `last_seen_at`) | `camptribe-datatourisme-campsites.timer`, субота 04:15 UTC (до 13.11.2026 — жодного; 50 діб, і сторож мовчав, бо читав `max` по всій таблиці — CAMP-528) |
 | `webcams` | `scripts/windy/fetch-webcams.mjs` (один запит на регіон, upsert без видалень; ключ `WINDY_WEBCAMS_API_KEY` з `apps/api/.env`) | `camptribe-webcams.timer`, пʼятниця 04:15 UTC (до 13.11.2026 — руками, один раз 02.11; протухло на 10,4 доби) |
 
 🔴 **Чому `osm-weekly` зелений, а `camping_spots` стоїть.** Воркфлоу закінчує
