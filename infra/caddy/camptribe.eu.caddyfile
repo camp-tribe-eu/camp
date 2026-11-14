@@ -14,6 +14,45 @@
 # на машині з `gate-closed.conf.example`; у репозиторії лежить приклад із
 # заглушкою замість хеша.
 
+# 🔴 ЖУРНАЛ НЕ СМІЄ НЕСТИ НАШІ СЕКРЕТИ. Заміряно на проді 13.11.2026:
+# 618 рядків за 14 діб несли `X-Revalidate-Secret` ВІДКРИТИМ ТЕКСТОМ
+# (48 знаків із 48, одне значення). Caddy сам редагує лише Cookie,
+# Set-Cookie, Authorization і Proxy-Authorization; заголовок, який ми
+# вигадали самі, він секретом не вважає.
+#
+# 🔴 СТОКІВ ДВА, І ДРУГИЙ НЕ ОЧЕВИДНИЙ. `log` у сайті пише журнал
+# доступу у файл. Але ПОМИЛКУ запиту (`http.log.error.*` — наприклад,
+# «connection refused», поки веб перезапускається) Caddy пише у
+# типовий журнал, тобто в journald і далі в /var/log/syslog, — із тими
+# самими заголовками запиту. 09.11.2026 секрет ліг туди двічі. Тому
+# той самий фільтр стоїть і тут, на `default`, а не лише в сайтах.
+#
+# 🔴 ІМʼЯ ЗАГОЛОВКА — У КАНОНІЧНОМУ РЕГІСТРІ Go (`X-Revalidate-Secret`).
+# Поле шукається точним збігом: `x-revalidate-secret` конфіг прийме,
+# не скаже нічого й не зредагує жодного рядка.
+#
+# 🔴 ПЕРЕЛІК СТОЇТЬ У ТРЬОХ БЛОКАХ ОДНАКОВИЙ, і стежить за цим
+# scripts/ci/check-caddy-log-redaction.mjs: він бере імена секретних
+# заголовків ІЗ КОДУ (apps/*/src) і вимагає кожне в кожному журналі.
+# `X-Api-Key` і `X-Windy-Api-Key` ми лише ШЛЕМО назовні, сюди вони не
+# приходять; рядок коштує нуль, а правило без винятків не старіє.
+# `access_token` — спосіб Directus передати токен у рядку запиту.
+{
+	log default {
+		format filter {
+			wrap json
+			request>headers>X-Revalidate-Secret replace REDACTED
+			request>headers>X-Build-Token replace REDACTED
+			request>headers>X-Error-Token replace REDACTED
+			request>headers>X-Api-Key replace REDACTED
+			request>headers>X-Windy-Api-Key replace REDACTED
+			request>uri query {
+				replace access_token REDACTED
+			}
+		}
+	}
+}
+
 camptribe.eu, www.camptribe.eu {
 	import /etc/caddy/gate.conf
 
@@ -100,6 +139,18 @@ camptribe.eu, www.camptribe.eu {
 	log {
 		output file /var/log/caddy/access.log {
 			roll_disabled
+		}		# 🔴 Секретні заголовки — REDACTED; чому й звідки перелік, див.
+		# початок файла. Сторож: check-caddy-log-redaction.mjs.
+		format filter {
+			wrap json
+			request>headers>X-Revalidate-Secret replace REDACTED
+			request>headers>X-Build-Token replace REDACTED
+			request>headers>X-Error-Token replace REDACTED
+			request>headers>X-Api-Key replace REDACTED
+			request>headers>X-Windy-Api-Key replace REDACTED
+			request>uri query {
+				replace access_token REDACTED
+			}
 		}
 	}
 }
@@ -146,6 +197,18 @@ cms.camptribe.eu {
 	log {
 		output file /var/log/caddy/access.log {
 			roll_disabled
+		}		# 🔴 Секретні заголовки — REDACTED; чому й звідки перелік, див.
+		# початок файла. Сторож: check-caddy-log-redaction.mjs.
+		format filter {
+			wrap json
+			request>headers>X-Revalidate-Secret replace REDACTED
+			request>headers>X-Build-Token replace REDACTED
+			request>headers>X-Error-Token replace REDACTED
+			request>headers>X-Api-Key replace REDACTED
+			request>headers>X-Windy-Api-Key replace REDACTED
+			request>uri query {
+				replace access_token REDACTED
+			}
 		}
 	}
 }
