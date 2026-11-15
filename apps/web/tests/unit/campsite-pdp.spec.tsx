@@ -205,7 +205,7 @@ test.describe('порядок у розмітці', () => {
     // Позиції заголовків h2 у розмітці. Мітка «Facilities» є ще й у плитці
     // ключових фактів, тож шукаємо саме заголовок.
     const h2 = [...html.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/g)].map((m) => ({
-      text: m[1].replace(/<[^>]+>/g, '').trim(),
+      text: visibleText(m[1]).trim(),
       at: m.index ?? -1,
     }));
     const pos = (name: RegExp) => h2.find((h) => name.test(h.text))?.at ?? -1;
