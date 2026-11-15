@@ -144,6 +144,33 @@ test.describe("хаб: прапори, довідка у FAQ", () => {
     }
   });
 
+  test("🔴 «усе міняється на 3 500 кг» — чотири картки зі значками, з тими словами, що дав CMS", async ({
+    page,
+    request,
+  }) => {
+    const res = await request.get(`${API}/pages/camper-rental`);
+    const body = (await res.json()) as {
+      sections: Array<{
+        slot: string | null;
+        heading: string | null;
+        items: Array<{ term: string; text: string }>;
+      }>;
+    };
+    const cms = body.sections.find((s) => s.slot === "mass-line")!;
+    expect(cms.items.length).toBe(4);
+
+    await page.goto("/camper-rental");
+    const block = page.getByTestId("rental-mass-line");
+    await expect(block.getByRole("heading", { level: 2 })).toHaveText(cms.heading!);
+    const cards = block.getByTestId("mass-line").locator("li");
+    await expect(cards).toHaveCount(4);
+    for (const [i, item] of cms.items.entries()) {
+      await expect(cards.nth(i)).toContainText(item.term);
+      await expect(cards.nth(i)).toContainText(item.text);
+      await expect(cards.nth(i).locator(".ct-feat__icon svg")).toHaveCount(1);
+    }
+  });
+
   test("🔴 довга довідка живе в акордеоні й відкривається кліком", async ({ page }) => {
     await page.goto("/camper-rental");
     const faq = page.getByTestId("rental-faq-list");
