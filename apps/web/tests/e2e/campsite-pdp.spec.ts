@@ -210,6 +210,10 @@ test.describe('🔴 CAMP-453 — таби', () => {
     await expect(page.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
     await expect(page.locator('[data-panel="map"]')).toBeVisible();
     await expect(page.locator('[data-panel="webcams"]')).toBeHidden();
+    // Одна зупинка Tab на весь рядок табів: активний у порядку фокуса,
+    // решта — лише стрілками (ARIA authoring practices, roving tabindex).
+    await expect(page.getByRole('tab', { name: 'Map' })).toHaveAttribute('tabindex', '0');
+    await expect(page.getByRole('tab', { name: 'Webcams' })).toHaveAttribute('tabindex', '-1');
 
     await page.getByRole('tab', { name: 'Webcams' }).click();
     await expect(page.getByRole('tab', { name: 'Webcams' })).toHaveAttribute('aria-selected', 'true');
