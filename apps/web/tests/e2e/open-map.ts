@@ -69,6 +69,58 @@ export async function openMapRetryingThrottle(
 }
 
 /**
+ * CAMP-454. Привести шухляду налаштувань до потрібного стану ОДНИМ
+ * зверненням до сторінки.
+ *
+ * 🔴 ЧОМУ ОДНЕ ЗВЕРНЕННЯ, А НЕ `isVisible` + `getAttribute` + `click` +
+ * `waitFor`. Заміряно в траcі CI (прогін 43747398102, mobile-chrome): кожне
+ * звернення до сторінки коштує там 0,3–0,5 с, клік — 1,5–2,1 с. Попередня
+ * версія робила п'ять звернень (≈3,7 с) на КОЖНЕ відкриття й закриття, а
+ * `photographMap` робить обидва. П'ять тестів `wildfire-layer` уже стояли
+ * на 27 із 30 с бюджету (ланцюг із ~45 дій), і ці 4–8 с вивели їх за межу:
+ * не зламаний вигляд, а час. Бюджет не піднімаємо — прибираємо зайві
+ * звернення.
+ *
+ * Усе — всередині сторінки: дочекатись, поки з'явиться панель мапи
+ * (вантажиться з `ssr: false`, інакше «кнопки ще нема» читалось би як
+ * «кнопки нема»), натиснути кнопку, дочекатись, поки шухляда справді
+ * з'явилась чи зникла в розмітці.
+ *
+ * Повертає, що сталось. 'stuck' — кнопку натиснули, а шухляда не
+ * змінилась: це поломка, і виклик її кидає, а не мовчить.
+ */
+async function setDrawer(page: Page, open: boolean): Promise<void> {
+  const outcome = await page.evaluate(async (want: boolean) => {
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const deadline = Date.now() + 20_000;
+    while (
+      !document.querySelector('[data-testid="map-bar"],[data-testid="map-unsupported"]')
+    ) {
+      if (Date.now() > deadline) return 'no-map';
+      await sleep(50);
+    }
+    const toggle = document.querySelector<HTMLElement>('[data-testid="map-settings-toggle"]');
+    // На широкому екрані кнопки немає (`lg:hidden`): колонка завжди відкрита.
+    if (!toggle || toggle.getClientRects().length === 0) return 'no-toggle';
+    const isOpen = () => toggle.getAttribute('aria-expanded') === 'true';
+    if (isOpen() === want) return 'already';
+    toggle.click();
+    const aside = document.getElementById('map-settings');
+    while (Date.now() < deadline) {
+      const shown = !!aside && aside.getClientRects().length > 0;
+      if (isOpen() === want && shown === want) return 'done';
+      await sleep(20);
+    }
+    return 'stuck';
+  }, open);
+  if (outcome === 'stuck') {
+    throw new Error(
+      `кнопка map-settings-toggle натиснута, а шухляда не ${open ? 'відкрилась' : 'закрилась'}`,
+    );
+  }
+}
+
+/**
  * CAMP-454. Нижче `lg` налаштування мапи лежать у шухляді, закритій за
  * замовчуванням (мапа на весь екран). Тест, що тягнеться до шарів чи
  * фільтрів, спершу відкриває її — рівно як читач натиснув би кнопку.
@@ -76,35 +128,18 @@ export async function openMapRetryingThrottle(
  * 🔴 НА ШИРОКОМУ ЕКРАНІ ЦЕ НІЧОГО НЕ РОБИТЬ, бо кнопки там немає: колонка
  * завжди відкрита. Тож десктопні проєкти й далі стверджують те саме, що й
  * раніше, а телефонні — те саме ПІСЛЯ натискання.
- *
- * Чекає, поки клієнтський компонент з'явиться (мапа вантажиться з
- * `ssr: false`), інакше «кнопки ще нема» читалось би як «кнопки нема».
  */
 export async function openSettings(page: Page): Promise<void> {
-  await page
-    .locator('[data-testid="map-bar"],[data-testid="map-unsupported"]')
-    .first()
-    .waitFor({ state: 'attached', timeout: 20_000 })
-    .catch(() => {});
-  const toggle = page.getByTestId('map-settings-toggle');
-  if (!(await toggle.isVisible())) return;
-  if ((await toggle.getAttribute('aria-expanded')) === 'true') return;
-  await toggle.click();
-  await page.getByTestId('map-settings').waitFor({ state: 'visible' });
+  await setDrawer(page, true);
 }
 
 /**
- * CAMP-454. Зворотний бік `openSettings`: закрити шухляду, щоб вона не
- * лежала на полотні, коли тест читає ПІКСЕЛІ мапи. Відкрита шухляда
- * накриває нижні 42% екрана, і точка вибірки під нею — це пиксель шухляди,
- * а не мапи.
+ * CAMP-454. Зворотний бік `openSettings`: закрити шухляду, коли тест
+ * читає ПІКСЕЛІ мапи. Шухляда лежить у потоці над полотном, тож її
+ * висота зсуває мапу, і два знімки одного полотна розходяться.
  */
 export async function closeSettings(page: Page): Promise<void> {
-  const toggle = page.getByTestId('map-settings-toggle');
-  if (!(await toggle.isVisible())) return;
-  if ((await toggle.getAttribute('aria-expanded')) !== 'true') return;
-  await toggle.click();
-  await page.getByTestId('map-settings').waitFor({ state: 'hidden' });
+  await setDrawer(page, false);
 }
 
 /**

@@ -2628,7 +2628,7 @@ export default function CampsiteMap() {
         <div
           role="group"
           aria-label="Layers"
-          className="flex flex-wrap gap-1.5"
+          className="flex flex-wrap gap-x-1.5 gap-y-3"
         >
           {LAYERS.filter(
             (l) => l.status === "live" && l.id !== "campsites",
@@ -2649,7 +2649,7 @@ export default function CampsiteMap() {
         <div
           role="group"
           aria-label="Map style"
-          className="flex flex-wrap gap-1.5"
+          className="flex flex-wrap gap-x-1.5 gap-y-3"
         >
           {MAP_SOURCES.map((s: MapSource) => (
             <Button
