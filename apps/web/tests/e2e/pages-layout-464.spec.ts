@@ -90,12 +90,17 @@ test.describe("🔴 CAMP-464 — /about", () => {
       await expect(cards.nth(i).locator("svg"), `картка ${i} без значка`).toHaveCount(1);
     }
     // Обидва фото справді завантажились, а не лишили порожню коробку.
+    // Друге фото нижче першого екрана й ліниве: Firefox не тягне його, доки читач
+    // не докрутить. Тому докручуємо, як читач, і чекаємо, а не міряємо миттєво.
     for (const n of [0, 1]) {
-      const loaded = await blocks
-        .nth(n)
-        .locator("img")
-        .evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0);
-      expect(loaded, `фото ${n} не завантажилось`).toBe(true);
+      const img = blocks.nth(n).locator("img");
+      await img.scrollIntoViewIfNeeded();
+      await expect
+        .poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth > 0), {
+          message: `фото ${n} не завантажилось`,
+          timeout: 10_000,
+        })
+        .toBe(true);
     }
   });
 
