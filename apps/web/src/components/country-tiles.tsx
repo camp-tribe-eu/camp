@@ -56,6 +56,11 @@ import { Flag } from "./flag";
  *     існує (`dynamicParams = false`), тож посилання вело б на 404. Плитка
  *     стоїть, каже «No campsites listed yet», і нікуди не веде.
  *
+ * 🔴 ПОРОЖНЮ ПЛИТКУ ПРИГЛУШЕНО КАРТИНКОЮ, А НЕ ВСІЄЮ КАРТКОЮ (CAMP-455).
+ * `opacity: .85` на всій плитці тягнув за собою й підпис «No campsites
+ * listed yet»: у темній темі axe рахував його як `color-contrast` на
+ * 25 плитках фікстури. Прапор лишається приглушеним, текст — ні.
+ *
  * 🔴 УСІ 27, А НЕ ЛИШЕ КОДИ З API. Порядок — за англійською назвою, бо так
  * шукають країну в переліку. Коди з API, яких немає серед 27 (сьогодні
  * `ax`, Åland — має сторінку й 19 кемпінгів), ідуть після двадцяти семи:
@@ -119,7 +124,7 @@ const TILES_CSS = `
 .ct-tiles__row{display:flex;flex-wrap:wrap;row-gap:8px;list-style:none;margin:0;padding:0}
 .ct-tiles__col{width:50%;padding:0 4px}
 .ct-tile{position:relative;display:flex;flex-direction:column;height:100%;overflow:hidden;padding:4px;padding-bottom:0;border-radius:var(--r,16px);background-color:var(--color-surface-2);color:inherit;text-decoration:none}
-.ct-tile--empty{opacity:.85}
+.ct-tile--empty .ct-tile__image-wrapper{opacity:.6}
 .ct-tile__image-wrapper{position:relative;overflow:hidden;display:block;padding-top:75%;border-radius:calc(var(--r,16px) * .75);background-color:var(--color-surface)}
 .ct-tile__image-wrapper .ct-flag{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;transition:transform .4s ease-out}
 .ct-tile__image-wrapper .ct-flag--none{display:flex;align-items:center;justify-content:center;font-weight:700;letter-spacing:.1em;color:var(--color-ink-2)}
