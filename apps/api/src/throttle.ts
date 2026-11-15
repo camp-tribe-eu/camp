@@ -283,6 +283,11 @@ export const MAIL_ROUTES = [
   // `ordinary` з лімітом, якого немає.
   'spot-claims',
   'spot-claims/confirm',
+  // CAMP-505: самоверифікація по пошті. Перший шле лист на адресу, яку
+  // ввела людина; другий приймає клік і є мішенню для вгадування токена
+  // (256 біт, тож марного), тому стоїть у тому ж відрі.
+  'spot-claims/by-email',
+  'spot-claims/by-email/confirm',
 ] as const;
 
 /** Is this a route that can send a letter? Normalised like isLoginPath. */

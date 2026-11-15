@@ -27,10 +27,22 @@ export type MailKind =
   // кемпінгу з тегів OSM, тобто чужій людині, яка нас не питала. Тому в
   // ньому немає посилання: клік у незнайомому листі віддав би листинг
   // тому, хто почав заявку. Там код, який треба ввести в нас.
-  | 'claim_spot';
+  | 'claim_spot'
+  // 🔴 CAMP-505 — ДРУГИЙ ВИД, ЩО ЙДЕ НЕ НА АДРЕСУ АКАУНТА, АЛЕ З ПОСИЛАННЯМ.
+  //
+  // Іде на адресу, яку людина ввела сама, і лише коли її домен збігся з
+  // доменом кемпінгу. Посилання тут безпечне з причини, якої немає в
+  // `claim_spot`: воно працює лише в акаунті, що почав заявку (інакше
+  // клік власника скриньки віддав би листинг сторонньому), і саме
+  // відкриття сторінки нічого не підтверджує — потрібен клік на кнопку.
+  | 'claim_owner_link';
 
-/** Види, у листі яких є посилання. `claim_spot` сюди не входить. */
-export type LinkMailKind = Exclude<MailKind, 'claim_spot'>;
+/**
+ * Види, у листі яких є посилання, що будується з `LINK_PATH`.
+ * `claim_spot` — без посилання; `claim_owner_link` — своє, з токеном, але
+ * не тим самим шляхом, тож лежить окремо від `LINK_PATH`.
+ */
+export type LinkMailKind = Exclude<MailKind, 'claim_spot' | 'claim_owner_link'>;
 
 export type MailMessage = {
   to: string;
@@ -305,6 +317,62 @@ export function claimSpotMessage(
     `<p>${esc(lines[10])}</p>` +
     `<p>CampTribe</p>`;
   return { to, kind: 'claim_spot', subject, text: lines.join('\n'), html };
+}
+
+/** Куди веде посилання з листа власника. Фіксований шлях, жодного `next`. */
+export const OWNER_LINK_PATH = '/account/claim/confirm';
+
+export const ownerLinkFor = (base: string, token: string): string =>
+  `${base}${OWNER_LINK_PATH}?t=${encodeURIComponent(token)}`;
+
+/**
+ * CAMP-505 — лист із посиланням для власника, що ввів адресу сам.
+ *
+ * 🔴 ЧОТИРИ РЕЧЕННЯ, І КОЖНЕ ПРО ТЕ, ЩО ЛИСТ МОЖЕ ЧИТАТИ НЕ ТОЙ, КОМУ ВІН.
+ *
+ * 1. «НІЧОГО НЕ РОБІТЬ» ПЕРШИМ. Адресу ввів хтось інший (друкарська
+ *    помилка, колега, зловмисник, що знає лише домен): людина має
+ *    побачити вихід у першому рядку.
+ * 2. АДРЕСУ ЗАЯВНИКА НЕ НАЗВАНО (її тут і немає — ми не знаємо, хто
+ *    ввів). Названо кемпінг: це те, що людина може перевірити.
+ * 3. ПОСИЛАННЯ ПРАЦЮЄ ЛИШЕ В АКАУНТІ, ЩО ПОЧАВ ЗАЯВКУ — і лист каже це
+ *    прямо, щоб клік у незнайомому листі не здавався безпечним «на
+ *    всяк випадок»: клік нічого не віддасть, а лист не просить нікуди
+ *    входити чи вводити пароль.
+ * 4. СТРОК І ОДНОРАЗОВІСТЬ — із тієї самої константи, що їх тримає.
+ */
+export function claimOwnerLinkMessage(
+  to: string,
+  link: string,
+  spotName: string,
+  minutes: number,
+): MailMessage {
+  const subject = `Confirm that you manage ${spotName} on CampTribe`;
+  const lines = [
+    `Someone asked to manage the CampTribe listing for ${spotName}, and used this address to prove it.`,
+    '',
+    'If that was not you or your team: do nothing. Nothing changes.',
+    '',
+    `If it was, open this link and press the confirm button: ${link}`,
+    '',
+    `The link works once, for ${minutes} minutes, and only in the CampTribe account that started the request. Opening it does not confirm anything by itself, and we will never ask for a password in this letter.`,
+    '',
+    'CampTribe',
+  ];
+  const html =
+    `<p>${esc(lines[0])}</p>` +
+    `<p>${esc(lines[2])}</p>` +
+    `<p><a href="${esc(link)}" style="display:inline-block;padding:10px 18px;` +
+    `background:#404B62;color:#ffffff;text-decoration:none;border-radius:8px">` +
+    `Open the confirmation page</a></p>` +
+    `<p>${esc(lines[6])}</p><p>CampTribe</p>`;
+  return {
+    to,
+    kind: 'claim_owner_link',
+    subject,
+    text: lines.join('\n'),
+    html,
+  };
 }
 
 export const resetPasswordMessage = (to: string, link: string): MailMessage =>

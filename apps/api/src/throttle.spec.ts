@@ -478,7 +478,7 @@ describe('🔴 the login, mail, consent and plan decorators agree with their rou
   // кошик входу вдесятеро щедріший (10 за 60 с проти 10 за 600 с), і
   // маршрут, що шле листи, там підняв би стелю бомбардування чужої
   // скриньки з 60 листів на годину до 600.
-  it('and the routes it names are the six that can send a letter', () => {
+  it('and the routes it names are the eight that can send a letter', () => {
     expect([...MAIL_ROUTES].sort()).toEqual([
       'account/email',
       'auth/forgot',
@@ -487,6 +487,10 @@ describe('🔴 the login, mail, consent and plan decorators agree with their rou
       // CAMP-51: єдині два, що шлють лист НЕ нашому користувачеві, а на
       // публічну адресу кемпінгу з тегів OSM.
       'spot-claims',
+      // CAMP-505: самоверифікація по пошті — перший крок шле лист на
+      // адресу, яку ввела людина.
+      'spot-claims/by-email',
+      'spot-claims/by-email/confirm',
       'spot-claims/confirm',
     ]);
   });
@@ -503,6 +507,8 @@ describe('🔴 the login, mail, consent and plan decorators agree with their rou
   it('🔴 і справжній шлях заявки справді потрапляє у відро mail', () => {
     expect(bucketOf('/spot-claims')).toBe('mail');
     expect(bucketOf('/spot-claims/confirm')).toBe('mail');
+    expect(bucketOf('/spot-claims/by-email')).toBe('mail');
+    expect(bucketOf('/spot-claims/by-email/confirm')).toBe('mail');
     // А те, що лише схоже, — ні: інакше перевірка нічого не розрізняє.
     expect(bucketOf('/spot-claims/other')).not.toBe('mail');
   });

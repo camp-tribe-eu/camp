@@ -1,13 +1,30 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { MAILER } from '../auth/account.service';
-import { claimSpotMessage, type Mailer } from '../auth/mail';
+import {
+  claimOwnerLinkMessage,
+  claimSpotMessage,
+  ownerLinkFor,
+  type Mailer,
+} from '../auth/mail';
+import {
+  AddressLimiter,
+  LINK_TTL_MS,
+  METHOD_LINK,
+  linkTokenHash,
+  maskForClaim,
+  newLinkToken,
+  ownerBasis,
+  typedEmail,
+} from './owner-email';
 import {
   CODE_TTL_MS,
   MAX_ATTEMPTS,
   type ConfirmRefusal,
   type StartRefusal,
+  PER_SPOT_PER_DAY,
+  PER_USER_PER_DAY,
   codeHash,
   confirmRefusal,
   maskEmail,
@@ -21,6 +38,12 @@ export type StartResult =
   | { ok: true; sentTo: string; expiresAt: Date }
   | { ok: false; why: StartRefusal | 'no-spot' | 'mail-unavailable' };
 
+export type OwnerLinkStart =
+  { ok: true } | { ok: false; why: 'bad-email' | 'mail-unavailable' };
+
+export type OwnerLinkConfirm =
+  { ok: true; slug: string; name: string | null } | { ok: false };
+
 export type ConfirmResult =
   { ok: true } | { ok: false; why: ConfirmRefusal | 'no-spot' };
 
@@ -33,10 +56,49 @@ export type ConfirmResult =
  */
 @Injectable()
 export class SpotClaimService {
+  private readonly log = new Logger(SpotClaimService.name);
+  private readonly pending = new Set<Promise<void>>();
+  /** Лічильник листів на адресу — лише в пам'яті; див. `AddressLimiter`. */
+  private readonly addresses = new AddressLimiter();
+
   constructor(
     @InjectDataSource() private readonly db: DataSource,
     @Inject(MAILER) private readonly mailer: Mailer | null,
   ) {}
+
+  /**
+   * Виконати `job` ПІСЛЯ того, як відповідь пішла. Той самий прийом, що в
+   * `AccountService.later`: лист — це сотні мілісекунд, і запит, що чекав би
+   * на нього, відповідав би повільніше за той, що листа не шле. Різниця в
+   * часі — це відповідь на питання «ця адреса пройшла?».
+   *
+   * Помилки пишуться лише за класом: текст помилки провайдера може містити
+   * адресу одержувача, а журнал збійних адрес — це список людей.
+   */
+  private later(job: () => Promise<void>): void {
+    const done = new Promise<void>((resolve) => {
+      setImmediate(() => {
+        job()
+          .catch((e: unknown) =>
+            this.log.error(
+              `owner letter not sent (${(e as { name?: string })?.name ?? 'error'})`,
+            ),
+          )
+          .finally(resolve);
+      });
+    });
+    this.pending.add(done);
+    void done.then(() => this.pending.delete(done));
+  }
+
+  /** Дочекатися всіх відкладених листів: тести й вимкнення. */
+  async drain(): Promise<void> {
+    while (this.pending.size > 0) await Promise.all([...this.pending]);
+  }
+
+  beforeApplicationShutdown(): Promise<void> {
+    return this.drain();
+  }
 
   /** Початок доби за UTC — вікно, у якому рахуються межі розсилки. */
   private static dayAgo(now: Date): Date {
@@ -120,6 +182,7 @@ export class SpotClaimService {
       `SELECT id, user_id, code_hash, expires_at, used_at, attempts
          FROM spot_claims
         WHERE camping_spot_id = $1 AND user_id = $2 AND used_at IS NULL
+          AND method = 'osm_code'
         ORDER BY created_at DESC LIMIT 1`,
       [spotId, viewerId ?? '00000000-0000-0000-0000-000000000000'],
     )) as {
@@ -169,6 +232,149 @@ export class SpotClaimService {
     )) as unknown[];
     if (updatedRowCount(res) === 0) return { ok: false, why: 'no-pending' };
     return { ok: true };
+  }
+
+  /**
+   * CAMP-505: початок самоверифікації по домену пошти.
+   *
+   * 🔴 ВІДПОВІДЬ ОДНАКОВА, ЧИ Є КЕМПІНГ, ЧИ ЗБІГЛАСЬ АДРЕСА, ЧИ ВИЧЕРПАНО
+   * МЕЖУ. Три речі, які ця точка могла б виказати: що такий кемпінг є;
+   * який домен у нього; чи хтось уже підтвердив його. Кожна — це довідник
+   * для того, хто перебирає. Єдині відмови — ті, що залежать лише від
+   * того, що надіслав сам запитувач (`bad-email`) або від налаштування
+   * сервера (`mail-unavailable`): однакові для всіх.
+   *
+   * 🔴 ПОРЯДОК: адреса рахується в лічильнику ДО будь-якого запиту до
+   * кемпінгу й для будь-якої добре сформованої адреси, збіг чи ні — інакше
+   * «ліміт спрацював» і «ліміт не спрацював» виказували б збіг.
+   */
+  async startByEmail(
+    spotSlug: string,
+    viewerId: string,
+    typed: unknown,
+  ): Promise<OwnerLinkStart> {
+    const email = typedEmail(typed);
+    if (email === null) return { ok: false, why: 'bad-email' };
+    if (!this.mailer) return { ok: false, why: 'mail-unavailable' };
+
+    if (!this.addresses.take(email)) return this.quiet('address-limit');
+
+    const rows = (await this.db.query(
+      `SELECT id, name, website, contact FROM camping_spots WHERE slug = $1`,
+      [spotSlug],
+    )) as {
+      id: string;
+      name: string | null;
+      website: string | null;
+      contact: Record<string, unknown> | null;
+    }[];
+    if (rows.length === 0) return this.quiet('no-spot');
+    const spot = rows[0];
+
+    const basis = ownerBasis(
+      { website: spot.website, contact: spot.contact },
+      email,
+    );
+    if (basis === null) return this.quiet('no-match');
+    const masked = maskForClaim(email);
+    if (masked === null) return this.quiet('unmaskable');
+
+    const since = SpotClaimService.dayAgo(new Date());
+    const [{ owner }] = (await this.db.query(
+      `SELECT max(user_id::text) AS owner FROM spot_claims
+        WHERE camping_spot_id = $1 AND used_at IS NOT NULL`,
+      [spot.id],
+    )) as { owner: string | null }[];
+    if (owner !== null) return this.quiet('already-claimed');
+    const [{ for_spot }] = (await this.db.query(
+      `SELECT count(*)::int AS for_spot FROM spot_claims
+        WHERE camping_spot_id = $1 AND created_at >= $2`,
+      [spot.id, since],
+    )) as { for_spot: number }[];
+    if (for_spot >= PER_SPOT_PER_DAY) return this.quiet('spot-limit');
+    const [{ by_user }] = (await this.db.query(
+      `SELECT count(*)::int AS by_user FROM spot_claims
+        WHERE user_id = $1 AND created_at >= $2`,
+      [viewerId, since],
+    )) as { by_user: number }[];
+    if (by_user >= PER_USER_PER_DAY) return this.quiet('user-limit');
+
+    const token = newLinkToken();
+    const expiresAt = new Date(Date.now() + LINK_TTL_MS);
+    await this.db.query(
+      `INSERT INTO spot_claims
+         (camping_spot_id, user_id, code_hash, sent_to_masked, expires_at,
+          method, basis)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        spot.id,
+        viewerId,
+        linkTokenHash(token),
+        masked,
+        expiresAt,
+        METHOD_LINK,
+        basis,
+      ],
+    );
+    const mailer = this.mailer;
+    const message = claimOwnerLinkMessage(
+      email,
+      ownerLinkFor(mailer.webBase, token),
+      spot.name ?? 'this campsite',
+      Math.round(LINK_TTL_MS / 60_000),
+    );
+    this.later(() => mailer.sender.send(message));
+    return { ok: true };
+  }
+
+  /** Тиха відмова: причина лише в журналі, і лише словом — ні адреси, ні slug. */
+  private quiet(reason: string): OwnerLinkStart {
+    this.log.log(`owner link not sent: ${reason}`);
+    return { ok: true };
+  }
+
+  /**
+   * CAMP-505: клік «підтвердити» на сторінці, куди веде посилання з листа.
+   *
+   * 🔴 ОДИН ОПЕРАТОР, А НЕ «ПЕРЕВІР, ПОТІМ ЗАПИШИ». Токен, акаунт, строк,
+   * одноразовість і метод — умови одного `UPDATE … WHERE`. Між SELECT і
+   * UPDATE встигає другий клік, прострочення й чужий акаунт; базі це
+   * вирішувати, а не порядкові рядків у коді.
+   *
+   * 🔴 УСІ ВІДМОВИ — ОДНА. «Витрачене», «прострочене», «чуже», «такого
+   * немає» і «кемпінг уже підтверджено іншим» людині відповідають однаково:
+   * різниця розповідала б стороннім, чи є така заявка і чия вона.
+   */
+  async confirmLink(
+    token: unknown,
+    viewerId: string,
+  ): Promise<OwnerLinkConfirm> {
+    if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{20,200}$/.test(token))
+      return { ok: false };
+    let res: unknown;
+    try {
+      res = await this.db.query(
+        `UPDATE spot_claims SET used_at = now()
+          WHERE code_hash = $1 AND method = 'link' AND user_id = $2
+            AND used_at IS NULL AND expires_at > now()
+          RETURNING camping_spot_id`,
+        [linkTokenHash(token), viewerId],
+      );
+    } catch (e) {
+      // Другий підтверджений на той самий кемпінг: частковий унікальний
+      // індекс відмовив. Це «ні», а не 500.
+      if ((e as { code?: string })?.code === '23505') return { ok: false };
+      throw e;
+    }
+    if (updatedRowCount(res) === 0) return { ok: false };
+    const rows = (
+      Array.isArray((res as unknown[])[0]) ? (res as unknown[])[0] : res
+    ) as { camping_spot_id: string }[];
+    const spot = (await this.db.query(
+      `SELECT slug, name FROM camping_spots WHERE id = $1`,
+      [rows[0].camping_spot_id],
+    )) as { slug: string; name: string | null }[];
+    return { ok: true, slug: spot[0]?.slug ?? '', name: spot[0]?.name ?? null };
   }
 
   /** Чи тримає цей акаунт грант на цей кемпінг. */
