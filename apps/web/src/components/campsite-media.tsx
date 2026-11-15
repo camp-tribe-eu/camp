@@ -121,7 +121,12 @@ export function CampsiteMedia({
 
           4:3 тримає мапу читабельною і на телефоні не зʼїдає перший
           екран: на 375 px це 281 px, тобто третина від 812. */}
-      <div className="aspect-[4/3] min-h-[260px] w-full overflow-hidden rounded-card border border-line-2">
+      {/* 🔴 CAMP-453: від lg мапа стоїть у стікі-картці праворуч і займає
+          висоту екрана (як медіа в PDP теми), а не фіксоване 4:3 —
+          стікі-блок, нижчий за екран, лишає під собою порожнечу, а вищий
+          обрізається. Висота обмежена `clamp`, щоб на 4K мапа не росла
+          вище за читабельне, а на низькому ноуті не падала нижче 360 px. */}
+      <div className="aspect-[4/3] min-h-[260px] w-full overflow-hidden rounded-card border border-line-2 lg:aspect-auto lg:h-[clamp(360px,calc(100dvh-18rem),720px)]">
         <SiteMapEmbed
           lat={lat}
           lon={lon}

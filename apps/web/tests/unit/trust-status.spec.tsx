@@ -392,7 +392,7 @@ const NOT_YET = [
 const NO_FIGURES = [
   'Block', 'Breadcrumbs', 'ButtonLink', 'CampsiteMedia', 'ClaimListing', 'Faq',
   'Link', 'MissingNotice', 'NearbyCard', 'NoPhotos', 'ReportProblem',
-  'ScaleTrack', 'Section', 'SourceNote', 'TravelNotice',
+  'ScaleTrack', 'Section', 'SourceNote', 'SpotTabs', 'TravelNotice',
 ];
 
 test('🔴 кожен блок сторінки кемпінгу або має статус, або названий серед тих, що ще ні', () => {
