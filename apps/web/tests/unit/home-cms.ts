@@ -23,6 +23,11 @@ export const MIGRATION = join(
   "../../../api/src/migrations/1792700000000-SeedHomePage.ts",
 );
 
+export const HOME_STEP_MIGRATION = join(
+  __dirname,
+  "../../../api/src/migrations/1797400000000-KitchenTwoTexts.ts",
+);
+
 /**
  * 🔴 ЩО САМЕ ЗАСІВАЄ МІГРАЦІЯ — ВИТЯГНУТЕ З НЕЇ, А НЕ «ЧИ Є ТАКИЙ РЯДОК».
  *
@@ -65,11 +70,27 @@ export function migrationSeeds(): {
   if (!block) {
     throw new Error(`home-cms: у ${MIGRATION} не знайдено переліку кроків.`);
   }
-  const steps = [
+  const seeded = [
     ...block[1].matchAll(
       /term:\s*'([^']*)',\s*\n?\s*text:\s*\n?\s*'([^']*)',/g,
     ),
   ].map((m) => ({ term: m[1], text: m[2] }));
+
+  // 🔴 CAMP-463 коло 2: ПІСЛЯ засіву на крок накладається міграція
+  // `KitchenTwoTexts` (UPDATE). Підмінник описує базу ПІСЛЯ неї, тож і
+  // звірка читає її константи — і кидає, якщо старого тексту в засіві
+  // нема (інакше заміна нічого б не міняла й нічого б не доводила).
+  const later = readFileSync(HOME_STEP_MIGRATION, "utf8");
+  const pick = (name: string) => {
+    const m = new RegExp(`${name} =\\s*'((?:[^'\\\\]|\\\\.)*)';`).exec(later);
+    if (!m) throw new Error(`home-cms: у ${HOME_STEP_MIGRATION} немає ${name}.`);
+    return m[1];
+  };
+  const [from, to] = [pick("OLD_HOME_STEP"), pick("NEW_HOME_STEP")];
+  if (!seeded.some((x) => x.text === from)) {
+    throw new Error(`home-cms: засів не містить тексту, який міняє ${HOME_STEP_MIGRATION}.`);
+  }
+  const steps = seeded.map((x) => (x.text === from ? { ...x, text: to } : x));
   if (steps.length === 0) {
     throw new Error(`home-cms: перелік кроків у ${MIGRATION} розібрався в нуль.`);
   }
@@ -101,7 +122,7 @@ export const HOME_STEPS = [
   },
   {
     term: "Plan the drive",
-    text: "Route planning and weather along the way are being built. Nothing here pretends they are ready.",
+    text: "Routes across the EU, stop by stop, with the campsites and services nearest each stop.",
   },
 ];
 

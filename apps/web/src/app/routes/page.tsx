@@ -148,18 +148,17 @@ export default async function RoutesIndex() {
         </h2>
         <Block measure="read" className="mt-4 space-y-4 text-ink-2">
           <p>
-            {/* 🔴 The scaled-content position, stated to the reader rather
-                than only to ourselves in a code comment. It is also the
-                honest answer to "why only twelve".
+            {/* 🔴 CAMP-463: ЛИШЕ ТЕ, ЩО ПРАВДА ПРО МАРШРУТИ, а не чому їх
+                саме стільки («rather than fifty… one template») — це наша
+                кухня, читач прийшов по маршрут.
 
                 🔴 ЧИСЛО РАХУЄТЬСЯ, А НЕ НАБРАНЕ СЛОВОМ. Тут стояло
                 «twelve», і збіг тримався лише тому, що маршрути лежали
                 файлом. Після CAMP-479 їх додає редактор — і тринадцятий
                 зробив би це речення неправдою, не зламавши нічого
                 видимого. */}
-            There are {spelledCount(routes.length)} rather than fifty on
-            purpose. Fifty would mean one template with the place names
-            swapped. Each of these has something of its own to say.
+            There are {spelledCount(routes.length)} routes here, and each has
+            something of its own to say.
           </p>
           <p>
             Every route is written stop by stop: {stops} stops across the{" "}
