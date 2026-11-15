@@ -22,6 +22,10 @@ const CSS =
   "            header [data-testid='burger-open'] { display: none !important }\n" +
   // CAMP-448: без JS підпункти розкривача стають у ряд поруч із батьком.
   "            header [data-nav-sub] { position: static !important; visibility: visible !important; opacity: 1 !important }\n" +
+  // CAMP-448: мега-панель (країни) без JS не розгортається — у ряд шапки
+  // вона не влізає й накрила б сторінку (hubs.spec «4 clicks with no
+  // JavaScript» червонів саме від цього).
+  "            header [data-nav-kind='mega'] [data-nav-sub] { display: none !important }\n" +
   '          </style>';
 
 test('сервер віддає той самий CSS, посимвольно', async ({ page }) => {
