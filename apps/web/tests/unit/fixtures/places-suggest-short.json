@@ -1,0 +1,7 @@
+{
+  "status": 400,
+  "body": {
+    "code": "query_too_short",
+    "message": "The place search was refused: query too short."
+  }
+}

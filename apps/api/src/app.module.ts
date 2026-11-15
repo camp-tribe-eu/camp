@@ -25,6 +25,7 @@ import { PagesModule } from './pages/pages.module';
 import { AuthModule } from './auth/auth.module';
 import { TripsModule } from './trips/trips.module';
 import { PlanModule } from './plan/plan.module';
+import { PlacesModule } from './places/places.module';
 import { HealthModule } from './health/health.module';
 import { OpsModule } from './ops/ops.module';
 import { WarningsModule } from './warnings/warnings.module';
@@ -143,6 +144,7 @@ export const REASONS = loadMeasuredReasons();
     // CAMP-391: the HTTP entry to the planner — `POST /plan`, in its own throttle
     // bucket, over a read-only transaction.
     PlanModule,
+    PlacesModule,
     // CAMP-504: запис подій із першого дня.
     EventsModule,
   ],

@@ -140,14 +140,14 @@ test.describe('кукі: перелік на сторінці = перелік �
     // (CAMP-448): тест червонів на правильній сторінці. Скільки саме
     // записів — рахує тест нижче, з коду; тут лишається твердження, що
     // речення про перелік на сторінці взагалі є.
-    expect(text).toMatch(/\b(one|two|three|four|five) entries\b/);
+    expect(text).toMatch(/\b(one|two|three|four|five|six) entries\b/);
     expect(text).toContain('and nothing else');
     expect(otherStores(), 'код ставить кукі чи користується сховищем, про яке сторінка мовчить').toEqual([]);
   });
 
   test('🔴 кількість записів, названа словом «three», дорівнює кількості ключів у коді', () => {
     const n = new Set(storageWrites().map((w) => w.key)).size;
-    const WORDS: Record<number, string> = { 1: 'one', 2: 'two', 3: 'three', 4: 'four', 5: 'five' };
+    const WORDS: Record<number, string> = { 1: 'one', 2: 'two', 3: 'three', 4: 'four', 5: 'five', 6: 'six' };
     expect(WORDS[n], `у коді ${n} ключів; додай слово в WORDS і поправ сторінку`).toBeTruthy();
     expect(pageText('cookies')).toContain(`${WORDS[n]} entries`);
   });

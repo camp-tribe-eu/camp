@@ -178,8 +178,12 @@ export const LEGAL_PAGES: LegalPage[] = [
     // 2.8 (12.11.2026, CAMP-501): п'ятий запис у сховищі браузера — вибір
     // «маю кемпер / орендую» (`camptribe.persona`). Міграція
     // 1797100100000-PrivacyPersonaChoice.
-    version: '2.8',
-    effectiveFrom: '2026-11-12',
+    // 2.9 (15.11.2026, CAMP-456): шостий запис у сховищі браузера — збережені
+    // поїздки планувальника (`camptribe.trips`); підказки місць (текст іде в
+    // тілі запиту, не в адресі); посилання «поділитися» тримає стан у
+    // фрагменті. Міграція 1797850000000-PrivacyTripStorage.
+    version: '2.9',
+    effectiveFrom: '2026-11-15',
   },
   {
     slug: 'cookies',
@@ -197,8 +201,10 @@ export const LEGAL_PAGES: LegalPage[] = [
     // закритий, тож ціна цього сьогодні нульова.
     // 1.3 (12.11.2026, CAMP-501): записів стало п'ять — додався
     // `camptribe.persona`. Міграція 1797100200000-PersonaChoiceCookies.
-    version: '1.3',
-    effectiveFrom: '2026-11-12',
+    // 1.4 (15.11.2026, CAMP-456): записів стало шість — додався
+    // `camptribe.trips`. Міграція 1797850100000-TripStorageCookies.
+    version: '1.4',
+    effectiveFrom: '2026-11-15',
   },
   {
     slug: 'disclaimer',

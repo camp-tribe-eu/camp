@@ -1,0 +1,7 @@
+{
+  "status": 404,
+  "body": {
+    "code": "unknown_campsite",
+    "message": "No such campsite."
+  }
+}

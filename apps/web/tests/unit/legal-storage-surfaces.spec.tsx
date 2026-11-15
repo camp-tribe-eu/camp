@@ -50,7 +50,7 @@ function blocks(slug: string): Block[] {
 const keysOn = (slug: string): string[] =>
   [...new Set(blocks(slug).flatMap((b) => b.text.match(/\bcamptribe\.(?!eu\b)[a-z]+\b/g) ?? []))].sort();
 
-const NUMBER_WORDS: Record<number, string> = { 1: 'one', 2: 'two', 3: 'three', 4: 'four', 5: 'five', 15: 'fifteen', 20: 'twenty', 30: 'thirty' };
+const NUMBER_WORDS: Record<number, string> = { 1: 'one', 2: 'two', 3: 'three', 4: 'four', 5: 'five', 6: 'six', 15: 'fifteen', 20: 'twenty', 30: 'thirty' };
 
 const PAGES = ['cookies', 'privacy'] as const;
 

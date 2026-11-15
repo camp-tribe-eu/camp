@@ -1,0 +1,12 @@
+{
+  "status": 200,
+  "body": {
+    "kind": "campsite",
+    "name": "City Camping Antwerp",
+    "country": "be",
+    "lat": 51.23381665,
+    "lon": 4.393624799151242,
+    "slug": "city-camping-antwerp",
+    "path": "/camping/be/antwerp/city-camping-antwerp"
+  }
+}

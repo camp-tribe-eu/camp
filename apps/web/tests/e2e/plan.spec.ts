@@ -139,7 +139,7 @@ test.describe('the page', () => {
     // Чого він не знає — до форми, а не під нею.
     expect(said).toContain('every distance is a straight line and there are no driving times');
     expect(said).toContain('we hold no data on pitch sizes');
-    expect(said).toContain('It takes coordinates, not place names');
+    expect(said).toContain('Place names are looked up in our own data only, as they are written locally.');
     // І старого речення немає.
     expect(said).not.toMatch(/does not calculate routes yet/i);
   });
@@ -168,14 +168,14 @@ test.describe('the page', () => {
 });
 
 test.describe('the form', () => {
-  test('every field can be found by its label and starts empty — and there is no vehicle to choose', async ({ page }) => {
+  test('every field can be found by its label and starts empty — vehicle size is optional and says it changes nothing', async ({ page }) => {
     const f = await open(page);
     for (const field of [f.from, f.to, f.days]) await expect(field).toBeVisible();
     await expect(f.from).toHaveValue('');
     await expect(f.to).toHaveValue('');
     await expect(f.days).toHaveValue('');
     await expect(f.result).toContainText('Nothing asked yet');
-    await expect(page.getByLabel('Vehicle', { exact: true })).toHaveCount(0);
+    await expect(page.getByTestId('vehicle-hint')).toContainText('the plan is the same whatever you enter here');
   });
 
   test('🔴 an empty submit explains itself, takes focus, and lists every problem', async ({ page }) => {
@@ -186,8 +186,8 @@ test.describe('the form', () => {
     await expect(f.errors).toHaveAttribute('role', 'alert');
     await expect(f.errors).toBeFocused();
     await expect(f.errors.getByRole('link')).toHaveText([
-      'Enter where the trip starts, as latitude and longitude, for example 46.0569, 14.5058.',
-      'Enter where the trip ends, as latitude and longitude, for example 43.5081, 16.4402.',
+      'Enter where the trip starts: type a place name and pick it from the list, or write latitude and longitude, for example 46.0569, 14.5058.',
+      'Enter where the trip ends: type a place name and pick it from the list, or write latitude and longitude, for example 46.0569, 14.5058.',
       'Enter how many days the trip lasts.',
     ]);
     for (const field of [f.from, f.to, f.days]) {
@@ -226,19 +226,20 @@ test.describe('the form', () => {
     }
   });
 
-  test('🔴 a place NAME is refused with the reason: nothing looks names up, and the hint says so', async ({ page }) => {
+  test('🔴 a place NAME that was not picked from the list is refused with the reason, and the hint says what to do', async ({ page }) => {
     const f = await open(page);
     await fillValid(f, { from: 'Ljubljana' });
     await f.submit.click();
     await expect(f.errors.getByRole('link')).toHaveText([
-      'Write where the trip starts as two numbers, latitude then longitude, for example 46.0569, 14.5058. A place name is not looked up.',
+      'Pick where the trip starts from the list that appears as you type, or write it as two numbers, latitude then longitude, for example 46.0569, 14.5058. A name that is not picked from the list is not guessed.',
     ]);
     await expect(f.from).toHaveAttribute('aria-invalid', 'true');
     await expect(f.errors).toBeFocused();
     // Підказка під полем — та сама правда, і вона прикріплена до поля.
     const described = await f.from.getAttribute('aria-describedby');
     expect(described).toContain('plan-places-hint');
-    await expect(page.locator('#plan-places-hint')).toContainText('Place names are not looked up yet');
+    await expect(page.locator('#plan-places-hint')).toContainText('Type at least three letters');
+    await expect(page.locator('#plan-places-hint')).not.toContainText('not looked up yet');
   });
 
   test('🔴 coordinates written the way maps copy them are read: comma, semicolon, space, degree signs, the real minus', async ({ page }) => {
@@ -259,9 +260,13 @@ test.describe('the form', () => {
     const f = await open(page);
     await f.from.focus();
     await page.keyboard.type('46.3683, 14.1146');
+    // «Add a stop on the way» стоїть між стартом і фінішем, «Return to the start» — між фінішем і днями.
+    await page.keyboard.press('Tab');
+    await expect(page.getByTestId('add-via')).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(f.to).toBeFocused();
     await page.keyboard.type('44.1194, 15.2314');
+    await page.keyboard.press('Tab');
     await page.keyboard.press('Tab');
     await expect(f.days).toBeFocused();
     await page.keyboard.type('10');
@@ -386,7 +391,9 @@ if (API !== '') {
       await f.from.focus();
       await page.keyboard.type(LYON);
       await page.keyboard.press('Tab');
+      await page.keyboard.press('Tab');
       await page.keyboard.type(BARCELONA);
+      await page.keyboard.press('Tab');
       await page.keyboard.press('Tab');
       await page.keyboard.type('7');
       await page.keyboard.press('Enter');
