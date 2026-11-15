@@ -187,7 +187,10 @@ test.describe('🔴 CAMP-501 — перемикач «маю кемпер / ор
         .evaluate((el) => getComputedStyle(el).order);
     const there = 'section[data-persona-first="renter"]';
     const services = 'div[data-persona-first="owner"]';
-    const header = 'main[data-persona-zone] > header';
+    // CAMP-453: заголовок тепер ПОЗА зоною (окрема картка над нею), а зона
+    // — колонка карток. Заголовок не рухається за побудовою, тож доводимо
+    // позицією, а не `order`.
+    const header = '[data-testid="campsite-title"]';
 
     // Без вибору нічого не міняється.
     expect(await order(there)).toBe('0');
@@ -195,7 +198,10 @@ test.describe('🔴 CAMP-501 — перемикач «маю кемпер / ор
     await choose(page, 'renter');
     expect(await order(there), 'орендарю «Getting there» не піднято').toBe('-1');
     expect(await order(services)).toBe('0');
-    expect(await order(header), 'заголовок мусить лишитись першим').toBe('-2');
+    expect(
+      await slot(page, header),
+      'заголовок мусить лишитись над колонкою карток',
+    ).toBeLessThan(await slot(page, '[data-persona-zone]'));
     // Положення на екрані: піднятий блок вище за блок, що стояв перед ним.
     expect(await slot(page, there)).toBeLessThan(
       await slot(page, 'section:has(> h2:text-is("Facilities"))'),
