@@ -389,8 +389,12 @@ describe('parseRegionQuery and countsSql (no database)', () => {
       types: ['wild'],
       amenities: ['laundry'],
     });
-    // total, matched, lenient, 5 types, 10 amenities, 2 drop-ones.
-    expect(c.columns).toHaveLength(3 + 5 + 10 + 2);
+    // total, matched, lenient, 5 types, 10 amenities, 2 drop-ones — and
+    // CAMP-520: per travel style its click, its known and its yes (2 × 3).
+    expect(c.columns).toHaveLength(3 + 5 + 10 + 2 + 2 * 3);
+    expect(c.columns).toContain('s:winter');
+    expect(c.columns).toContain('known:winter');
+    expect(c.columns).toContain('yes:adultsOnly');
     expect(c.columns).toContain('drop:t:wild');
     expect(c.columns).toContain('drop:a:laundry');
     // Placeholders are numbered without a gap or a repeat.

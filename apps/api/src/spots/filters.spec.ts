@@ -82,6 +82,7 @@ describe('filterSql: placeholders continue the caller’s numbering', () => {
         amenities: ['shower', 'wifi'],
         includeUnknown: false,
         overnight: false,
+        styles: [],
       },
       4,
     );
@@ -130,6 +131,7 @@ describe('filterSql: placeholders continue the caller’s numbering', () => {
         amenities: ['shower'],
         includeUnknown: false,
         overnight: false,
+        styles: [],
       },
       4,
     );
@@ -158,6 +160,7 @@ describe('describeFilters', () => {
         amenities: ['toilets'],
         includeUnknown: true,
         overnight: false,
+        styles: [],
       }),
     ).toBe('types=wild amenities=toilets unknown=included');
   });

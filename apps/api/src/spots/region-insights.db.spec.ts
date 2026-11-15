@@ -66,7 +66,8 @@ beforeAll(async () => {
       location geometry(Point, 4326) NOT NULL,
       last_seen_at timestamptz, missing_since timestamptz,
       overnight_status varchar NOT NULL DEFAULT 'unknown',
-      overnight_source varchar, overnight_checked_at date);
+      overnight_source varchar, overnight_checked_at date,
+      travel_styles jsonb NOT NULL DEFAULT '{}');
     CREATE TABLE spot_links (
       primary_id uuid NOT NULL, secondary_id uuid NOT NULL,
       unlinked_at timestamptz, created_at timestamptz DEFAULT now());`);

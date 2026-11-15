@@ -7,7 +7,26 @@ import { assertAllSectionsUsed } from "@/components/page-sections";
 // стану (`app/internal/content-stamp`), яка доповідає, чого бракує. Два
 // переліки розійшлися б мовчки, і розійшовся б саме той, якого ніхто не
 // читає: сторінка малювала б без блоку, а сторож казав би «все на місці».
-export const HOME_SECTIONS = ["hero", "steps"] as const;
+//
+// 🔴 CAMP-488: ДОДАНО `search` (рівно один пошуковий віджет) і другий
+// перелік — `HOME_REPEATED`, типи, яких має бути ОДИН АБО БІЛЬШЕ: слайди
+// слайдера й рядки «текст + фото». Вони не можуть жити в `HOME_SECTIONS`:
+// `findSection` вимагає рівно одну, а слайдів власник додає стільки, скільки
+// хоче. Обидва переліки читає й сторінка, і `missingHomeSections`, тож
+// сторож «чого бракує» бачить їх так само, як бачить сторінка.
+export const HOME_SECTIONS = ["hero", "steps", "search"] as const;
+
+/** Типи, яких на головній ≥ 1 (CAMP-488): слайди й рядки з фото. */
+export const HOME_REPEATED = ["slide", "image-text"] as const;
+export type HomeRepeated = (typeof HOME_REPEATED)[number];
+
+/** Усі секції даного типу, у порядку `sort`, як їх віддав API. */
+export function sectionsOfType(
+  sections: SectionView[],
+  type: HomeRepeated,
+): SectionView[] {
+  return sections.filter((s) => s.type === type);
+}
 
 /**
  * Слоти головної: де блок стоїть, окремо від того, як виглядає.
@@ -71,6 +90,7 @@ export function findSection(
 export function missingHomeSections(sections: SectionView[]): string[] {
   return [
     ...HOME_SECTIONS.filter((t) => findSection(sections, t) === null),
+    ...HOME_REPEATED.filter((t) => sectionsOfType(sections, t).length === 0),
     ...missingHomeSlots(sections).map((s) => `слот:${s}`),
   ];
 }
@@ -90,5 +110,5 @@ export function assertHomeSectionsUsed(sections: SectionView[]): void {
   const byType = sections.filter(
     (s) => !(s.slot !== null && (HOME_SLOTS as readonly string[]).includes(s.slot)),
   );
-  assertAllSectionsUsed(byType, HOME_SECTIONS, "головна");
+  assertAllSectionsUsed(byType, [...HOME_SECTIONS, ...HOME_REPEATED], "головна");
 }

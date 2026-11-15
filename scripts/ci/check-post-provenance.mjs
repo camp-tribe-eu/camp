@@ -51,7 +51,7 @@ function fromBuild() {
 }
 
 function selfTest() {
-  const ok = '<main><p>x</p><div data-provenance="true"><p>This article was composed by AI.</p></div></main>';
+  const ok = '<main><p>x</p><div data-provenance="true"><p>This article was written by AI.</p></div></main>';
   const cases = [
     ['є примітка', provenanceNote(ok) !== null],
     ['немає примітки', provenanceNote('<main><p>x</p></main>') === null],
