@@ -51,7 +51,12 @@ export async function openMapRetryingThrottle(
       return;
     }
     // Щось інше зламалось — хай тест скаже про це сам, а не про ліміт.
-    if ((await page.getByText(DID_NOT_LOAD).count()) === 0) return;
+    if ((await page.getByText(DID_NOT_LOAD).count()) === 0) {
+      // CAMP-454: мапа з `ssr: false` може ще не зʼявитись у цю мить —
+      // тоді шухляду теж відкриває `openSettings`, що сама дочекається.
+      if (!opts.keepSettingsClosed) await openSettings(page);
+      return;
+    }
     const left = deadline - Date.now();
     if (left <= 0) {
       throw new Error(
@@ -86,4 +91,34 @@ export async function openSettings(page: Page): Promise<void> {
   if ((await toggle.getAttribute('aria-expanded')) === 'true') return;
   await toggle.click();
   await page.getByTestId('map-settings').waitFor({ state: 'visible' });
+}
+
+/**
+ * CAMP-454. Зворотний бік `openSettings`: закрити шухляду, щоб вона не
+ * лежала на полотні, коли тест читає ПІКСЕЛІ мапи. Відкрита шухляда
+ * накриває нижні 42% екрана, і точка вибірки під нею — це пиксель шухляди,
+ * а не мапи.
+ */
+export async function closeSettings(page: Page): Promise<void> {
+  const toggle = page.getByTestId('map-settings-toggle');
+  if (!(await toggle.isVisible())) return;
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') return;
+  await toggle.click();
+  await page.getByTestId('map-settings').waitFor({ state: 'hidden' });
+}
+
+/**
+ * CAMP-454. Знімок полотна мапи, який не залежить від шухляди. На телефоні
+ * шухляда лежить НАД мапою в потоці сторінки, і її висота міняється зі
+ * станом шару (нотатка про посуху чи пожежі) — мапа зміщується під
+ * липкою шапкою, і два знімки одного полотна розходяться.
+ *
+ * Тож: закрити, сфотографувати, відкрити назад (наступний крок тесту
+ * зазвичай тисне на чип). На широкому екрані обидва виклики порожні.
+ */
+export async function photographMap(page: Page): Promise<Buffer> {
+  await closeSettings(page);
+  const shot = await page.locator('[data-testid="map"]').screenshot();
+  await openSettings(page);
+  return shot;
 }

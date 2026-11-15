@@ -6,7 +6,7 @@ import { gzipSync } from 'node:zlib';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { expect, test, type Page } from './api-request';
-import { openMapRetryingThrottle } from './open-map';
+import { closeSettings, openMapRetryingThrottle, openSettings, photographMap } from './open-map';
 import { INITIAL_VIEW } from '@/lib/map-sources';
 
 // CAMP-200, in a browser, because the things that matter here are only true
@@ -593,15 +593,15 @@ test.describe('the picture', () => {
     await openMap(page);
     await mapReady(page);
     const map = page.locator(MAP);
-    const before = await map.screenshot();
+    const before = await photographMap(page);
     await switchOn(page);
     await expect(map).toHaveAttribute('data-drought-drawn', '1');
-    const on = await map.screenshot();
+    const on = await photographMap(page);
 
     await page.locator(CHIP).click();
     await expect(map).toHaveAttribute('data-drought-drawn', '0');
     await page.waitForTimeout(1500);
-    const off = await map.screenshot();
+    const off = await photographMap(page);
 
     expect(Buffer.compare(on, off) === 0, 'the map looked identical with the drought layer on and off — nothing was drawn').toBe(false);
     // And "off" is the map as it was before the layer was ever touched.
@@ -646,6 +646,7 @@ test.describe('the picture', () => {
     await mapReady(page);
     await dismissBanner(page);
     await switchOn(page);
+    await closeSettings(page);
     await expect(page.locator(MAP)).toHaveAttribute('data-drought-drawn', '1');
     await expect.poll(async () => await page.locator(MAP).getAttribute('data-bounds')).not.toBeNull();
     await page.locator(MAP).scrollIntoViewIfNeeded();
@@ -664,10 +665,10 @@ test.describe('the picture', () => {
     // 🔴 CAMP-454: 0.2°, not 0.08°. The layer is resampled LINEARLY now (it
     // was `nearest`, the blocky squares the owner called pixelated), so a
     // class edge is a ramp about one source cell (0.25°) wide, centred on the
-    // edge: ±0.125°. 0.2° leaves the ramp out and keeps the interior exact —
+    // edge: ±0.125°. 0.35° leaves the ramp out (0.2° still bled 2% of class 3 into class 1 on a Pixel 7: 238,224,105 against 238,229,106) and keeps the interior exact —
     // the compositing check below still holds to the same 3/255. A pixel on
     // the ramp measured 235,197,98 against a wanted 238,229,106 at 0.08°.
-    const MARGIN = 0.2;
+    const MARGIN = 0.35;
     const away = (v: number) => Math.abs(v - Math.round(v)) > MARGIN;
     const BASE = 232;
     const blend = (hex: string, alpha: number): number[] => {
@@ -685,8 +686,8 @@ test.describe('the picture', () => {
     const spots: { at: [number, number]; name: string; rgb: number[] }[] = [];
     // …and away from the map's own controls: the zoom buttons at the top
     // right and the attribution strip along the bottom.
-    for (let y = 30; y < box.height - 45; y += 17) {
-      for (let x = 30; x < box.width - 30; x += 23) {
+    for (let y = 30; y < box.height - 45; y += 11) {
+      for (let x = 30; x < box.width - 30; x += 13) {
         // CAMP-454: the Full screen button sits under the zoom buttons
         // (top 120–168 px, about 130 px wide), so the corner to avoid grew.
         if (x > box.width - 160 && y < 200) continue;
@@ -702,7 +703,7 @@ test.describe('the picture', () => {
       expect(spots.some((s) => s.name === name), `no sampled pixel falls on "${name}" — the view moved`).toBe(true);
     }
 
-    const shot = await map.screenshot();
+    const shot = await photographMap(page);
     const dpr = await page.evaluate(() => window.devicePixelRatio);
     const read = await pixelsOf(page, shot, spots.map((s) => [s.at[0] * dpr, s.at[1] * dpr]));
     const wrong: string[] = [];
@@ -720,6 +721,30 @@ test.describe('the picture', () => {
       }
     });
     expect(wrong.slice(0, 5), `${wrong.length} of ${spots.length} pixels were the wrong colour`).toEqual([]);
+
+    // 🔴 CAMP-454: THE EDGE BETWEEN TWO CLASSES IS A RAMP, NOT A STEP. The owner
+    // called the layer "pixelated, Windy is smooth". Every pixel above sits
+    // away from an edge, so they hold for blocks and for a smooth layer alike;
+    // this is the one that tells them apart: at the exact longitude 15° class 1
+    // meets class 3, and a pixel ON that line must be neither of the two pure
+    // colours. With `raster-resampling: nearest` it is one of them.
+    // Mutation: put `"raster-resampling": "nearest"` back in `attachDrought`
+    // (campsite-map.tsx) — the pixel on the line is pure, and this fails.
+    const pure1 = blend('#F0E442', 255);
+    const pure3 = blend('#DC050C', 255);
+    const x15 = Math.round(((15 - west) / (east - west)) * box.width);
+    const edgeSpots: [number, number][] = [];
+    for (let y = 40; y < box.height - 60; y += 29) {
+      if (!away(latAt(y)) || (x15 > box.width - 160 && y < 200)) continue;
+      edgeSpots.push([x15, y]);
+    }
+    expect(edgeSpots.length, 'too few pixels on the 15°E edge to say anything').toBeGreaterThan(3);
+    const edgePx = await pixelsOf(page, shot, edgeSpots.map(([x, y]) => [x * dpr, y * dpr]));
+    const apart = (a: number[], b: number[]) => Math.max(...a.map((v, k) => Math.abs(v - b[k])));
+    const sharp = edgePx
+      .map((got, i) => ({ at: edgeSpots[i], d1: apart(pure1, got), d3: apart(pure3, got) }))
+      .filter((p) => Math.min(p.d1, p.d3) <= 8);
+    expect(sharp, 'a pixel on the line between class 1 and class 3 was one pure class: the edge is a step').toEqual([]);
 
     // 🔴 CAN THE KINDS BE TOLD APART — from the pixels the browser painted,
     // not from the table. "Covered, and fine" must not read as "not covered"
@@ -813,12 +838,12 @@ test.describe('the picture', () => {
     await page.waitForTimeout(1500);
     await expect(map).toHaveAttribute('data-drought-drawn', '1');
     await expect(page.locator(NOTE)).toHaveAttribute('data-state', 'current');
-    const on = await map.screenshot();
+    const on = await photographMap(page);
 
     await page.locator(CHIP).click();
     await expect(map).toHaveAttribute('data-drought-drawn', '0');
     await page.waitForTimeout(1500);
-    const off = await map.screenshot();
+    const off = await photographMap(page);
     expect(Buffer.compare(on, off) === 0, 'after a basemap change the drought layer was on and drew nothing').toBe(false);
   });
 
@@ -833,12 +858,16 @@ test.describe('the picture', () => {
     await mapReady(page);
     await switchOn(page);
     await expect(page.locator(NOTE)).toHaveAttribute('data-state', 'behind');
-    const map = page.locator(MAP);
-    const stale = await map.screenshot();
+    // CAMP-454: on a phone the settings drawer lies over the canvas, and its
+    // note differs between the two states — the canvas is photographed with it closed.
+    await closeSettings(page);
+    const stale = await photographMap(page);
+    await openSettings(page);
     await page.locator(CHIP).click();
     await expect(page.locator(CHIP)).toHaveAttribute('aria-pressed', 'false');
+    await closeSettings(page);
     await page.waitForTimeout(1500);
-    const off = await map.screenshot();
+    const off = await photographMap(page);
     expect(Buffer.compare(stale, off) === 0, 'a stale period changed the canvas — it was drawn').toBe(true);
   });
 });
@@ -992,6 +1021,7 @@ test.describe('a marker’s fill over the Alert class (CAMP-319)', () => {
       await mapReady(page);
       await dismissBanner(page);
       await switchOn(page);
+      await closeSettings(page);
       const map = page.locator(MAP);
       await expect(map).toHaveAttribute('data-drought-drawn', '1');
       // 🔴 THE MARKER IS ON THE CANVAS — MapLibre's own count of the campsites
@@ -1004,7 +1034,7 @@ test.describe('a marker’s fill over the Alert class (CAMP-319)', () => {
       await page.waitForTimeout(800);
 
       const [mx, my] = (await map.getAttribute('data-point-at'))!.split(',').map(Number);
-      const shot = await map.screenshot();
+      const shot = await photographMap(page);
       const dpr = await page.evaluate(() => window.devicePixelRatio);
 
       // 🔴 THE MEDIAN OF A 5 × 5 BLOCK OF DEVICE PIXELS, not one pixel. The

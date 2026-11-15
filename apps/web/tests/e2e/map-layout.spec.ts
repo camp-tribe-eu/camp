@@ -42,6 +42,11 @@ test.beforeEach(() => {
   test.slow();
 });
 
+// Розміри задає сам тест. Проєкт Pixel 7 має `isMobile`, а з ним
+// `setViewportSize` поводиться як зміна пристрою, і «широкий екран» у ньому —
+// вигадка. Тут міряється розкладка, а не пристрій.
+test.use({ isMobile: false, hasTouch: false });
+
 const box = async (page: Page, id: string) => {
   const b = await page.getByTestId(id).boundingBox();
   if (!b) throw new Error(`${id} has no box`);
@@ -97,7 +102,7 @@ test.describe('full screen', () => {
   const pageRoot = (page: Page) => page.locator('[data-map-page]');
 
   async function covers(page: Page) {
-    const vp = page.viewportSize()!;
+    const vp = { width: await page.evaluate(() => window.innerWidth), height: await page.evaluate(() => window.innerHeight) };
     const r = await pageRoot(page).boundingBox();
     expect(r, 'page root has no box').not.toBeNull();
     expect(Math.round(r!.width), 'full screen covers the width').toBe(vp.width);
@@ -115,7 +120,7 @@ test.describe('full screen', () => {
     await expect(btn).toHaveAttribute('aria-pressed', 'true');
     await expect(pageRoot(page)).toHaveAttribute('data-fullscreen', 'true');
     await expect(page.getByTestId('map')).toHaveAttribute('data-fullscreen', 'yes');
-    await expect.poll(async () => Math.round((await pageRoot(page).boundingBox())!.height)).toBe(800);
+    await expect.poll(async () => Math.round((await pageRoot(page).boundingBox())!.height) - (await page.evaluate(() => window.innerHeight)), { timeout: 20_000 }).toBe(0);
     await covers(page);
     await btn.click();
     await expect(btn).toHaveAttribute('aria-pressed', 'false');
@@ -135,7 +140,7 @@ test.describe('full screen', () => {
     await btn.click();
     await expect(pageRoot(page)).toHaveAttribute('data-fullscreen', 'true');
     expect(await page.evaluate(() => document.fullscreenElement), 'the API was supposed to be absent').toBeNull();
-    await expect.poll(async () => Math.round((await pageRoot(page).boundingBox())!.height)).toBe(844);
+    await expect.poll(async () => Math.round((await pageRoot(page).boundingBox())!.height) - (await page.evaluate(() => window.innerHeight)), { timeout: 20_000 }).toBe(0);
     await btn.click();
     await expect(pageRoot(page)).not.toHaveAttribute('data-fullscreen', 'true');
   });

@@ -904,9 +904,16 @@ export default function CampsiteMap() {
     }
   };
 
+  const fullscreenSeen = useRef(false);
   useEffect(() => {
     const root = pageRoot();
     if (!root) return;
+    // 🔴 Перший запуск (монтування) нічого не міняє — і `resize()` там давав
+    // `movestart`, тобто `data-camera="moving"` на мапі, що нікуди не
+    // рухалась (map-filters.spec: «the helper leaves the camera alone»).
+    const first = !fullscreenSeen.current;
+    fullscreenSeen.current = true;
+    if (first && !fullscreen) return;
     if (fullscreen) root.dataset.fullscreen = "true";
     else delete root.dataset.fullscreen;
     const el = container.current;
@@ -925,14 +932,10 @@ export default function CampsiteMap() {
     return () => document.removeEventListener("fullscreenchange", onChange);
   }, []);
 
-  useEffect(() => {
-    // Колонка й шухляда міняють висоту полотна без події вікна.
-    const el = container.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => map.current?.resize());
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+  // 🔴 Власного ResizeObserver немає навмисно: MapLibre вже стежить за
+  // контейнером сам, а наш додатковий `resize()` на першому ж виклику
+  // давав `movestart` — і `data-camera` ставав `moving` на мапі, що нікуди
+  // не рухалась (map-filters.spec: «the helper leaves the camera alone»).
 
   // Created once. Changing the style afterwards goes through setStyle,
   // because re-creating the map would throw away the reader's position.
@@ -2579,10 +2582,23 @@ export default function CampsiteMap() {
       )}
       </div>
 
-      {/* Налаштування. Від lg колонка зліва, що прокручується сама; нижче
-          шухляда знизу, закрита, доки читач не попросить. Закрита, вона
-          `hidden`, а не лише зсунута: інакше клавіатура ходила б по
-          елементах, яких не видно. */}
+      {/* Налаштування. Від lg колонка зліва; прокручується разом зі сторінкою,
+          а мапа ЛИПНЕ праворуч на висоту вікна (не вкладений скрол: у
+          ньому нижні елементи опинялись під банером cookie без змоги
+          прокрутити їх вище — Playwright і читач б'ються в той самий банер); нижче
+          шухляда, закрита, доки читач не попросить: розкривається ПІД
+          кнопкою й НАД мапою, у потоці сторінки.
+
+          🔴 У ПОТОЦІ, А НЕ ПОВЕРХ МАПИ. Перша версія була листом знизу
+          (`fixed`), і вона накривала нижні 42% полотна: 18 із 103 тестів
+          мапи на телефоні впали саме тому, що палець (і Playwright) бив у
+          лист, а не в мапу — клік по кластеру, перетягування, знімок
+          полотна. Читач у тієї ж біди: відкрив фільтри й не бачить, що
+          вони зробили з мапою під листом. У потоці лічильник «N campsites
+          in view» над панеллю лишається на екрані, а мапа не перекрита.
+
+          Закрита, вона `hidden`, а не лише зсунута: інакше клавіатура ходила
+          б по елементах, яких не видно. */}
       <aside
         id="map-settings"
         data-testid="map-settings"
@@ -2590,8 +2606,8 @@ export default function CampsiteMap() {
         data-open={settingsOpen ? "yes" : "no"}
         className={
           (settingsOpen ? "" : "max-lg:hidden ") +
-          "max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:z-[var(--layer-overlay)] max-lg:max-h-[42dvh] max-lg:overflow-y-auto max-lg:rounded-t-card max-lg:border max-lg:border-line-2 max-lg:bg-bg max-lg:p-4 max-lg:shadow-lg " +
-          "lg:col-start-1 lg:row-start-3 lg:min-h-0 lg:overflow-y-auto lg:pb-24 lg:pr-1"
+          "max-lg:order-2 max-lg:max-h-[60dvh] max-lg:overflow-y-auto max-lg:rounded-card max-lg:border max-lg:border-line-2 max-lg:bg-surface max-lg:p-4 " +
+          "lg:col-start-1 lg:row-start-3"
         }
       >
         <MapSection title="Layers">
@@ -2776,7 +2792,7 @@ export default function CampsiteMap() {
       <div
         ref={stage}
         data-testid="map-stage"
-        className="relative flex flex-col max-lg:order-3 lg:col-start-2 lg:row-span-3 lg:row-start-1 lg:min-h-0"
+        className="relative flex flex-col max-lg:order-3 lg:sticky lg:top-24 lg:col-start-2 lg:row-span-3 lg:row-start-1 lg:h-[calc(100dvh-7rem)] lg:min-h-[560px] group-data-[fullscreen=true]/map:lg:top-4 group-data-[fullscreen=true]/map:lg:h-[calc(100dvh-2rem)]"
       >
         <div className="relative min-h-[420px] flex-1 max-lg:h-[calc(100dvh-9rem)] max-lg:flex-none">
       <div
