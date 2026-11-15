@@ -209,9 +209,10 @@ export default function RouteSources({
         data-boilerplate="odbl-produced-work"
       >
         This route — its stages, their order and everything written about them —
-        is our own work. Under the Open Database License it is a Produced Work
-        rather than a derivative database, so the share-alike term does not
-        apply to it. The campsites and services shown beside each stop are a
+        is our own work. The map data under it comes from OpenStreetMap, and a
+        route built from that data is what the Open Database License calls a
+        Produced Work: OpenStreetMap is credited, and the licence&rsquo;s
+        share-alike term does not pass to the route. The campsites and services shown beside each stop are a
         small selection made on our own criteria, never a listing of everything
         in the region; this page shows {campsiteCount} campsites and{' '}
         {serviceCount} service points, {campsiteCount + serviceCount} objects in

@@ -278,16 +278,13 @@ export default async function CamperRentalHub() {
           Twelve member states, in detail
         </h2>
         <Block as="p" measure="read" className="mt-3 text-ink-2">
-          {/* 🔴 The number is twelve on purpose, and the page says why —
-              the same argument CAMP-130 made against publishing 951
-              templated guides. A reader is entitled to know whether they
-              are looking at a considered list or a generated one. */}
-          Not two hundred city pages. A page is here because there are things
-          true of that country and not of its neighbour — a toll system, a
-          winter rule, a law about where you may sleep — and because our own
-          campsite records say something about it that they do not say about
-          anywhere else. Countries where we could not meet both tests do not
-          have a page, and would rather not have a thin one.
+          {/* 🔴 CAMP-463: the page says what is true of each country, not
+              why the list is this long. How many pages we chose to make is
+              our business; the reader asked about rental rules. */}
+          Each of these countries has something of its own — a toll system,
+          a winter rule, a law about where you may sleep — and our campsite
+          records say something about it that they do not say about anywhere
+          else.
         </Block>
 
         <ul className="mt-6 grid gap-4 md:grid-cols-2">
