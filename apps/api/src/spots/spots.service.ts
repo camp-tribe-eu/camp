@@ -1,4 +1,5 @@
 import { publishedCountrySql } from './unpublished-countries';
+import { searchableSql } from './search-noise';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -844,15 +845,29 @@ export class SpotsService {
       near: { name: string; m: number }[];
     }[]
   > {
+    // 🔴 CAMP-455. Назва зливається ОДИН РАЗ у внутрішньому запиті, а
+    // правило шуму читає її як колонку: вираз `mergedNameSql` — це
+    // підзапит, і п'ять копій його всередині одного предиката зробили б
+    // з пошуку по 52 527 рядках п'ять підзапитів на рядок.
     const rows = await this.db.query(
-      `SELECT ${mergedNameSql('s')} AS name, country, region, slug,
-              ST_Y(location::geometry) AS lat,
-              ST_X(location::geometry) AS lon,
-              context
-         FROM camping_spots s
-        WHERE region IS NOT NULL AND missing_since IS NULL
-          AND ${publishedCountrySql('s')}
-          AND ${notSecondarySql('s')}
+      `SELECT name, country, region, slug, lat, lon, context
+         FROM (
+           SELECT ${mergedNameSql('s')} AS name, s.country, s.region, s.slug,
+                  ST_Y(s.location::geometry) AS lat,
+                  ST_X(s.location::geometry) AS lon,
+                  s.context, s.website, s.description, s.stars, s.contact
+             FROM camping_spots s
+            WHERE s.region IS NOT NULL AND s.missing_since IS NULL
+              AND ${publishedCountrySql('s')}
+              AND ${notSecondarySql('s')}
+         ) AS d
+        WHERE ${searchableSql({
+          name: 'd.name',
+          website: 'd.website',
+          description: 'd.description',
+          stars: 'd.stars',
+          contact: 'd.contact',
+        })}
         ORDER BY country, region, slug`,
     );
 

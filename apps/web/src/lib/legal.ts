@@ -178,8 +178,8 @@ export const LEGAL_PAGES: LegalPage[] = [
     // 2.8 (12.11.2026, CAMP-501): п'ятий запис у сховищі браузера — вибір
     // «маю кемпер / орендую» (`camptribe.persona`). Міграція
     // 1797100100000-PrivacyPersonaChoice.
-    version: '2.8',
-    effectiveFrom: '2026-11-12',
+    version: '2.9',
+    effectiveFrom: '2026-11-15',
   },
   {
     slug: 'cookies',
@@ -272,3 +272,10 @@ export function legalPage(slug: string): LegalPage | undefined {
 }
 
 export const legalPath = (slug: string) => `/legal/${slug}`;
+
+/**
+ * 🔴 CAMP-448. Правові сторінки, що відповідають на «звідки дані», а не «за
+ * яких умов». Підвал показує їх окремо від правил, і кожну рівно один раз;
+ * розподіл живе тут, щоб підвал і тести читали одне джерело.
+ */
+export const DATA_LEGAL_SLUGS: readonly string[] = ['attribution', 'database'];

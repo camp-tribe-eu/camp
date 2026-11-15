@@ -36,8 +36,8 @@ export function EmptyView() {
       <h1 className="text-2xl text-ink">{LISTINGS_TITLE}</h1>
       <p className={HINT}>
         You have not confirmed a listing yet. Open the campsite you manage and
-        use <strong>Claim the listing</strong> — we send a code to the email in
-        its public OpenStreetMap tags.
+        use <strong>This is my campsite</strong> — confirm with an email address
+        on the campsite’s own website domain.
       </p>
       <p className={HINT}>
         <Link className="underline" href="/camping">

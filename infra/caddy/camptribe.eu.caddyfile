@@ -37,6 +37,9 @@
 # `X-Api-Key` і `X-Windy-Api-Key` ми лише ШЛЕМО назовні, сюди вони не
 # приходять; рядок коштує нуль, а правило без винятків не старіє.
 # `access_token` — спосіб Directus передати токен у рядку запиту.
+# `t` — токен у посиланні з листа (підтвердження пошти, скидання пароля,
+# зміна пошти, підтвердження власника кемпінгу): сторінки статичні, тож
+# запит із `?t=…` проходить через Caddy й потрапляє в журнал доступу.
 {
 	log default {
 		format filter {
@@ -48,6 +51,7 @@
 			request>headers>X-Windy-Api-Key replace REDACTED
 			request>uri query {
 				replace access_token REDACTED
+				replace t REDACTED
 			}
 		}
 	}
@@ -150,6 +154,7 @@ camptribe.eu, www.camptribe.eu {
 			request>headers>X-Windy-Api-Key replace REDACTED
 			request>uri query {
 				replace access_token REDACTED
+				replace t REDACTED
 			}
 		}
 	}
@@ -208,6 +213,7 @@ cms.camptribe.eu {
 			request>headers>X-Windy-Api-Key replace REDACTED
 			request>uri query {
 				replace access_token REDACTED
+				replace t REDACTED
 			}
 		}
 	}

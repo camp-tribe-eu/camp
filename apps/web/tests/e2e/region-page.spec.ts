@@ -115,12 +115,31 @@ test.describe('🔴 CAMP-452 — the toolbar stays with the reader', () => {
       await page.evaluate((y) => window.scrollTo(0, y), target);
       expect(await page.evaluate(() => window.scrollY), 'the page did not scroll').toBe(target);
 
+      // 🔴 CAMP-448. ПІСЛЯ ПРОКРУТКИ ШАПКА — ОСТРІВ, і мірити відступ треба від
+      // ВИДИМОГО низу капсули, а не від коробки `<header>`. Капсула зсунута
+      // вниз на 4px (від 1200 — на 12) через `position: relative; top`, який
+      // висоти коробки не міняє. Тест раніше мірив від коробки — і тим
+      // самим узаконював проміжок 12px під островом замість 24px теми,
+      // а біле світіння тіні капсули лягало на верх смуги. Читається
+      // жива капсула після того, як шапка перейшла в стан острова.
+      await expect(page.getByTestId('site-header')).toHaveAttribute('data-stacked', 'true');
+      await expect
+        .poll(
+          async () => {
+            const bar = await rect(page, '[data-testid="site-header-bar"]');
+            const t = await rect(page, '[data-testid="region-toolbar"]');
+            return Math.round(t.top - bar.bottom);
+          },
+          { message: 'the toolbar is not 24px below the island' },
+        )
+        .toBe(STICKY_GAP);
+      const island = await rect(page, '[data-testid="site-header-bar"]');
       const after = await rect(page, '[data-testid="region-toolbar"]');
-      // 🔴 THE MEASUREMENT. Stuck under the header at the theme's gap:
-      // 63 + 24 = 87 today, read off the header rather than typed in.
-      // Mutation — `position:sticky` removed from `.ct-toolbar` in
-      // region-toolbar.tsx — puts this at about −400.
-      expect(Math.round(after.top)).toBe(Math.round(header.bottom + STICKY_GAP));
+      // 🔴 THE MEASUREMENT. Stuck under the island at the theme's gap:
+      // read off the live capsule rather than typed in. Mutation —
+      // `position:sticky` removed from `.ct-toolbar` in region-toolbar.tsx
+      // — puts this at about −400.
+      expect(Math.round(after.top)).toBe(Math.round(island.bottom + STICKY_GAP));
       expect(after.bottom).toBeLessThanOrEqual(height);
 
       // And it is really the thing under the cursor there, not covered by
@@ -135,8 +154,58 @@ test.describe('🔴 CAMP-452 — the toolbar stays with the reader', () => {
       const filters = page.getByRole('link', { name: /^Filters/ });
       const box = await filters.boundingBox();
       expect(box).not.toBeNull();
-      expect(box!.y).toBeGreaterThanOrEqual(header.bottom);
+      expect(box!.y).toBeGreaterThanOrEqual(island.bottom);
       expect(box!.y + box!.height).toBeLessThanOrEqual(height);
+    });
+  }
+});
+
+/**
+ * 🔴 CAMP-448 — ОСТРІВ ШАПКИ НЕ НАКРИВАЄ СТІКІ-ПАНЕЛЬ.
+ *
+ * Звірка з ревю 15.11.2026: «при прокрутці острів хедера накриває
+ * стікі-панель сортування». Заміряно на `/camping/hr/zadarska`, 1440 px:
+ * капсула 12→75, смуга з 87 — розриву 12px замість 24px теми, а біле
+ * світіння тіні капсули (`0 6px 16px`) сягає 97 і лягає на верх смуги.
+ * Геометрично прямого перекриття не було, тож міряємо те, що читач бачить:
+ * проміжок між ВИДИМИМ низом капсули й верхом смуги ≥ 24px на п'яти
+ * ширинах, а не лише на двох, які брав попередній тест.
+ *
+ * Мутація: прибрати з `site-header-frame.tsx` врахування низу капсули у
+ * `--ct-header-h` — проміжок стає 12px (від 1200) або 4px, тест червоніє.
+ */
+test.describe('🔴 CAMP-448 — the island never covers the sticky toolbar', () => {
+  for (const width of [375, 768, 1024, 1200, 1440]) {
+    test(`${width}px: 24px of clear space between the island and the toolbar`, async ({
+      page,
+      request,
+    }) => {
+      const { hub } = await narrowable(request);
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(hubPath(hub), { waitUntil: 'domcontentloaded' });
+      await page.evaluate(() => document.fonts.ready);
+      await page.waitForFunction(
+        () => getComputedStyle(document.documentElement).getPropertyValue('--ct-header-h').trim() !== '',
+      );
+      const before = await rect(page, '[data-testid="region-toolbar"]');
+      await page.evaluate((y) => window.scrollTo(0, y), Math.round(before.top + 500));
+      await expect(page.getByTestId('site-header')).toHaveAttribute('data-stacked', 'true');
+
+      await expect
+        .poll(
+          async () => {
+            const bar = await rect(page, '[data-testid="site-header-bar"]');
+            const t = await rect(page, '[data-testid="region-toolbar"]');
+            return Math.round(t.top - bar.bottom);
+          },
+          { message: `no ${STICKY_GAP}px between the island and the toolbar at ${width}px` },
+        )
+        .toBeGreaterThanOrEqual(STICKY_GAP);
+
+      // The toolbar is really stuck there — otherwise the gap above is
+      // the gap of a block that is simply far away, which proves nothing.
+      const t = await rect(page, '[data-testid="region-toolbar"]');
+      expect(t.top, 'the toolbar is not stuck under the island').toBeLessThan(200);
     });
   }
 });

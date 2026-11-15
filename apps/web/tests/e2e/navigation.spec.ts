@@ -85,6 +85,7 @@ const NOT_IN_MENU: ReadonlyArray<{ path: string; why: string }> = [
   { path: "/gone", why: "технічна сторінка 410 для знятих адрес: читач потрапляє туди лише за старим посиланням" },
   { path: "/account", why: "кабінет: лише для того, хто ввійшов; публічне меню одне на всіх" },
   { path: "/account/claim", why: "кабінет: підсторінка кабінету" },
+  { path: "/account/claim/confirm", why: "кабінет: підтвердження заявки власника (CAMP-505), відкривається з посилання в листі" },
   { path: "/account/data", why: "кабінет: підсторінка кабінету" },
   { path: "/account/delete", why: "кабінет: підсторінка кабінету" },
   { path: "/account/listings", why: "кабінет: підсторінка кабінету" },
@@ -293,6 +294,43 @@ test.describe("🔴 CAMP-365 — меню з бази", () => {
     ).toEqual([]);
   });
 
+  // 🔴 CAMP-448 — РОЗШИРЕННЯ СТОРОЖА: «досяжна з меню» міряється по
+  // НАМАЛЬОВАНІЙ сторінці, а не по відповіді API. Попередній тест звіряє
+  // маршрути з `/navigation`; рядок у базі, який шапка чи підвал не
+  // намалювали (так `children` прожили невидимими, CAMP-448 1/2), лишив
+  // би його зеленим. Тут посилання беруться з `<a href>` готової
+  // розмітки: на десктопі — шапка з мега-панелями й підвал, на вузькій
+  // ширині — відкрита шухляда й підвал.
+  test("🔴 кожна видима сторінка верхнього рівня має посилання в намальованій шапці чи підвалі", async ({
+    page,
+  }, testInfo) => {
+    const routes = staticRoutes().filter(
+      (r) => !NOT_IN_MENU.some((e) => e.path === r),
+    );
+    expect(routes.length, "видимих маршрутів замало").toBeGreaterThan(5);
+
+    await page.goto("/camping");
+    // Меню або шухляда мусять бути в DOM, перш ніж збирати посилання.
+    const menu = await openHeaderNav(page);
+    await expect(menu).toBeVisible();
+
+    const drawn = new Set(
+      await page
+        .locator("header a[href], footer a[href]")
+        .evaluateAll((els) =>
+          els.map((a) => new URL((a as HTMLAnchorElement).href).pathname),
+        ),
+    );
+    const unreachable = routes.filter((r) => !drawn.has(r));
+    const note = `маршрутів ${routes.length}, намальовано в шапці/підвалі ${routes.length - unreachable.length}`;
+    console.log(note);
+    testInfo.annotations.push({ type: "замір", description: note });
+    expect(
+      unreachable,
+      `сторінки є в маршрутах, а в намальованій шапці й підвалі посилання на них немає: ${unreachable.join(", ")}`,
+    ).toEqual([]);
+  });
+
   // 🔴 CAMP-397. Мало перевірити, що пункт підвалу ВІДКРИВАЄТЬСЯ — треба,
   // щоб він був НАМАЛЬОВАНИЙ. До 26.10.2026 поле `location` у таблиці
   // існувало, API віддавав три розділи, а каркас споживав лише `header`:
@@ -310,15 +348,15 @@ test.describe("🔴 CAMP-365 — меню з бази", () => {
     test.skip(items.length === 0, "у базі немає пунктів підвалу");
 
     await page.goto("/");
-    const nav = page.locator('footer nav[aria-label="More"]');
-    await expect(
-      nav,
-      "підвал не малює розділ footer — поле в базі є, рендера немає",
-    ).toBeVisible();
+    const footer = page.locator("footer");
+    await expect(footer, "підвалу немає").toBeVisible();
 
-    for (const item of items) {
+    // 🔴 CAMP-448. Підвал малює КОЖЕН пункт розділу footer — і корені
+    // (заголовки колонок), і їхніх дітей, — а не лише ті, що в колонці
+    // «More». Читається розмітка підвалу, не відповідь API.
+    for (const item of flatten(items)) {
       await expect(
-        nav.locator(`a[href="${item.href}"]`),
+        footer.locator(`a[href="${item.href}"]`).first(),
         `пункт ${item.href} є в базі, але не намальований у підвалі`,
       ).toBeVisible();
     }
@@ -334,7 +372,21 @@ test.describe("🔴 CAMP-365 — меню з бази", () => {
  * наступною правкою.
  */
 test.describe("🔴 CAMP-448 — підвал", () => {
-  test("чотири колонки, і кожна названа", async ({ page }) => {
+  test("колонки: бренд, по одній на корінь підвалу з дітьми, правила — і кожна названа", async ({
+    page,
+    request,
+  }) => {
+    const res = await request.get(`${API}/navigation`);
+    expect(res.ok(), `GET ${API}/navigation → ${res.status()}`).toBe(true);
+    const body = (await res.json()) as Record<string, NavItem[] | undefined>;
+    const roots = body.footer ?? [];
+    const columns = roots.filter((r) => r.children.length > 0);
+    const loose = roots.filter((r) => r.children.length === 0);
+    expect(
+      columns.length,
+      "у підвалі з бази немає жодної колонки з дітьми — міграція HeaderFooterMenus не накотилась?",
+    ).toBeGreaterThan(0);
+
     await page.goto("/");
 
     // 🔴 СКІЛЬКИ КОЛОНОК — ЗАЛЕЖИТЬ ВІД ШИРИНИ, І ТЕСТ МУСИТЬ ЦЕ ЗНАТИ.
@@ -343,18 +395,26 @@ test.describe("🔴 CAMP-448 — підвал", () => {
     // mobile-chrome, де одна колонка правильна: чотири на 390 px
     // нечитабельні. Пороги ті самі, що в розмітці (`md:` 768, `xl:` 1280),
     // і беруться з реальної ширини вікна, а не з назви проєкту.
-    const grid = page.locator("footer > div > div").first();
+    const grid = page.getByTestId("footer-columns");
     const cols = await grid.evaluate(
       (el) => getComputedStyle(el).gridTemplateColumns.split(" ").length,
     );
     const width = page.viewportSize()?.width ?? 0;
     expect(width, "ширина вікна невідома — замір нічого не доводить").toBeGreaterThan(0);
-    const want = width >= 1280 ? 4 : width >= 768 ? 2 : 1;
+    // Бренд + колонки з CMS (+ «More», якщо є корені без дітей) + «Legal».
+    const full = 1 + columns.length + (loose.length > 0 ? 1 : 0) + 1;
+    const want = width >= 1280 ? full : width >= 768 ? 2 : 1;
     expect(cols, `на ${width} px колонок ${cols}, а має бути ${want}`).toBe(want);
 
     // 🔴 А ОСЬ ЦЕ НЕ ЗАЛЕЖИТЬ ВІД ШИРИНИ: розділи мусять бути названі
     // на будь-якому екрані, інакше підвал знову стає смужкою посилань.
-    for (const name of ["More", "Legal", "Where the data comes from"]) {
+    for (const col of columns) {
+      await expect(
+        page.locator("footer h2", { hasText: col.label }),
+        `у підвалі немає колонки «${col.label}»`,
+      ).toHaveCount(1);
+    }
+    for (const name of ["Legal", "Where the data comes from"]) {
       await expect(
         page.locator("footer h2", { hasText: name }),
         `у підвалі немає розділу «${name}»`,

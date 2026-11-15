@@ -40,6 +40,13 @@ export interface Locale {
   live: boolean;
   /** Why it is on the list at all, so the order is not folklore. */
   market: string;
+  /**
+   * 🔴 CAMP-448. Прапор для перемикача мови: код країни, чий файл лежить у
+   * `public/flags/`, або `eu` — власний знак (`EuFlag` у перемикачі).
+   * Англійська — `eu`, а не `gb`: сайт про ЄС-27, файлу `gb` у нас немає,
+   * а англійська тут мова всього Союзу, не одного ринку.
+   */
+  flag: string;
 }
 
 /**
@@ -53,12 +60,12 @@ export interface Locale {
  * this is the line that changes.
  */
 export const LOCALES: Locale[] = [
-  { code: 'en', label: 'English', live: true, market: 'default' },
-  { code: 'nl', label: 'Nederlands', live: false, market: 'Netherlands' },
-  { code: 'fr', label: 'Français', live: false, market: 'France' },
-  { code: 'es', label: 'Español', live: false, market: 'Spain' },
-  { code: 'it', label: 'Italiano', live: false, market: 'Italy' },
-  { code: 'de', label: 'Deutsch', live: false, market: 'Switzerland, Germany' },
+  { code: 'en', label: 'English', live: true, market: 'default', flag: 'eu' },
+  { code: 'nl', label: 'Nederlands', live: false, market: 'Netherlands', flag: 'nl' },
+  { code: 'fr', label: 'Français', live: false, market: 'France', flag: 'fr' },
+  { code: 'es', label: 'Español', live: false, market: 'Spain', flag: 'es' },
+  { code: 'it', label: 'Italiano', live: false, market: 'Italy', flag: 'it' },
+  { code: 'de', label: 'Deutsch', live: false, market: 'Switzerland, Germany', flag: 'de' },
 ];
 
 /** The language served without a prefix. Also the `x-default`. */
