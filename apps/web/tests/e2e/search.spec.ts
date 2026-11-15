@@ -1,4 +1,7 @@
 import { expect, test, type APIRequestContext } from './api-request';
+import { axeViolations } from './axe';
+import type { Page } from '@playwright/test';
+import { countryName as countryNameOf } from '@/lib/api';
 import {
   search,
   unpackIndex,
@@ -320,4 +323,364 @@ test.describe('the 404 page keeps the promise it makes', () => {
 
     await context.close();
   });
+});
+
+// ── CAMP-455: the results as cards, in tabs, on the centre line ─────────
+//
+// 🔴 EVERYTHING BELOW IS READ OFF THE RENDERED PAGE — boxes measured in
+// the browser, text read from the DOM the reader is looking at. A class
+// name on an element says what somebody intended; `getBoundingClientRect`
+// says where the pixels are. The subjects are resolved from the index the
+// page itself loads, so a re-import cannot fail the suite for the wrong
+// reason, and each assertion that depends on a size of data names the
+// number it found.
+
+/** The country with most campsites in the index, and how many. */
+function biggestCountry(docs: SearchDoc[]): { code: string; n: number } {
+  const counts = new Map<string, number>();
+  for (const d of docs) counts.set(d.country, (counts.get(d.country) ?? 0) + 1);
+  const [code, n] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+  return { code, n };
+}
+
+async function openComplete(page: Page, url: string) {
+  await page.goto(url);
+  await expect(page.getByTestId('search')).toHaveAttribute(
+    'data-complete',
+    'true',
+    { timeout: COMPLETE_TIMEOUT },
+  );
+}
+
+test.describe('🔴 CAMP-455: the page the reader sees', () => {
+  test('the box is on the centre line at every width', async ({ page }) => {
+    for (const width of [1440, 768, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await openComplete(page, '/search');
+      const box = await page.getByTestId('search-input').boundingBox();
+      expect(box, `no box at ${width}`).not.toBeNull();
+      const centre = box!.x + box!.width / 2;
+      expect(
+        Math.abs(centre - width / 2),
+        `at ${width}px the box centre is ${centre}, the page centre ${width / 2}`,
+      ).toBeLessThanOrEqual(2);
+      // Narrower than the page on a wide screen — Fuse's box is 912 of
+      // 1500 (screenshot 442/03), and ours never passes 910.
+      expect(
+        box!.width,
+        `at ${width}px the box is ${box!.width} wide`,
+      ).toBeLessThanOrEqual(910);
+      if (width >= 1440) {
+        expect(
+          box!.width,
+          `at ${width}px the box is ${box!.width} wide, not the full page`,
+        ).toBeLessThan(width * 0.7);
+      }
+    }
+  });
+
+  // 🔴 THE TEXT, NOT THE BOX. A block element is always centred in its
+  // parent by its own margins, whatever its text-align says, so the
+  // bounding box of a left-aligned heading sits on the centre line too.
+  // The first version of this test measured the box and stayed green with
+  // `text-center` deleted. A Range over the element's contents gives one
+  // rectangle per LINE of text, hugging the letters — and every one of
+  // them has to be centred.
+  test('the heading and the lead are centred with the box, line by line', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await openComplete(page, '/search');
+    // One rectangle per text NODE, and a paragraph made of two nodes gives
+    // two rectangles on the same line — so they are merged by their top
+    // edge into one span per visual line before anything is compared.
+    const lines = async (selector: string): Promise<{ x: number; w: number }[]> =>
+      page.locator(selector).first().evaluate((el) => {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const byTop = new Map<number, { l: number; r: number }>();
+        for (const r of range.getClientRects()) {
+          if (r.width === 0) continue;
+          const key = Math.round(r.top);
+          const cur = byTop.get(key);
+          byTop.set(key, {
+            l: Math.min(cur?.l ?? r.left, r.left),
+            r: Math.max(cur?.r ?? r.right, r.right),
+          });
+        }
+        return [...byTop.values()].map((v) => ({ x: v.l, w: v.r - v.l }));
+      });
+    for (const [name, selector] of [
+      ['h1', 'main h1'],
+      ['lead', 'main h1 + p'],
+    ] as const) {
+      const rects = await lines(selector);
+      expect(rects.length, `no text lines found in the ${name}`).toBeGreaterThan(0);
+      for (const r of rects) {
+        expect(
+          Math.abs(r.x + r.w / 2 - 720),
+          `a line of the ${name} (${Math.round(r.x)}..${Math.round(r.x + r.w)}) is off the centre line`,
+        ).toBeLessThanOrEqual(2);
+      }
+    }
+  });
+
+  test('three tabs, each with its own count, and the first one selected', async ({
+    page,
+    request,
+  }) => {
+    const docs = await index(request);
+    const { code } = biggestCountry(docs);
+    await openComplete(
+      page,
+      `/search?q=${encodeURIComponent(countryNameOf(code))}`,
+    );
+    // The roles a screen reader announces, not just three buttons.
+    await expect(
+      page.getByRole('tablist', { name: 'Result type' }),
+    ).toBeVisible();
+    await expect(page.getByRole('tabpanel')).toBeVisible();
+    const tabs = page.getByRole('tab');
+    await expect(tabs).toHaveCount(3);
+    await expect(tabs.nth(0)).toContainText('Campsites (');
+    await expect(tabs.nth(1)).toContainText('Regions (');
+    await expect(tabs.nth(2)).toContainText('Countries (');
+    await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'true');
+    await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'false');
+  });
+
+  test('the Regions tab lists a region with the count the index holds', async ({
+    page,
+    request,
+  }) => {
+    const docs = await index(request);
+    // The region with most campsites: the one a count can be wrong about.
+    const byRegion = new Map<string, number>();
+    for (const d of docs) {
+      const k = `${d.country}/${d.region}`;
+      byRegion.set(k, (byRegion.get(k) ?? 0) + 1);
+    }
+    const [key, n] = [...byRegion.entries()].sort((a, b) => b[1] - a[1])[0];
+    const [country, region] = key.split('/');
+    const title = region
+      .split('-')
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+
+    await openComplete(page, `/search?q=${encodeURIComponent(title)}`);
+    await page.getByTestId('search-tab-regions').click();
+    await expect(page.getByTestId('search-panel')).toHaveAttribute(
+      'data-tab',
+      'regions',
+    );
+
+    const card = page
+      .getByTestId('search-card-region')
+      .and(page.locator(`[href="/camping/${country}/${region}"]`));
+    await expect(card, `no region card for ${key}`).toBeVisible();
+    // The denominator is named: n campsites of the index in this region.
+    await expect(card).toContainText(
+      `${n.toLocaleString('en-GB')} ${n === 1 ? 'campsite' : 'campsites'}`,
+    );
+  });
+
+  test('the Countries tab links to the country page', async ({
+    page,
+    request,
+  }) => {
+    const docs = await index(request);
+    const { code } = biggestCountry(docs);
+    await openComplete(
+      page,
+      `/search?q=${encodeURIComponent(countryNameOf(code))}&tab=countries`,
+    );
+    await expect(page.getByTestId('search-tab-countries')).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await expect(
+      page
+        .getByTestId('search-card-country')
+        .and(page.locator(`[href="/camping/${code}"]`)),
+    ).toBeVisible();
+  });
+
+  test('the tab is in the address, and the address opens on that tab', async ({
+    page,
+    request,
+  }) => {
+    const docs = await index(request);
+    const { code } = biggestCountry(docs);
+    await openComplete(
+      page,
+      `/search?q=${encodeURIComponent(countryNameOf(code))}`,
+    );
+    expect(page.url()).not.toContain('tab=');
+    await page.getByTestId('search-tab-regions').click();
+    await expect.poll(() => page.url()).toContain('tab=regions');
+    await page.reload();
+    await expect(page.getByTestId('search-tab-regions')).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+  });
+
+  test('arrow keys move between the tabs', async ({ page, request }) => {
+    const docs = await index(request);
+    const { code } = biggestCountry(docs);
+    await openComplete(
+      page,
+      `/search?q=${encodeURIComponent(countryNameOf(code))}`,
+    );
+    await page.getByTestId('search-tab-campsites').focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(page.getByTestId('search-tab-regions')).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await expect(page.getByTestId('search-tab-regions')).toBeFocused();
+    await page.keyboard.press('ArrowLeft');
+    await expect(page.getByTestId('search-tab-campsites')).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+  });
+
+  test('an empty tab says which kind is empty, and draws no cards', async ({
+    page,
+  }) => {
+    await openComplete(page, '/search?q=zzzzqqqqxxxx&tab=countries');
+    await expect(page.getByTestId('search-count')).toContainText(
+      'No countries match',
+    );
+    await expect(page.getByTestId('search-results-countries')).toHaveCount(0);
+  });
+
+  // 🔴 «3–4 в ряд». Columns are counted by the distinct left edges of the
+  // cards the browser laid out, not read from a stylesheet.
+  for (const [width, columns] of [
+    [1440, 4],
+    [1024, 3],
+    [768, 2],
+    [375, 1],
+  ] as const) {
+    test(`${columns} card column${columns === 1 ? '' : 's'} at ${width}px`, async ({
+      page,
+      request,
+    }) => {
+      const docs = await index(request);
+      const { code, n } = biggestCountry(docs);
+      expect(
+        n,
+        'the biggest country has too few campsites to fill a row',
+      ).toBeGreaterThanOrEqual(4);
+      await page.setViewportSize({ width, height: 900 });
+      await openComplete(
+        page,
+        `/search?q=${encodeURIComponent(countryNameOf(code))}`,
+      );
+      const cards = page.getByTestId('search-card-campsite');
+      const count = await cards.count();
+      expect(
+        count,
+        'fewer than 4 cards to count columns on',
+      ).toBeGreaterThanOrEqual(4);
+      const lefts = new Set<number>();
+      for (let i = 0; i < Math.min(count, 8); i++) {
+        const b = await cards.nth(i).boundingBox();
+        lefts.add(Math.round(b!.x));
+      }
+      expect(
+        lefts.size,
+        `at ${width}px the cards sit in ${lefts.size} columns`,
+      ).toBe(columns);
+    });
+  }
+
+  test('each campsite card carries a flag, the country, the name and a working link', async ({
+    page,
+    request,
+  }) => {
+    const docs = await index(request);
+    const { code } = biggestCountry(docs);
+    await openComplete(
+      page,
+      `/search?q=${encodeURIComponent(countryNameOf(code))}`,
+    );
+    const first = page.getByTestId('search-card-campsite').first();
+    await expect(first).toBeVisible();
+    await expect(first.locator('img.ct-flag')).toHaveAttribute(
+      'src',
+      `/flags/${code}.svg`,
+    );
+    await expect(first).toContainText(countryNameOf(code));
+    const href = await first.getAttribute('href');
+    expect(href).toMatch(new RegExp(`^/camping/${code}/`));
+    expect((await page.request.get(href!)).status()).toBe(200);
+  });
+
+  test('the countries under the box are flag cards', async ({ page }) => {
+    await openComplete(page, '/search');
+    const tiles = page.locator('a.ct-tile');
+    expect(
+      await tiles.count(),
+      'no country cards under the box',
+    ).toBeGreaterThan(0);
+    // The flags are lazy, so a card below the fold has not asked for its
+    // image yet: scroll to each one before asking whether it arrived.
+    for (let i = 0; i < (await tiles.count()); i++) {
+      await tiles.nth(i).scrollIntoViewIfNeeded();
+    }
+    // Every card has a flag image that actually loaded.
+    await expect
+      .poll(async () =>
+        tiles.evaluateAll(
+          (els) =>
+            els.filter((el) => {
+              const img = el.querySelector('img.ct-flag') as HTMLImageElement | null;
+              return !img || !img.complete || img.naturalWidth === 0;
+            }).length,
+        ),
+      )
+      .toBe(0);
+    const broken = await tiles.evaluateAll(
+      (els) =>
+        els.filter((el) => {
+          const img = el.querySelector('img.ct-flag') as HTMLImageElement | null;
+          return !img || !img.complete || img.naturalWidth === 0;
+        }).length,
+    );
+    expect(broken, 'country cards without a loaded flag').toBe(0);
+  });
+});
+
+// 🔴 A new widget with roles and states is exactly what an a11y scan is
+// for, and /search had no scan at all. Light and dark, on every tab,
+// with results on screen (an empty page proves nothing about cards).
+test.describe('🔴 CAMP-455: accessibility of the results', () => {
+  for (const scheme of ['light', 'dark'] as const) {
+    for (const tab of ['campsites', 'regions', 'countries'] as const) {
+      test(`axe finds nothing on the ${tab} tab, ${scheme} theme`, async ({
+        page,
+        request,
+      }) => {
+        const docs = await index(request);
+        const { code } = biggestCountry(docs);
+        await page.emulateMedia({ colorScheme: scheme });
+        await openComplete(
+          page,
+          `/search?q=${encodeURIComponent(countryNameOf(code))}&tab=${tab}`,
+        );
+        // Cards on screen, or the scan has nothing to look at.
+        await expect(page.getByTestId('search-panel')).toHaveAttribute(
+          'data-tab',
+          tab,
+        );
+        await expect(
+          page.locator('[data-testid^="search-card-"]').first(),
+        ).toBeVisible();
+        expect(await axeViolations(page)).toEqual([]);
+      });
+    }
+  }
 });
