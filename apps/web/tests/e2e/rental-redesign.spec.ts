@@ -1,4 +1,5 @@
 import { expect, test } from "./api-request";
+import { axeViolations } from "./axe";
 import { scanPage } from "../../../../scripts/ci/disclosure-rules.mjs";
 
 // CAMP-461 — оренда, як її бачить читач: банер, віджет, видимий перехід до
@@ -361,4 +362,21 @@ test.describe("слоти CMS доходять до сторінки", () => {
       await expect(page.getByTestId("image-text").filter({ hasText: s.heading! })).toHaveCount(1);
     }
   });
+});
+
+test.describe("доступність нових сторінок", () => {
+  // 🔴 Три адреси, а не нуль: порожній перелік задовольнив би цикл мовчки.
+  const PATHS = ["/camper-rental", "/camper-rental/de", "/camper-rental/providers"];
+
+  for (const scheme of ["light", "dark"] as const) {
+    test(`🔴 хаб, країна й каталог проходять axe — ${scheme}`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme: scheme });
+      expect(PATHS).toHaveLength(3);
+      for (const path of PATHS) {
+        const res = await page.goto(path);
+        expect(res?.status(), `${path} віддала ${res?.status()}`).toBeLessThan(400);
+        expect(await axeViolations(page), `порушення на ${path} (${scheme})`).toEqual([]);
+      }
+    });
+  }
 });
