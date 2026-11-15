@@ -316,8 +316,8 @@ test.describe("сторінки оренди без внутрішньої ку�
     }) => {
       const html = await (await request.get(path)).text();
       const text = html
-        .replace(/<script[\s\S]*?<\/script>/g, " ")
-        .replace(/<style[\s\S]*?<\/style>/g, " ")
+        .replace(/<script\b[\s\S]*?<\/script[^>]*>/gi, " ")
+        .replace(/<style\b[\s\S]*?<\/style[^>]*>/gi, " ")
         .replace(/<[^>]+>/g, " ")
         .replace(/&#x27;|&#39;/g, "'")
         .replace(/\s+/g, " ");
