@@ -26,6 +26,7 @@ import { AuthModule } from './auth/auth.module';
 import { TripsModule } from './trips/trips.module';
 import { PlanModule } from './plan/plan.module';
 import { HealthModule } from './health/health.module';
+import { OpsModule } from './ops/ops.module';
 import { WarningsModule } from './warnings/warnings.module';
 import { WebcamsModule } from './webcams/webcams.module';
 import { ProblemReportsModule } from './reports/problem-reports.module';
@@ -121,6 +122,7 @@ export const REASONS = loadMeasuredReasons();
     // CAMP-3 / CAMP-45: campsites beside the stages of a curated route.
     RoutesModule,
     HealthModule,
+    OpsModule,
     // CAMP-59: the route an uptime monitor calls. Exempt from the
     // rate limit, because a monitor polling every minute is the one
     // caller we want hitting us constantly.
