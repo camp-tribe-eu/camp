@@ -1,4 +1,6 @@
 import FeatureRow from '@/components/feature-row';
+import Faq from '@/components/faq';
+import { ImageWithText } from '@/components/image-with-text';
 import { ButtonLink, buttonClasses } from "./button";
 import { RichText } from "./rich-text";
 import { PAGE_VALUES, type SectionView } from "@/lib/page-content";
@@ -72,7 +74,12 @@ type RenderProps = {
  * це `{ measure, className }`, і `measure` не має значення за замовчуванням:
  * забутий — не компілюється, а не розповзається.
  */
-type ProseStyle = { measure: Measure; className: string };
+type ProseStyle = {
+  measure: Measure;
+  className: string;
+  /** Клас заголовка секції; типово — малий `text-xl`. */
+  headingClassName?: string;
+};
 
 const PROSE_VARIANTS: Record<string, ProseStyle> = {
   // Як було на /tools: відбитий донизу, приглушений.
@@ -84,6 +91,13 @@ const PROSE_VARIANTS: Record<string, ProseStyle> = {
   provenance: {
     measure: "read",
     className: "mt-10 border-t border-line-2 pt-4 text-sm text-ink-2",
+  },
+  // CAMP-464: вступ сторінки з великим заголовком — ліва колонка контактів
+  // у теми («Feel Free to Contact Us» великими літерами над абзацом).
+  lead: {
+    measure: "read",
+    className: "mt-4 space-y-4 text-ink-2",
+    headingClassName: "text-3xl leading-tight md:text-[42px]",
   },
 };
 /** Звичайний абзацний текст секції — читальна колонка, бо це суцільний текст. */
@@ -98,7 +112,7 @@ function Prose({ section, values }: RenderProps) {
   const content = (
     <>
       {section.heading && (
-        <h2 className="text-xl text-heading">
+        <h2 className={style.headingClassName ?? "text-xl text-heading"}>
           {section.heading}
         </h2>
       )}
@@ -425,6 +439,282 @@ function FuelCountries({ section, values }: RenderProps) {
   );
 }
 
+// ── CAMP-464: секції каталогу для /about і /contact ────────────────────
+//
+// Власник просив для «Про нас» і «Контактів» те, що є в демо-стору теми:
+// фото поруч із текстом, картки зі значками, FAQ, картку праворуч від
+// тексту. Компоненти цих секцій у нас уже ЗРОБЛЕНІ (CAMP-449) і жили
+// лише в коді сторінок — тобто змінити їх міг тільки розробник. Тут вони
+// стають типами секцій, а текст їх — рядками в базі, які править власник.
+
+/**
+ * 🔴 ЗНАЧОК ВИБИРАЄ КОД ЗА ІМЕНЕМ, А НЕ РЕДАКТОР ЗА РОЗМІТКОЮ — і
+ * НЕВІДОМЕ ІМ'Я КИДАЄ. Це інакше, ніж у `CARD_ICONS`, де невідома адреса
+ * дає картку без значка: там значок бере код за адресою, яку редактор
+ * правильно вписав. Тут редактор САМ називає значок, і друкарська помилка
+ * («emial») мусить бути видима одразу, а не стати карткою без значка в
+ * переліку, де решта значки мають.
+ */
+const ICON_PROPS = {
+  width: "28",
+  height: "28",
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: "1.5",
+  strokeLinecap: "round",
+  strokeLinejoin: "round",
+  "aria-hidden": true,
+} as const;
+
+const FEATURE_ICONS: Record<string, ReactNode> = {
+  mail: (
+    <svg {...ICON_PROPS}>
+      <rect x="3" y="5" width="18" height="14" rx="2.5" />
+      <path d="M3.5 7.5 12 13l8.5-5.5" />
+    </svg>
+  ),
+  shield: (
+    <svg {...ICON_PROPS}>
+      <path d="M12 3 5 6v5.5c0 4.2 2.8 7.6 7 9.5 4.2-1.9 7-5.3 7-9.5V6l-7-3Z" />
+      <path d="m9 12 2.2 2.2L15.2 10" />
+    </svg>
+  ),
+  database: (
+    <svg {...ICON_PROPS}>
+      <ellipse cx="12" cy="6" rx="7" ry="3" />
+      <path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6" />
+    </svg>
+  ),
+  clock: (
+    <svg {...ICON_PROPS}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5V12l3 2" />
+    </svg>
+  ),
+  alert: (
+    <svg {...ICON_PROPS}>
+      <path d="M12 4 3 19.5h18L12 4Z" />
+      <path d="M12 10v4.5M12 17.2v.1" />
+    </svg>
+  ),
+  info: (
+    <svg {...ICON_PROPS}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 11v5M12 8v.1" />
+    </svg>
+  ),
+};
+
+export const FEATURE_ICON_NAMES = Object.keys(FEATURE_ICONS);
+
+/** Один елемент секції `features`, як його тримає `items` у базі. */
+export interface FeatureEntry {
+  title: string;
+  text: string;
+  icon: string | null;
+  href: string | null;
+}
+
+/**
+ * Картки секції `features` із сирого `jsonb`. Та сама суворість, що в
+ * `cardsOf`/`termsOf`: порожня картка на сторінці виглядає як дефект
+ * рендера, тож падаємо тут, а не малюємо дірку.
+ *
+ * 🔴 `href` — наша сторінка АБО `mailto:`. Не `https://`: картка
+ * «Email» веде на лист, картка «Legal notice» — на нашу сторінку, а
+ * чужий сайт у картці-факті — це реклама, якої ніхто не замовляв.
+ */
+export function featuresOf(
+  items: unknown,
+  where: string,
+  values: Values = PAGE_VALUES,
+): FeatureEntry[] {
+  if (!Array.isArray(items)) {
+    throw new Error(
+      `page-sections: ${where} — \`items\` не масив, а ` +
+        `${items === null ? "null" : typeof items}.`,
+    );
+  }
+  return items.map((raw, i) => {
+    const o = (raw ?? {}) as Record<string, unknown>;
+    const need = (k: string) => {
+      const v = o[k];
+      if (typeof v !== "string" || v.trim() === "") {
+        throw new Error(
+          `page-sections: картка ${i} у ${where} не має поля «${k}».`,
+        );
+      }
+      return substitute(v, values);
+    };
+    const optional = (k: string): string | null => {
+      const v = o[k];
+      if (v === undefined || v === null) return null;
+      if (typeof v !== "string" || v.trim() === "") {
+        throw new Error(
+          `page-sections: картка ${i} у ${where} має порожнє або не рядкове «${k}». ` +
+            "Не потрібне поле прибирають, а не лишають порожнім.",
+        );
+      }
+      return substitute(v, values);
+    };
+    const icon = optional("icon");
+    if (icon !== null && !(icon in FEATURE_ICONS)) {
+      throw new Error(
+        `page-sections: картка ${i} у ${where} просить значок «${icon}», ` +
+          `якого немає. Відомі: ${FEATURE_ICON_NAMES.join(", ")}.`,
+      );
+    }
+    const href = optional("href");
+    if (href !== null && !(isInternalHref(href) || href.startsWith("mailto:"))) {
+      throw new Error(
+        `page-sections: картка ${i} у ${where} веде на «${href}» — ` +
+          "картка веде лише на нашу сторінку або на лист.",
+      );
+    }
+    return { title: need("title"), text: need("text"), icon, href };
+  });
+}
+
+function Features({ section, values, compact }: RenderProps) {
+  const items = featuresOf(section.items, "секції features", values);
+  const stacked = section.variant === "stack";
+  return (
+    <section className={stacked ? "mt-6" : "mt-12"}>
+      {section.heading && (
+        <h2 className="text-xl md:text-[25px]">{section.heading}</h2>
+      )}
+      <div className={section.heading ? "mt-5" : undefined}>
+        <FeatureRow
+          testId="features"
+          titleAs="h3"
+          iconSide={stacked ? "left" : "top"}
+          stacked={stacked || compact}
+          items={items.map((f, i) => ({
+            key: `${i}-${f.title}`,
+            icon: f.icon ? FEATURE_ICONS[f.icon] : undefined,
+            title: f.title,
+            text: f.text,
+            href: f.href ?? undefined,
+          }))}
+        />
+      </div>
+    </section>
+  );
+}
+
+function FaqSection({ section, values }: RenderProps) {
+  const items = termsOf(section.items, "секції faq", values);
+  return (
+    <section className="mt-12">
+      {section.heading && (
+        <h2 className="text-xl md:text-[25px]">{section.heading}</h2>
+      )}
+      <div className={section.heading ? "mt-5" : undefined}>
+        <Faq
+          testId="faq"
+          items={items.map((q, i) => ({
+            key: `${i}-${q.term}`,
+            question: q.term,
+            answer: q.text,
+          }))}
+        />
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Секція «текст + фото».
+ *
+ * 🔴 ФОТО БЕРЕТЬСЯ ЛИШЕ З НАШОГО ДОМЕНУ. CSP тримає `img-src 'self'`, а
+ * чужа адреса в `image_url` (`applyValues` пропускає `https://`) не
+ * завантажилась би — читач бачив би порожню сіру коробку, а редактор
+ * вирішив би, що зламано сторінку. Тож не-внутрішня адреса КИДАЄ.
+ *
+ * 🔴 БЕЗ ФОТО — НЕ ЦЯ СЕКЦІЯ. Секція без картинки — це абзац у рамці;
+ * для абзацу є `prose`. Редактор, який стер адресу, отримує падіння, а
+ * не тихо переставлений макет.
+ *
+ * `subheading` — надзаголовок над заголовком (`caption` теми). Раніше це
+ * поле не читав жоден рендер, тепер читає цей.
+ */
+function ImageWithTextSection({ section, values }: RenderProps) {
+  const src = section.imageUrl;
+  if (!src || !isInternalHref(src)) {
+    throw new Error(
+      `page-sections: секція image-with-text «${section.heading ?? "—"}» ` +
+        `має фото «${src ?? ""}», яке не наш шлях від кореня.`,
+    );
+  }
+  if (!section.heading) {
+    throw new Error(
+      "page-sections: секція image-with-text без заголовка. Без нього " +
+        "компонент не малюється, а секція мовчки зникла б зі сторінки.",
+    );
+  }
+  return (
+    <div className="mt-12 [&_.ct-iwt__heading]:text-3xl [&_.ct-iwt__heading]:leading-tight md:[&_.ct-iwt__heading]:text-[40px]">
+      <ImageWithText
+        testId="image-with-text"
+        image={{ src, alt: section.imageAlt ?? "" }}
+        caption={section.subheading ?? undefined}
+        heading={section.heading}
+        imagePosition={section.variant === "image-right" ? "right" : "left"}
+        imageWidth={50}
+        textAs="div"
+        text={
+          section.body ? (
+            <RichText
+              text={section.body}
+              values={values}
+              measure="wide"
+              className="space-y-4 text-ink-2"
+            />
+          ) : undefined
+        }
+        cta={
+          section.ctaHref && section.ctaLabel && isInternalHref(section.ctaHref)
+            ? { href: section.ctaHref, label: section.ctaLabel }
+            : undefined
+        }
+      />
+    </div>
+  );
+}
+
+/**
+ * Картка з текстом і однією дією — права колонка контактів у теми (біла
+ * картка із заголовком, текстом і кнопкою).
+ *
+ * 🔴 КНОПКА ТА САМА, ЩО В `cta`: `CtaButton` розрізняє `mailto:` і шлях.
+ */
+function CardSection({ section, values }: RenderProps) {
+  return (
+    <section
+      data-testid="card-section"
+      className="rounded-card border border-line-2 bg-surface p-6 md:p-8"
+    >
+      {section.heading && (
+        <h2 className="text-xl md:text-[25px]">{section.heading}</h2>
+      )}
+      {section.body && (
+        <RichText
+          text={section.body}
+          values={values}
+          measure="wide"
+          className="mt-4 space-y-4 text-ink-2"
+        />
+      )}
+      {section.ctaHref && section.ctaLabel && (
+        <div className="mt-6">
+          <CtaButton href={section.ctaHref} label={section.ctaLabel} />
+        </div>
+      )}
+    </section>
+  );
+}
+
 const RENDERERS = {
   prose: Prose,
   cta: Cta,
@@ -432,6 +722,10 @@ const RENDERERS = {
   "fuel-countries": FuelCountries,
   hero: Hero,
   steps: Steps,
+  features: Features,
+  faq: FaqSection,
+  "image-with-text": ImageWithTextSection,
+  card: CardSection,
 } as const;
 
 export const SECTION_TYPES = Object.keys(RENDERERS) as Array<

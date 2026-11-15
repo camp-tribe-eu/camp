@@ -139,21 +139,61 @@ export default async function BlogPost({
 
       <Breadcrumbs crumbs={crumbs} />
 
+      {/* 🔴 ШАБЛОН ДОПИСУ ЗА ТЕМОЮ (CAMP-464): темна-світла плашка з
+          великою назвою по центру й рядком «автор · дата», під нею —
+          обкладинка на всю ширину, далі біла картка з тегами й текстом.
+          Було: заголовок ліворуч і вузька колонка без картинки (ревю
+          445/5: «пост — вузький текст без обкладинки»).
+
+          Обкладинка — те саме поле, що картка в каталозі, і з тією ж
+          перевіркою (`normalizePost`): недійсна адреса — допис без
+          обкладинки, а не зламана сторінка. */}
       <article className="mt-4">
-        <header className="border-b border-line-2 pb-5">
-          <h1 className="text-3xl leading-tight md:text-[42px]">
+        <header className="rounded-card bg-surface-2 px-5 py-10 text-center md:px-10 md:py-14">
+          <h1 className="mx-auto max-w-[24ch] text-3xl leading-tight md:text-[48px]">
             {post.title}
           </h1>
-          <p className="mt-3 text-sm text-ink-2">
+          <p className="mt-4 text-sm text-ink-2">
+            {summary.authorName ? `By ${summary.authorName} · ` : ''}
             <time dateTime={publishedAt}>{postDate(publishedAt)}</time>
-            {summary.authorName ? ` · ${summary.authorName}` : ''}
             {` · `}
             <span data-testid="reading-time">{minutes} min read</span>
           </p>
         </header>
 
-        <div className="mt-6 space-y-6">
-          <PageSections sections={post.sections} />
+        {summary.coverUrl && (
+          <figure className="mt-3" data-testid="post-cover">
+            {/* eslint-disable-next-line @next/next/no-img-element -- `images.unoptimized: true` у next.config. */}
+            <img
+              src={summary.coverUrl}
+              alt={summary.coverAlt ?? ''}
+              className="aspect-[16/9] w-full rounded-card object-cover md:aspect-[21/9]"
+            />
+          </figure>
+        )}
+
+        <div className="mt-3 rounded-card bg-surface p-5 md:p-10">
+          <div className="mx-auto max-w-read">
+            {summary.tags.length > 0 && (
+              <ul
+                aria-label="Tags"
+                className="flex flex-wrap gap-2"
+                data-testid="post-tags"
+              >
+                {summary.tags.map((t) => (
+                  <li
+                    key={t}
+                    className="rounded-md bg-surface-2 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-heading"
+                  >
+                    {t}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className={`${summary.tags.length > 0 ? 'mt-6 ' : ''}space-y-6`}>
+              <PageSections sections={post.sections} />
+            </div>
+          </div>
         </div>
       </article>
 
@@ -182,6 +222,10 @@ export default async function BlogPost({
                 title: p.title,
                 excerpt: p.summary ?? undefined,
                 meta: p.publishedAt ? postDate(p.publishedAt) : undefined,
+                image: p.coverUrl
+                  ? { src: p.coverUrl, alt: p.coverAlt ?? '' }
+                  : undefined,
+                tags: p.tags,
               }))}
             />
           </div>

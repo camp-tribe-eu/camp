@@ -33,6 +33,42 @@ export interface PostSummary {
   /** ISO-8601 або `null`, якщо дати немає. */
   publishedAt: string | null;
   authorName: string | null;
+  /**
+   * Обкладинка (CAMP-464): шлях від кореня або `null`. Те саме поле
+   * `pages.banner_image_url`, що в банера країни — нової колекції немає.
+   */
+  coverUrl: string | null;
+  coverAlt: string | null;
+  /** Теги допису; порожній масив — «тегів немає». */
+  tags: string[];
+}
+
+/** Скільки тегів показуємо на картці: більше — це вже не мітки, а стіна. */
+export const MAX_TAGS = 4;
+/** Довжина одного тегу: довший — це речення, а не мітка. */
+export const MAX_TAG_LENGTH = 24;
+
+/**
+ * Теги з `jsonb`, очищені.
+ *
+ * 🔴 ОДИН ЗІПСОВАНИЙ ЗАПИС КОШТУЄ ОДНОГО ЗАПИСУ. Поле редагує людина в
+ * Directus, і `jsonb` не обіцяє ні форми, ні типів. Не-масив або
+ * елемент не-рядок не валять `posts()` — а він живить каталог, КОЖНУ
+ * сторінку допису й карту сайту: один зіпсований допис поклав би увесь
+ * блог. Такий запис віддає порожні теги, решта — як є. Обмеження бази
+ * (`pages_tags_is_array`) не пускає не-масив і так, це другий рубіж.
+ */
+export function cleanTags(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  for (const t of raw) {
+    if (typeof t !== 'string') continue;
+    const v = t.trim();
+    if (v === '' || v.length > MAX_TAG_LENGTH) continue;
+    seen.add(v);
+    if (seen.size === MAX_TAGS) break;
+  }
+  return [...seen];
 }
 
 export interface SectionView {
@@ -254,10 +290,14 @@ export class PagesService {
         meta_description: string | null;
         published_at: Date | null;
         author_name: string | null;
+        banner_image_url: string | null;
+        banner_image_alt: string | null;
+        tags: unknown;
       }>
     >(
       `SELECT p.slug, p.published_at, p.author_name,
-              t.title, t.meta_description
+              p.banner_image_url, p.tags,
+              t.title, t.meta_description, t.banner_image_alt
          FROM pages p
          JOIN page_translations t
            ON t.page_id = p.id AND t.language_code = $1
@@ -272,6 +312,11 @@ export class PagesService {
       summary: r.meta_description,
       publishedAt: r.published_at ? r.published_at.toISOString() : null,
       authorName: r.author_name,
+      // 🔴 Порожній рядок і пробіли — теж «обкладинки немає»: «стерли в
+      // CMS» і «не заповнювали» не можуть розходитись.
+      coverUrl: r.banner_image_url?.trim() || null,
+      coverAlt: r.banner_image_alt?.trim() || null,
+      tags: cleanTags(r.tags),
     }));
   }
 }
