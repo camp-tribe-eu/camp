@@ -76,22 +76,21 @@ describe('HeaderFooterMenus: що міграція кладе в меню й щ�
     await m.up(qr);
     const all = await rows();
     expect(
-      all.filter((r) => r.location === 'header' && r.parent_href === '/about').map((r) => r.href),
+      all
+        .filter((r) => r.location === 'header' && r.parent_href === '/about')
+        .map((r) => r.href),
     ).toEqual(['/contact']);
 
     const footer = all.filter((r) => r.location === 'footer');
-    expect(footer.filter((r) => r.parent_href === null).map((r) => r.href)).toEqual([
-      '/camping',
-      '/plan',
-      '/about',
-    ]);
-    expect(footer.filter((r) => r.parent_href === '/camping').map((r) => r.href)).toEqual([
-      '/map',
-      '/search',
-      '/routes',
-      '/guides',
-    ]);
-    expect(footer.filter((r) => r.parent_href === '/plan').map((r) => r.href)).toEqual([
+    expect(
+      footer.filter((r) => r.parent_href === null).map((r) => r.href),
+    ).toEqual(['/camping', '/plan', '/about']);
+    expect(
+      footer.filter((r) => r.parent_href === '/camping').map((r) => r.href),
+    ).toEqual(['/map', '/search', '/routes', '/guides']);
+    expect(
+      footer.filter((r) => r.parent_href === '/plan').map((r) => r.href),
+    ).toEqual([
       '/tools',
       '/tools/camper-trip-cost',
       '/tools/camper-packing-list',

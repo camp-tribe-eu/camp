@@ -1,8 +1,5 @@
 import { DataSource, type QueryRunner } from 'typeorm';
-import {
-  parseSocialLinks,
-  SiteSettingsService,
-} from './site-settings.service';
+import { parseSocialLinks, SiteSettingsService } from './site-settings.service';
 
 /**
  * CAMP-481 — налаштування сайту читаються з бази, а не вгадуються.

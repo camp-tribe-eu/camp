@@ -84,7 +84,8 @@ test.describe("🔴 CAMP-448 — мега-меню: країни з даних",
   test("десктоп: мега-панель відкривається під рядом і не виходить за вікно", async ({
     page,
   }) => {
-    test.skip(!isDesktop(page), "горизонтальне меню є лише від 1200 px");
+    // горизонтальне меню є лише від 1200 px: ширину задаємо, а не пропускаємо тест на вузьких проєктах.
+    await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/camping");
     const nav = page.locator('header nav[aria-label="Main"]');
     const li = nav.locator('[data-nav-parent="/camping"]');
@@ -100,10 +101,9 @@ test.describe("🔴 CAMP-448 — мега-меню: країни з даних",
       "панель виходить за правий край",
     ).toBeLessThanOrEqual(vw);
     const header = await page.getByTestId("site-header-bar").boundingBox();
-    expect(
-      box!.y,
-      "панель не під рядом шапки",
-    ).toBeGreaterThanOrEqual(header!.y + header!.height - 1);
+    expect(box!.y, "панель не під рядом шапки").toBeGreaterThanOrEqual(
+      header!.y + header!.height - 1,
+    );
   });
 });
 
@@ -111,7 +111,8 @@ test.describe("🔴 CAMP-448 — шапка: лупа, вхід, мова", () =
   test("десктоп: лупа без слова, вхід, мова з прапорцем; усе в один ряд", async ({
     page,
   }) => {
-    test.skip(!isDesktop(page), "іконки шапки в ряду є лише від 1200 px");
+    // іконки шапки в ряду є лише від 1200 px: ширину задаємо, а не пропускаємо тест на вузьких проєктах.
+    await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/");
 
     const search = page.getByTestId("header-search");
@@ -164,14 +165,18 @@ test.describe("🔴 CAMP-448 — шапка: лупа, вхід, мова", () =
         dims.rowScroll,
         `${width}px: ряд шапки ширший за вікно`,
       ).toBeLessThanOrEqual(dims.rowClient);
-      expect(dims.headerHeight, `${width}px: шапка виросла`).toBeLessThanOrEqual(
-        64,
-      );
+      expect(
+        dims.headerHeight,
+        `${width}px: шапка виросла`,
+      ).toBeLessThanOrEqual(64);
     }
   });
 
-  test("мова: у перемикачі рівно живі мови з конфігурації", async ({ page }) => {
-    test.skip(!isDesktop(page), "перемикач у ряду шапки є лише від 1200 px");
+  test("мова: у перемикачі рівно живі мови з конфігурації", async ({
+    page,
+  }) => {
+    // перемикач у ряду шапки є лише від 1200 px: ширину задаємо, а не пропускаємо тест на вузьких проєктах.
+    await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/");
     const sw = page.getByTestId("language-switch-header");
     await sw.getByRole("button").click();
@@ -182,7 +187,8 @@ test.describe("🔴 CAMP-448 — шапка: лупа, вхід, мова", () =
   });
 
   test("вузька ширина: вхід і мова — у шухляді", async ({ page }) => {
-    test.skip(isDesktop(page), "шухляда лише нижче 1200 px");
+    // Шухляда лише нижче 1200 px: ширину задаємо, а не пропускаємо тест на десктопі.
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/");
     await expect(page.getByTestId("header-account")).toBeHidden();
     await openHeaderNav(page);

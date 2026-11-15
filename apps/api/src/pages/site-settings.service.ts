@@ -85,14 +85,14 @@ export class SiteSettingsService {
       footer_note: string | null;
       social_links: unknown;
     }> = await this.db.query(
-        `SELECT t.tagline, t.footer_note, s.social_links
+      `SELECT t.tagline, t.footer_note, s.social_links
            FROM site_settings s
       LEFT JOIN site_settings_translations t
              ON t.settings_id = s.id AND t.language_code = $1
           WHERE s.singleton
           LIMIT 1`,
-        [language],
-      );
+      [language],
+    );
 
     const row = rows[0];
     const trim = (v: string | null | undefined) => {
