@@ -27,10 +27,22 @@ export type MailKind =
   // кемпінгу з тегів OSM, тобто чужій людині, яка нас не питала. Тому в
   // ньому немає посилання: клік у незнайомому листі віддав би листинг
   // тому, хто почав заявку. Там код, який треба ввести в нас.
-  | 'claim_spot';
+  | 'claim_spot'
+  // 🔴 CAMP-505 — ДРУГИЙ ВИД, ЩО ЙДЕ НЕ НА АДРЕСУ АКАУНТА, АЛЕ З ПОСИЛАННЯМ.
+  //
+  // Іде на адресу, яку людина ввела сама, і лише коли її домен збігся з
+  // доменом кемпінгу. Посилання тут безпечне з причини, якої немає в
+  // `claim_spot`: воно працює лише в акаунті, що почав заявку (інакше
+  // клік власника скриньки віддав би листинг сторонньому), і саме
+  // відкриття сторінки нічого не підтверджує — потрібен клік на кнопку.
+  | 'claim_owner_link';
 
-/** Види, у листі яких є посилання. `claim_spot` сюди не входить. */
-export type LinkMailKind = Exclude<MailKind, 'claim_spot'>;
+/**
+ * Види, у листі яких є посилання, що будується з `LINK_PATH`.
+ * `claim_spot` — без посилання; `claim_owner_link` — своє, з токеном, але
+ * не тим самим шляхом, тож лежить окремо від `LINK_PATH`.
+ */
+export type LinkMailKind = Exclude<MailKind, 'claim_spot' | 'claim_owner_link'>;
 
 export type MailMessage = {
   to: string;
@@ -305,6 +317,111 @@ export function claimSpotMessage(
     `<p>${esc(lines[10])}</p>` +
     `<p>CampTribe</p>`;
   return { to, kind: 'claim_spot', subject, text: lines.join('\n'), html };
+}
+
+/** Куди веде посилання з листа власника. Фіксований шлях, жодного `next`. */
+export const OWNER_LINK_PATH = '/account/claim/confirm';
+
+export const ownerLinkFor = (base: string, token: string): string =>
+  `${base}${OWNER_LINK_PATH}?t=${encodeURIComponent(token)}`;
+
+/**
+ * CAMP-505 — лист із посиланням для власника, що ввів адресу сам.
+ *
+ * 🔴 ЧОТИРИ РЕЧЕННЯ, І КОЖНЕ ПРО ТЕ, ЩО ЛИСТ МОЖЕ ЧИТАТИ НЕ ТОЙ, КОМУ ВІН.
+ *
+ * 1. «НІЧОГО НЕ РОБІТЬ» ПЕРШИМ. Адресу ввів хтось інший (друкарська
+ *    помилка, колега, зловмисник, що знає лише домен): людина має
+ *    побачити вихід у першому рядку.
+ * 2. АДРЕСУ ЗАЯВНИКА НЕ НАЗВАНО (її тут і немає — ми не знаємо, хто
+ *    ввів). Названо кемпінг: це те, що людина може перевірити.
+ * 3. ПОСИЛАННЯ ПРАЦЮЄ ЛИШЕ В АКАУНТІ, ЩО ПОЧАВ ЗАЯВКУ — і лист каже це
+ *    прямо, щоб клік у незнайомому листі не здавався безпечним «на
+ *    всяк випадок»: клік нічого не віддасть, а лист не просить нікуди
+ *    входити чи вводити пароль.
+ * 4. СТРОК І ОДНОРАЗОВІСТЬ — із тієї самої константи, що їх тримає.
+ */
+/**
+ * Хто контролер і куди писати про дані. 🔴 КОПІЯ `COMPANY` і `PRIVACY_EMAIL`
+ * з `apps/web/src/lib/legal.ts`, звідки їх бере й правова сторінка; API не
+ * може імпортувати код сайту, тож `owner-mail.spec.ts` читає той файл і
+ * вимагає ті самі рядки. Свого тексту тут немає навмисно.
+ */
+export const CONTROLLER = {
+  name: 'UTD BV',
+  street: 'Kapucinessenstraat 6',
+  city: '2000 Antwerpen',
+  country: 'Belgium',
+} as const;
+export const PRIVACY_EMAIL = 'privacy@camptribe.eu';
+
+/** Скільки живе непідтверджена заявка: «1 month» у політиці й у `RULES` сторожа строків. */
+export const UNCONFIRMED_KEPT = 'one month';
+
+/**
+ * Інформація за ст. 14 GDPR для того, хто не давав нам адреси.
+ *
+ * 🔴 ЧОМУ ВОНА В ЛИСТІ. Адресу міг ввести сторонній: одержувач нам нічого не
+ * надавав, і цей лист — перша наша комунікація з ним (ст. 14(3)(b)). Тож у
+ * ньому мусить бути те, що ст. 14(1)–(2) вимагає дати: хто контролер, мета
+ * й підстава, звідки адреса, строк, права, скарга. Тут це одним абзацом;
+ * повний текст — політика приватності, на яку є посилання.
+ *
+ * Підстава — ст. 6(1)(f), а не (b): одержувач ні про що нас не просив (див.
+ * оцінку законного інтересу в реєстрі §11).
+ */
+export function art14Notice(
+  spotName: string,
+  privacyUrl: string,
+): { text: string; html: string } {
+  const address = `${CONTROLLER.name}, ${CONTROLLER.street}, ${CONTROLLER.city}, ${CONTROLLER.country}`;
+  const head = `Why you are getting this letter: ${address} runs CampTribe and is the controller of your data here. Somebody asked to manage the page for ${spotName} and typed this email address into our form; that is where we got it, and it is all we know about you. We write because we have a legitimate interest (Article 6(1)(f) GDPR) in checking that a campsite page is managed by the person who really runs the place.`;
+  const keep = `We do not keep the address itself, only a masked form of it, and a request nobody confirms is deleted after ${UNCONFIRMED_KEPT}. You can object or ask us to erase it by replying to this letter or writing to ${PRIVACY_EMAIL}, and you can complain to the Belgian Data Protection Authority. The full details are in our privacy policy:`;
+  return {
+    text: `${head} ${keep} ${privacyUrl}`,
+    html:
+      `<p style="font-size:13px;color:#555555">${esc(head)} ${esc(keep)} ` +
+      `<a href="${esc(privacyUrl)}">${esc(privacyUrl)}</a></p>`,
+  };
+}
+
+export function claimOwnerLinkMessage(
+  to: string,
+  link: string,
+  spotName: string,
+  minutes: number,
+  privacyUrl: string,
+): MailMessage {
+  const subject = `Confirm that you manage ${spotName} on CampTribe`;
+  const art14 = art14Notice(spotName, privacyUrl);
+  const lines = [
+    `Someone asked to manage the CampTribe listing for ${spotName}, and used this address to prove it.`,
+    '',
+    'If that was not you or your team: do nothing. Nothing changes.',
+    '',
+    `If it was, open this link and press the confirm button: ${link}`,
+    '',
+    `The link works once, for ${minutes} minutes, and only in the CampTribe account that started the request. Opening it does not confirm anything by itself, and we will never ask for a password in this letter.`,
+    '',
+    'CampTribe',
+    '',
+    art14.text,
+  ];
+  const html =
+    `<p>${esc(lines[0])}</p>` +
+    `<p>${esc(lines[2])}</p>` +
+    `<p><a href="${esc(link)}" style="display:inline-block;padding:10px 18px;` +
+    `background:#404B62;color:#ffffff;text-decoration:none;border-radius:8px">` +
+    `Open the confirmation page</a></p>` +
+    `<p>${esc(lines[6])}</p><p>CampTribe</p>` +
+    art14.html;
+  return {
+    to,
+    kind: 'claim_owner_link',
+    subject,
+    text: lines.join('\n'),
+    html,
+  };
 }
 
 export const resetPasswordMessage = (to: string, link: string): MailMessage =>

@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { countryName, getCountries, getSummary } from '@/lib/api';
+import { getCountries, getSummary } from '@/lib/api';
 import {
   memberStateCount,
   printable,
@@ -12,7 +12,7 @@ import Breadcrumbs from '@/components/breadcrumbs';
 import SearchEmbed from '@/components/search-embed';
 import { abs, breadcrumbList, jsonLdProps } from '@/lib/jsonld';
 import { getRoutes } from '@/lib/routes';
-import { CountryChip } from '@/components/country-chip';
+import { CountryTiles, countryTiles } from '@/components/country-tiles';
 import { Block } from '@/components/layout';
 
 // CAMP-67 — /search.
@@ -74,47 +74,60 @@ export default async function SearchPage() {
 
       <Breadcrumbs crumbs={crumbs} />
 
-      <h1 className="mt-4 text-2xl text-heading sm:text-3xl">
-        Search
-      </h1>
-      <Block as="p" measure="read" className="mt-2 text-sm text-ink-2">
-        {/* 🔴 CAMP-240. `memberStateCount`, not `countries.length`: the
-            list has 28 codes and one of them is Åland, which is Finland.
-            "Across 28 countries" was a false sentence on a page whose
-            site serves 27. See lib/campsite-count.ts. */}
-        {searchLead(
-          printable(summary.spots),
-          memberStateCount(countries.map((c) => c.country)),
-        )}
-        . Type a name, a region, or a town or lake nearby.
-      </Block>
+      {/* 🔴 CAMP-455. Заголовок, пояснення й поле — ПО ЦЕНТРУ, одна вісь:
+          у Fuse поле стоїть посередині сторінки, а в нас воно тулилось
+          у ліву колонку ~670px із порожньою правою половиною (ревʼю
+          442/4). Центрується вся секція разом, як
+          `.shopify-policy__container` у теми, а не окремий абзац — тоді
+          заголовок і текст не розʼїжджаються. */}
+      <div className="mt-6 text-center">
+        <h1 className="text-2xl text-heading sm:text-3xl">Search</h1>
+        <Block as="p" measure="narrow" className="mt-2 text-sm text-ink-2">
+          {/* 🔴 CAMP-240. `memberStateCount`, not `countries.length`: the
+              list has 28 codes and one of them is Åland, which is Finland.
+              "Across 28 countries" was a false sentence on a page whose
+              site serves 27. See lib/campsite-count.ts. */}
+          {searchLead(
+            printable(summary.spots),
+            memberStateCount(countries.map((c) => c.country)),
+          )}
+          . Type a name, a region, or a town or lake nearby.
+        </Block>
+      </div>
 
-      <div className="mt-5 max-w-2xl">
-        <SearchEmbed />
+      <div className="mt-5">
+        <SearchEmbed
+          countries={countryTiles(countries).flatMap((t) =>
+            t.data
+              ? [
+                  {
+                    country: t.code,
+                    spots: t.data.spots,
+                    regions: t.data.regions,
+                  },
+                ]
+              : [],
+          )}
+        />
       </div>
 
       <section className="mt-10 border-t border-line-2 pt-6">
-        <h2 className="text-xs uppercase tracking-wide text-ink-2">
+        <h2 className="text-center text-xs uppercase tracking-wide text-ink-2">
           Or browse by country
         </h2>
-        {/* 🔴 ПРАПОР БІЛЯ КРАЇНИ (CAMP-455). Той самий компонент, що на
-            /tools: два однакові рядки CSS під різними іменами розходяться
-            на першій же правці, і ніхто цього не помітить. */}
-        <ul className="mt-3 flex flex-wrap gap-x-2 gap-y-3">
-          {countries.map((c) => (
-            <li key={c.country}>
-              <CountryChip code={c.country} href={`/camping/${c.country}`}>
-                {countryName(c.country)} · {c.spots.toLocaleString('en-GB')}
-              </CountryChip>
-            </li>
-          ))}
-        </ul>
+        {/* 🔴 CAMP-455. Країни КАРТКАМИ — тими самими, що на /camping:
+            прапор, назва, кількість внизу (ревʼю 442/1: «виводь як на
+            сторінці всіх країн, де вартка виглядає як картка»). Той самий
+            компонент, не копія: дві копії плиток розходяться на першій же
+            правці розміру. Чіп-кнопка лишається на /tools. */}
+        <CountryTiles countries={countries} className="mt-4" />
       </section>
 
       {/* 🔴 CAMP-240. What the box does NOT search, said on the page that
           has the box. The design's search (09-guides.html) groups its
           results by campsites, routes, guides and cities; ours finds
-          campsites only, and a reader who types a route's name and gets
+          campsites, regions and countries (CAMP-455) — not routes and
+          not guides — and a reader who types a route's name and gets
           "nothing" is told the site has no such route. These are the
           places the other things live. The design's "often searched"
           and "recently viewed" are not here: we keep no search log to
@@ -125,8 +138,8 @@ export default async function SearchPage() {
           Not looking for a campsite?
         </h2>
         <Block as="p" measure="read" className="mt-2 text-sm text-ink-2">
-          This box searches campsites only. The rest of the site is in these
-          places.
+          The box above finds campsites, regions and countries. The rest of
+          the site is in these places.
         </Block>
         <ul className="mt-3 space-y-2 text-sm text-ink-2">
           <li>

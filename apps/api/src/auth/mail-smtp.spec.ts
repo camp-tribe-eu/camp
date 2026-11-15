@@ -633,6 +633,14 @@ describe('an address that is not one plain address', () => {
     'anna@',
     '',
     `${'a'.repeat(250)}@example.eu`,
+    // CAMP-505, рецензія PR #586: домен — це хост, а не URL. Жодного символу
+    // з переліку вище тут немає, і саме тому вони проходили.
+    'anna@example.eu/.evil.example',
+    'anna@example.eu?.evil.example',
+    'anna@example.eu#.evil.example',
+    'anna@example.eu%2f.evil.example',
+    'anna@-example.eu',
+    'anna@example.eu.',
   ];
 
   it.each(hostile)('%j is refused before the transport', async (to) => {

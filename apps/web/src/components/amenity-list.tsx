@@ -99,9 +99,15 @@ const STATE_WORD: Record<AmenityValue, string> = {
   unknown: "Not recorded",
 };
 
+// 🔴 CAMP-453: дві колонки вмикає ШИРИНА БЛОКА (`@container`), а не вікна.
+// Список стоїть у вузькій (480 px) колонці PDP, де на ширині вікна 1440 px
+// мітка «Drinking water» і стан «Yes · Imported» не вміщаються у два
+// стовпці й ламаються на три рядки; там, де блок широкий, вони лишаються
+// у два стовпці, як було.
+//
 // Не експортується навмисно: тест має читати відданий HTML, а не цю константу.
 const AMENITY_CSS = `
-.ct-amen{padding:24px 20px;border-radius:var(--r,16px);background-color:var(--color-surface-2)}
+.ct-amen{container-type:inline-size;padding:24px 20px;border-radius:var(--r,16px);background-color:var(--color-surface-2)}
 .ct-amen__list{list-style:none;margin:0;padding:0}
 .ct-amen__item{position:relative;display:flex;align-items:center;gap:8px;padding-inline-start:28px;line-height:1.5;color:var(--color-heading)}
 .ct-amen__item+.ct-amen__item{margin-top:8px}
@@ -113,7 +119,7 @@ const AMENITY_CSS = `
 .ct-amen__trust{color:var(--color-ink-2);font-size:.75rem}
 .ct-amen__item--unknown,.ct-amen__item--unknown .ct-amen__icon{color:var(--color-ink-2)}
 .ct-amen__item--no .ct-amen__state{color:var(--color-ink-2)}
-@media(min-width:768px){.ct-amen__list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:24px}.ct-amen__item+.ct-amen__item{margin-top:0}.ct-amen__item{padding-block:4px}}
+@container (min-width:560px){.ct-amen__list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:24px}.ct-amen__item+.ct-amen__item{margin-top:0}.ct-amen__item{padding-block:4px}}
 `;
 
 export default function AmenityList({
