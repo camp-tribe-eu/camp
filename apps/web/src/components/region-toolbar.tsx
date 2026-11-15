@@ -17,10 +17,13 @@ import {
   withAmenity,
   without,
   withSort,
+  withStyle,
   withType,
   withUnknown,
   type HubQuery,
+  type StyleLabels,
 } from '@/lib/hub-filters';
+import type { StyleChip } from '@/lib/travel-styles';
 import { ButtonLink } from '@/components/button';
 
 /**
@@ -167,6 +170,7 @@ const TOOLBAR_CSS = `
 .ct-filters__group + .ct-filters__group{margin-top:16px}
 .ct-filters__label{display:flex;align-items:center;gap:12px;margin:0 0 8px;font-size:.875rem;font-weight:500;line-height:1.333;color:var(--color-ink-2)}
 .ct-chips{display:flex;flex-wrap:wrap;gap:8px}
+.ct-filters__note{margin:8px 0 0;font-size:.875rem;line-height:1.5;color:var(--color-ink-2)}
 .ct-check{display:inline-flex;align-items:center;gap:12px;padding:12px 16px;line-height:1.5;border-radius:var(--r,16px);border:1px solid var(--color-line);background-color:var(--color-surface);color:var(--color-heading);text-decoration:none;transition:border-color .4s,background-color .4s,color .4s,box-shadow .4s}
 .ct-check__box{position:relative;display:inline-flex;justify-content:center;align-items:center;flex-shrink:0;width:24px;height:24px;border:1px solid var(--color-line);border-radius:calc(var(--r,16px) / 2);background-color:var(--color-surface)}
 .ct-check__box svg{width:14px;height:14px;opacity:0;color:var(--color-surface);transition:opacity .2s}
@@ -197,15 +201,18 @@ export function RegionToolbar({
   q,
   data,
   pages,
+  styleLabels,
 }: {
   base: string;
   q: HubQuery;
   data: RegionListingData;
   pages: number;
+  /** CAMP-520: the CMS's names for the travel styles that are on. */
+  styleLabels?: StyleLabels;
 }) {
   const matched = data.matched;
   const unknown = data.unknownExcluded ?? 0;
-  const active = activeFilters(q);
+  const active = activeFilters(q, styleLabels);
   const filtering = isFiltering(q);
 
   return (
@@ -289,7 +296,7 @@ export function RegionToolbar({
             <b className="text-heading tabular-nums">{matched}</b>{' '}
             {matched === 1 ? 'site matches' : 'sites match'}
             {pages > 1 && ` · page ${q.page} of ${pages}`}
-            {unknown > 0 && !q.includeUnknown && (
+            {unknown > 0 && !q.includeUnknown && q.amenities.length > 0 && (
               <>
                 {' · '}
                 {unknown} more where nobody recorded {amenityList(q)} —{' '}
@@ -338,10 +345,17 @@ export function RegionFilterPanel({
   base,
   q,
   data,
+  styles,
 }: {
   base: string;
   q: HubQuery;
   data: RegionListingData;
+  /**
+   * CAMP-520: the travel-style chips to draw, already decided by
+   * `styleChips` (lib/travel-styles.ts) — named by the CMS, counted by the
+   * API, offered by the region's own coverage. Empty or absent: no group.
+   */
+  styles?: { group: string; chips: StyleChip[]; mapNote: string };
 }) {
   const facets = data.facets;
   return (
@@ -377,6 +391,34 @@ export function RegionFilterPanel({
           ))}
         </div>
       </div>
+      {styles && styles.chips.length > 0 && (
+        <div className="ct-filters__group" data-testid="travel-styles">
+          <p className="ct-filters__label">{styles.group}</p>
+          <div className="ct-chips">
+            {styles.chips.map((c) => (
+              <CheckChip
+                key={c.key}
+                href={hubHref(base, withStyle(q, c.key))}
+                on={q.styles.includes(c.key)}
+                count={c.count}
+              >
+                {c.label}
+              </CheckChip>
+            ))}
+          </div>
+          {/* 🔴 The caveat stands with the chip, always: what share of
+              the region the filter can speak about at all. */}
+          {styles.chips.map((c) => (
+            <p key={c.key} className="ct-filters__note">
+              {c.coverage}
+            </p>
+          ))}
+          {/* The region map filters in the browser from data that carries
+              no styles (region-map.tsx), so with a style on it shows more
+              than the list — said here rather than left to be noticed. */}
+          {q.styles.length > 0 && <p className="ct-filters__note">{styles.mapNote}</p>}
+        </div>
+      )}
     </nav>
   );
 }
