@@ -62,22 +62,14 @@ const ITEMS: Item[] = [
 
 export default function RentalChecklist() {
   return (
-    <section
-      data-testid="rental-checklist"
-      aria-labelledby="checklist-heading"
-      className="mt-12"
-    >
-      <h2 id="checklist-heading" className="text-2xl text-heading">
-        Eight questions to ask before you sign
-      </h2>
-      <Block as="p" measure="read" className="mt-3 text-ink-2">
-        None of these has a number we can give you, because none of them has
-        a number that is the same twice. What they have in common is that the
-        answer is cheap to obtain before the booking and expensive to
-        discover after it.
+    <div data-testid="rental-checklist">
+      <Block as="p" measure="read" className="text-ink-2">
+        None of these has a number that is the same twice. What they have in
+        common is that the answer is cheap to obtain before the booking and
+        expensive to discover after it.
       </Block>
 
-      <ol className="mt-6 space-y-5">
+      <ol className="mt-4 space-y-4">
         {ITEMS.map((item, i) => (
           <li
             key={item.q}
@@ -103,6 +95,6 @@ export default function RentalChecklist() {
           </li>
         ))}
       </ol>
-    </section>
+    </div>
   );
 }
