@@ -119,7 +119,10 @@ async function waitForState(
         'може завершитись успіхом ніколи.',
     );
   }
-  await page.waitForSelector(sel, { timeout });
+  // CAMP-454: на телефоні нотатка про пожежі лежить у закритій шухляді
+  // налаштувань — вузол є, але невидимий. Чекаємо на ВУЗОЛ, бо далі
+  // перевіряється атрибут стану, а не видимість.
+  await page.waitForSelector(sel, { state: 'attached', timeout });
   try {
     // 🔴 ПРЕДИКАТ ПОВЕРТАЄ САМЕ ЗНАЧЕННЯ, А НЕ `true` (CAMP-473).
     // `waitForFunction` віддає хендл на те, що повернув предикат, тож
