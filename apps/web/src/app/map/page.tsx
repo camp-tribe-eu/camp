@@ -67,7 +67,7 @@ export default async function MapPage() {
   const mapOnly = onTheMap - browsable;
 
   return (
-    <main className="mx-auto max-w-wrap px-4 py-8 xl:px-6">
+    <main className="mx-auto max-w-wrap px-4 py-6 xl:px-6">
       {/* 🔴 The markup describes the country list, not the map. A crawler
           never runs the map, so claiming this page "contains" every
           campsite would be describing something no machine can see
@@ -97,14 +97,24 @@ export default async function MapPage() {
           }),
         )}
       />
-      <h1 className="text-3xl md:text-[42px]">Campsite map</h1>
-      <Block as="p" measure="read" className="mt-3 text-ink-2">
-        {onTheMap.toLocaleString('en-GB')} campsites and motorhome parks
-        are on this map. Each point is a real entry — nothing is placed
-        approximately.
-      </Block>
-
-      <div className="mt-6">
+      {/* 🔴 CAMP-454. Сітка сторінки: від lg зліва заголовок, лічильник і
+          налаштування, справа мапа на висоту вікна; нижче lg — мапа на весь
+          екран і шухляда налаштувань. Заголовок лишається в серверному HTML
+          (мапа без JS не рендериться), а клієнтський компонент віддає решту
+          клітинок цієї ж сітки. `data-map-page` — те, що розгортає кнопка
+          «Full screen» (Fullscreen API, запасний варіант — CSS нижче). */}
+      <div
+        data-map-page
+        className="flex flex-col gap-3 lg:grid lg:h-[max(640px,calc(100dvh-7rem))] lg:grid-cols-[minmax(340px,420px)_minmax(0,1fr)] lg:grid-rows-[auto_auto_minmax(0,1fr)] lg:gap-x-6 lg:gap-y-3 data-[fullscreen=true]:fixed data-[fullscreen=true]:inset-0 data-[fullscreen=true]:z-[70] data-[fullscreen=true]:h-dvh data-[fullscreen=true]:overflow-auto data-[fullscreen=true]:bg-bg data-[fullscreen=true]:p-4 data-[fullscreen=true]:lg:grid"
+      >
+        <header className="max-lg:order-1 lg:col-start-1 lg:row-start-1">
+          <h1 className="text-3xl md:text-[42px]">Campsite map</h1>
+          <Block as="p" measure="read" className="mt-3 text-ink-2">
+            {onTheMap.toLocaleString('en-GB')} campsites and motorhome parks
+            are on this map. Each point is a real entry — nothing is placed
+            approximately.
+          </Block>
+        </header>
         <MapEmbed />
       </div>
 

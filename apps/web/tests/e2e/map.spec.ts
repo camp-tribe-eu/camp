@@ -1,4 +1,5 @@
 import { expect, test, type Page } from './api-request';
+import { openSettings } from './open-map';
 import { AMENITY_KEYS } from '@/lib/api';
 import { INITIAL_VIEW } from '@/lib/map-sources';
 
@@ -361,6 +362,8 @@ test.describe('/map', () => {
     });
 
     await page.goto('/map');
+
+    await openSettings(page);
     await skipWithoutWebGL(page);
     await expect(map(page)).toBeVisible();
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible();
@@ -415,6 +418,7 @@ test.describe('/map', () => {
   }) => {
     await stubStyles(page);
     await page.goto('/map');
+    await openSettings(page);
     await skipWithoutWebGL(page);
     await expect(map(page)).toBeVisible();
 
@@ -699,6 +703,8 @@ test.describe('/map', () => {
     });
 
     await page.goto('/map');
+
+    await openSettings(page);
     await skipWithoutWebGL(page);
     await expect(map(page)).toBeVisible();
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible();
@@ -748,6 +754,7 @@ test.describe('/map', () => {
       })),
     );
     await page.goto('/map');
+    await openSettings(page);
     await skipWithoutWebGL(page);
     await expect(map(page)).toBeVisible();
 
@@ -781,6 +788,7 @@ test.describe('/map', () => {
     // the card and not about finding a marker.
     await stubSpots(page, [{ ...CENTRE, name: 'Fixture campsite 0' }]);
     await page.goto('/map');
+    await openSettings(page);
     await skipWithoutWebGL(page);
     await expect(map(page)).toBeVisible();
 
@@ -835,6 +843,7 @@ test.describe('/map', () => {
   }) => {
     const asked = await stubStyles(page);
     await page.goto('/map');
+    await openSettings(page);
     await skipWithoutWebGL(page);
     await expect(map(page)).toBeVisible();
     await expect.poll(() => asked.length).toBeGreaterThan(0);
@@ -870,6 +879,8 @@ test.describe('/map', () => {
     const asked = await stubStyles(page, ['liberty']);
 
     await page.goto('/map');
+
+    await openSettings(page);
     await skipWithoutWebGL(page);
     await expect(map(page)).toBeVisible();
 
@@ -897,6 +908,8 @@ test.describe('/map', () => {
     );
 
     await page.goto('/map');
+
+    await openSettings(page);
     await skipWithoutWebGL(page);
     await expect(page.getByTestId('map-fallback')).toContainText(
       'could not be loaded from any of our sources',
@@ -941,6 +954,8 @@ test.describe('/map', () => {
 
     await page.goto('/map');
 
+    await openSettings(page);
+
     await expect(page.getByTestId('map-unsupported')).toBeVisible();
     await expect(page.getByTestId('map-unsupported')).toContainText('WebGL');
 
@@ -966,6 +981,7 @@ test.describe('/map', () => {
     const context = await browser.newContext({ javaScriptEnabled: false });
     const page = await context.newPage();
     await page.goto('/map');
+    await openSettings(page);
 
     await expect(
       page.getByRole('heading', { name: 'Campsite map' }),

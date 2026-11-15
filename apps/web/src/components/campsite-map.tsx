@@ -49,6 +49,7 @@ import {
 } from "@/lib/map-palette";
 import { LayerChip } from "./layer-chip";
 import { WildfirePanel } from "./wildfire-panel";
+import { droughtBeforeId, underBaseLabels } from "@/lib/map-layer-order";
 import { DroughtLayerPanel } from "./drought-layer-panel";
 import { WarningPanel } from "./warning-panel";
 import { canCountSpots, levelByZone, levelForSpot } from "@/lib/map-hazard";
@@ -154,6 +155,11 @@ const FIRE_FILL = "wildfire-areas";
 const FIRE_LINE = "wildfire-outlines";
 /** Invisible, and the only thing a reader can realistically hit. */
 const FIRE_HIT = "wildfire-hit";
+/** Усе, що додали ми, а не основа — для `droughtBeforeId`. */
+const OUR_LAYERS: ReadonlySet<string> = new Set([
+  DROUGHT_LAYER, FIRE_FILL, FIRE_LINE, FIRE_HIT, REGION_CIRCLE, REGION_COUNT,
+  SATELLITE_LAYER, CLUSTER_LAYER, COUNT_LAYER, POINT_LAYER, HAZARD_HALO,
+]);
 /** Everything under the pointer that means "a burnt area": the inside of a
  * big perimeter and the halo around a small one. */
 const FIRE_CLICK_LAYERS = [FIRE_FILL, FIRE_HIT];
@@ -431,12 +437,18 @@ function attachDrought(
           // sees from it, and a bare 0.65 was the one thing none of them
           // could read.
           "raster-opacity": DROUGHT_RASTER_OPACITY,
-          // A 4.6 km cell is drawn as the block it is, never smoothed.
-          "raster-resampling": "nearest",
+          // 🔴 CAMP-454: ЗГЛАДЖЕНО. Було `nearest`: клітинка 4,6 км малювалась
+          // квадратом із сходинками — власник: «жахливо піксельно, у Windy
+          // красиво і плавно». `linear` інтерполює між центрами клітинок;
+          // у самому центрі колір той самий, що в легенді, тож контракт
+          // палітри (check-map-palette.mjs) стоїть на центрах, а не на краях.
+          "raster-resampling": "linear",
           "raster-fade-duration": 0,
         },
       },
-      m.getLayer(FIRE_FILL) ? FIRE_FILL : undefined,
+      // 🔴 CAMP-454: ПІД ПІДПИСАМИ ОСНОВИ. Перед першим символьним шаром
+      // самої основи, а не наших — див. `map-layer-order.ts`.
+      droughtBeforeId(m.getStyle().layers ?? [], OUR_LAYERS),
     );
   } else if (
     (m.getLayoutProperty(DROUGHT_LAYER, "visibility") === "visible") !== visible
@@ -473,6 +485,12 @@ function tryAttachDrought(
 }
 
 /** Is the drought picture on the map, and showing, right now? Asked of the map, not remembered. */
+/** CAMP-454: чи шар посухи під підписами основи — питаємо в стилю, а не памʼятаємо. */
+function droughtUnderLabels(m: InstanceType<typeof MapLibreMap> | null): string {
+  if (!m || !m.getLayer(DROUGHT_LAYER)) return "n/a";
+  return underBaseLabels(m.getStyle().layers ?? [], OUR_LAYERS, DROUGHT_LAYER);
+}
+
 function droughtIsDrawn(m: InstanceType<typeof MapLibreMap> | null): boolean {
   return (
     !!m &&
@@ -859,6 +877,63 @@ export default function CampsiteMap() {
 
   const active = MAP_SOURCES.find((s) => s.id === sourceId) ?? MAP_SOURCES[0];
 
+  // CAMP-454. Шухляда налаштувань (лише нижче lg) і повний екран.
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const stage = useRef<HTMLDivElement>(null);
+
+  /** Те, що розгортається: уся сітка сторінки (колонка + мапа), а не одне полотно. */
+  const pageRoot = () =>
+    stage.current?.closest<HTMLElement>("[data-map-page]") ?? null;
+
+  const toggleFullscreen = () => {
+    const root = pageRoot();
+    if (!root) return;
+    if (fullscreen) {
+      if (document.fullscreenElement) void document.exitFullscreen();
+      setFullscreen(false);
+      return;
+    }
+    // 🔴 Fullscreen API, а запасний — CSS (`data-fullscreen`). iPhone Safari
+    // не вміє розгортати елемент, і `requestFullscreen` там або відсутній,
+    // або відхиляє обіцянку. Кнопка, що мовчки нічого не робить на телефоні,
+    // гірша за відсутню — тож відмова не питає дозволу, а вмикає CSS.
+    setFullscreen(true);
+    if (root.requestFullscreen) {
+      root.requestFullscreen().catch(() => {});
+    }
+  };
+
+  useEffect(() => {
+    const root = pageRoot();
+    if (!root) return;
+    if (fullscreen) root.dataset.fullscreen = "true";
+    else delete root.dataset.fullscreen;
+    const el = container.current;
+    if (el) el.dataset.fullscreen = fullscreen ? "yes" : "no";
+    // Полотно мусить дізнатись про новий розмір.
+    const t = window.setTimeout(() => map.current?.resize(), 50);
+    return () => window.clearTimeout(t);
+  }, [fullscreen]);
+
+  useEffect(() => {
+    // Вихід клавішею Esc із нативного повного екрана — теж вихід.
+    const onChange = () => {
+      if (!document.fullscreenElement) setFullscreen(false);
+    };
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+
+  useEffect(() => {
+    // Колонка й шухляда міняють висоту полотна без події вікна.
+    const el = container.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => map.current?.resize());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   // Created once. Changing the style afterwards goes through setStyle,
   // because re-creating the map would throw away the reader's position.
   useEffect(() => {
@@ -938,6 +1013,7 @@ export default function CampsiteMap() {
       // to wait for the style actually goes on the map.
       if (container.current) {
         container.current.dataset.droughtDrawn = droughtIsDrawn(m) ? "1" : "0";
+        container.current.dataset.droughtUnderLabels = droughtUnderLabels(m);
       }
       attachFires(m);
       if (!m.getSource(SOURCE_ID)) {
@@ -2102,7 +2178,10 @@ export default function CampsiteMap() {
       droughtImage.current = built;
     }
     if (m) tryAttachDrought(m, droughtImage.current, shown);
-    if (el) el.dataset.droughtDrawn = droughtIsDrawn(m) ? "1" : "0";
+    if (el) {
+      el.dataset.droughtDrawn = droughtIsDrawn(m) ? "1" : "0";
+      el.dataset.droughtUnderLabels = droughtUnderLabels(m);
+    }
   };
   const drawDroughtRef = useRef(drawDrought);
   drawDroughtRef.current = drawDrought;
@@ -2400,7 +2479,7 @@ export default function CampsiteMap() {
       <p
         role="status"
         data-testid="map-unsupported"
-        className="rounded-card border border-line-2 bg-surface p-4 text-sm text-ink-2"
+        className="max-lg:order-2 lg:col-span-2 rounded-card border border-line-2 bg-surface p-4 text-sm text-ink-2"
       >
         This browser cannot display the interactive map — it needs WebGL, which
         is switched off or unavailable here. Every campsite is still reachable
@@ -2410,7 +2489,112 @@ export default function CampsiteMap() {
   }
 
   return (
-    <div>
+    <>
+      {/* 🔴 CAMP-454. ДВІ КОЛОНКИ: зліва налаштування, справа мапа на всю
+          висоту. Компонент віддає ФРАГМЕНТ із трьох клітинок сітки сторінки
+          (`app/map/page.tsx` тримає сітку й заголовок у серверному HTML, бо
+          мапа без JS не рендериться): смуга з лічильником, панель
+          налаштувань і сцена.
+
+          🔴 ЛІЧИЛЬНИК І ПОВІДОМЛЕННЯ ПРО СТАН — ПОЗА ШУХЛЯДОЮ, на будь-якій
+          ширині. «N campsites in view» (CAMP-297) і «дані не завантажились»
+          (CAMP-127) — відповідь мапи, а не налаштування: сховані за
+          кнопкою, вони б мовчали саме тоді, коли треба сказати. */}
+      <div
+        data-testid="map-bar"
+        className="max-lg:order-2 lg:col-start-1 lg:row-start-2"
+      >
+        {/* 🔴 The in-view numbers, not the fetched ones. CAMP-133: the
+            denominator a reader is given has to be a set they can see. */}
+        {/* 🔴 CAMP-297: лічильник НАД панеллю. Усередині неї він лежав
+            на 756 px і на телефоні 844 px був на самій межі екрана, а
+            на коротшому — за нею. */}
+        <MapCount
+          shown={tally.inViewShown}
+          total={tally.inViewTotal}
+          dataState={dataState}
+          state={filters}
+          overnight={tally.inViewOvernight}
+        />
+
+        <ZeroResultBeacon
+          ready={dataState.kind === "ready"}
+          shown={tally.inViewShown}
+          total={tally.inViewTotal}
+          state={filters}
+        />
+
+        
+        <button
+          type="button"
+          data-testid="map-settings-toggle"
+          aria-expanded={settingsOpen}
+          aria-controls="map-settings"
+          onClick={() => setSettingsOpen((o) => !o)}
+          className="mt-3 inline-flex min-h-12 items-center rounded-card border border-line-2 bg-surface px-4 text-sm font-semibold text-heading lg:hidden"
+        >
+          {settingsOpen ? "Close settings" : "Layers and filters"}
+        </button>
+      {/* 🔴 CAMP-127: what the map is doing, in words, above the canvas.
+          
+          The defect this replaces: the data request answered 500, the
+          catch swallowed it, and the panel read "0 campsites" over an
+          empty map. A reader reads that as "there are none here". Now
+          loading says loading, a failure says what failed, and a view
+          too wide for markers says what the circles are. A working map
+          says nothing at all — silence is reserved for the one case
+          where it is true. */}
+      {dataMessage(dataState) && (
+        <p
+          role="status"
+          data-testid="map-data-state"
+          data-kind={dataState.kind}
+          className={
+            "mt-3 rounded border p-3 text-sm " +
+            (dataState.kind === "failed"
+              ? "border-warn/40 bg-warn/5 text-ink-2"
+              : "border-line-2 bg-surface text-ink-2")
+          }
+        >
+          {dataMessage(dataState)}
+        </p>
+      )}
+      {failed && (
+        <p
+          role="status"
+          data-testid="map-fallback"
+          className="mt-3 rounded border border-warn/40 bg-warn/5 p-3 text-sm text-ink-2"
+        >
+          {failed === "all" ? (
+            <>
+              The map could not be loaded from any of our sources. Every
+              campsite is still reachable from the country list below.
+            </>
+          ) : (
+            <>
+              {failed} did not respond, so the map switched to {active.label}.
+            </>
+          )}
+        </p>
+      )}
+      </div>
+
+      {/* Налаштування. Від lg колонка зліва, що прокручується сама; нижче
+          шухляда знизу, закрита, доки читач не попросить. Закрита, вона
+          `hidden`, а не лише зсунута: інакше клавіатура ходила б по
+          елементах, яких не видно. */}
+      <aside
+        id="map-settings"
+        data-testid="map-settings"
+        aria-label="Map settings"
+        data-open={settingsOpen ? "yes" : "no"}
+        className={
+          (settingsOpen ? "" : "max-lg:hidden ") +
+          "max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:z-[var(--layer-overlay)] max-lg:max-h-[42dvh] max-lg:overflow-y-auto max-lg:rounded-t-card max-lg:border max-lg:border-line-2 max-lg:bg-bg max-lg:p-4 max-lg:shadow-lg " +
+          "lg:col-start-1 lg:row-start-3 lg:min-h-0 lg:overflow-y-auto lg:pb-24 lg:pr-1"
+        }
+      >
+        <MapSection title="Layers">
       {/* CAMP-122's registry, finally load-bearing: only layers marked
           live are offered, so a switch is never a promise.
 
@@ -2425,9 +2609,6 @@ export default function CampsiteMap() {
           sentence for it, which is CAMP-122's work and not this card's to
           do badly. */}
       <div className="flex flex-wrap items-center gap-x-2 gap-y-3">
-        <span className="text-xs font-semibold uppercase tracking-[0.1em] text-ink-2">
-          Layers
-        </span>
         <div
           role="group"
           aria-label="Layers"
@@ -2446,10 +2627,9 @@ export default function CampsiteMap() {
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-3">
-        <span className="text-xs font-semibold uppercase tracking-widest text-ink-2">
-          Map style
-        </span>
+        </MapSection>
+        <MapSection title="Map style">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-3">
         <div
           role="group"
           aria-label="Map style"
@@ -2503,126 +2683,14 @@ export default function CampsiteMap() {
         )}
       </div>
 
-      {failed && (
-        <p
-          role="status"
-          data-testid="map-fallback"
-          className="mt-3 rounded border border-warn/40 bg-warn/5 p-3 text-sm text-ink-2"
-        >
-          {failed === "all" ? (
-            <>
-              The map could not be loaded from any of our sources. Every
-              campsite is still reachable from the country list below.
-            </>
-          ) : (
-            <>
-              {failed} did not respond, so the map switched to {active.label}.
-            </>
-          )}
-        </p>
-      )}
-
-      {/* 🔴 Above the map, not floating over it. A panel overlaying the
-          canvas has to shrink or hide on a phone, and CAMP-35 carries the
-          UST-466 lesson about a block that silently vanished in one
-          display mode. Here the map gets shorter and every control stays
-          exactly where it was. */}
-      <div className="mt-3">
-        {/* 🔴 The in-view numbers, not the fetched ones. CAMP-133: the
-            denominator a reader is given has to be a set they can see. */}
-        {/* 🔴 CAMP-297: лічильник НАД панеллю. Усередині неї він лежав
-            на 756 px і на телефоні 844 px був на самій межі екрана, а
-            на коротшому — за нею. */}
-        <MapCount
-          shown={tally.inViewShown}
-          total={tally.inViewTotal}
-          dataState={dataState}
-          state={filters}
-          overnight={tally.inViewOvernight}
-        />
-
-        <ZeroResultBeacon
-          ready={dataState.kind === "ready"}
-          shown={tally.inViewShown}
-          total={tally.inViewTotal}
-          state={filters}
-        />
-
-        <MapFilters
+        </MapSection>
+        <MapSection title="Campsites">
+<MapFilters
           state={filters}
           onChange={setFilters}
           unknownExcluded={tally.inViewUnknownExcluded}
         />
-      </div>
-
-      {/* 🔴 CAMP-127: what the map is doing, in words, above the canvas.
-          
-          The defect this replaces: the data request answered 500, the
-          catch swallowed it, and the panel read "0 campsites" over an
-          empty map. A reader reads that as "there are none here". Now
-          loading says loading, a failure says what failed, and a view
-          too wide for markers says what the circles are. A working map
-          says nothing at all — silence is reserved for the one case
-          where it is true. */}
-      {dataMessage(dataState) && (
-        <p
-          role="status"
-          data-testid="map-data-state"
-          data-kind={dataState.kind}
-          className={
-            "mt-3 rounded border p-3 text-sm " +
-            (dataState.kind === "failed"
-              ? "border-warn/40 bg-warn/5 text-ink-2"
-              : "border-line-2 bg-surface text-ink-2")
-          }
-        >
-          {dataMessage(dataState)}
-        </p>
-      )}
-
-      <div
-        ref={container}
-        data-testid="map"
-        // 🔴 What the map is doing, so a test can wait for a state to
-        // BE rather than for a message to be absent.
-        //
-        // The spec comparing the map against the API read the counts the
-        // moment any marker arrived, while the remaining chunks for the
-        // viewport were still in flight \u2014 and compared a half-loaded map
-        // with a complete API answer. Waiting on the absence of the
-        // status line would have the same hole the search had: absent is
-        // also true before React has rendered anything.
-        data-map-state={dataState.kind}
-        // 🔴 CAMP-169: `data-camera` ('moving' | 'still') lives on this
-        // element too, but it is written by the map's own events and not
-        // from here — see the `movestart` handler and the effect on
-        // [tally, dataState]. `ready` says nothing is being fetched; only
-        // `still` says the camera has stopped AND that what `refresh`
-        // publishes for the view it stopped on is in the DOM: the drawn
-        // numbers (`data-bounds`, `data-in-view`) in both of its branches,
-        // and the tally in the detail one. The wide branch has no tally to
-        // give — the panel says "zoom in" there — so `data-in-view-total`
-        // and `data-shown` keep whatever the last detail view left.
-        data-active-source={active.id}
-        // 🔴 Two scopes, and each says which it is.
-        //
-        // `shown` / `total` / `unknown-excluded` are over everything
-        // FETCHED — the map's bookkeeping, and the barrier a spec uses
-        // for "a chunk has arrived".
-        //
-        // `in-view-*` are over the visible area: they are the numbers
-        // the panel prints, so a spec can check the sentence against
-        // them instead of against a set the reader cannot see.
-        // `data-in-view` itself is written by `publishDrawn`, from the
-        // same `withinView` rule, whenever the drawn set changes.
-        data-shown={tally.shown}
-        data-total={tally.total}
-        data-unknown-excluded={tally.unknownExcluded}
-        data-in-view-total={tally.inViewTotal}
-        data-in-view-unknown-excluded={tally.inViewUnknownExcluded}
-        className="h-[60vh] min-h-[360px] w-full overflow-hidden rounded-card border border-line-2"
-      />
-
+      
       {/* 🔴 CAMP-222. Colour is never the only channel (WCAG 1.4.1).
           Five fills nobody can decode are decoration; this is what turns
           them into information, and it works for a reader who cannot
@@ -2656,7 +2724,8 @@ export default function CampsiteMap() {
           </li>
         ))}
       </ul>
-
+        </MapSection>
+        <MapSection title="Layer notes">
       {/* CAMP-153, CAMP-162. The fire layer always says something — see
           the component for why, and why it is a component: the words
           beside Copernicus data are a licence matter, and a check can
@@ -2701,7 +2770,67 @@ export default function CampsiteMap() {
           </>
         );
       })()}
+        </MapSection>
+      </aside>
 
+      <div
+        ref={stage}
+        data-testid="map-stage"
+        className="relative flex flex-col max-lg:order-3 lg:col-start-2 lg:row-span-3 lg:row-start-1 lg:min-h-0"
+      >
+        <div className="relative min-h-[420px] flex-1 max-lg:h-[calc(100dvh-9rem)] max-lg:flex-none">
+      <div
+        ref={container}
+        data-testid="map"
+        // 🔴 What the map is doing, so a test can wait for a state to
+        // BE rather than for a message to be absent.
+        //
+        // The spec comparing the map against the API read the counts the
+        // moment any marker arrived, while the remaining chunks for the
+        // viewport were still in flight \u2014 and compared a half-loaded map
+        // with a complete API answer. Waiting on the absence of the
+        // status line would have the same hole the search had: absent is
+        // also true before React has rendered anything.
+        data-map-state={dataState.kind}
+        // 🔴 CAMP-169: `data-camera` ('moving' | 'still') lives on this
+        // element too, but it is written by the map's own events and not
+        // from here — see the `movestart` handler and the effect on
+        // [tally, dataState]. `ready` says nothing is being fetched; only
+        // `still` says the camera has stopped AND that what `refresh`
+        // publishes for the view it stopped on is in the DOM: the drawn
+        // numbers (`data-bounds`, `data-in-view`) in both of its branches,
+        // and the tally in the detail one. The wide branch has no tally to
+        // give — the panel says "zoom in" there — so `data-in-view-total`
+        // and `data-shown` keep whatever the last detail view left.
+        data-active-source={active.id}
+        // 🔴 Two scopes, and each says which it is.
+        //
+        // `shown` / `total` / `unknown-excluded` are over everything
+        // FETCHED — the map's bookkeeping, and the barrier a spec uses
+        // for "a chunk has arrived".
+        //
+        // `in-view-*` are over the visible area: they are the numbers
+        // the panel prints, so a spec can check the sentence against
+        // them instead of against a set the reader cannot see.
+        // `data-in-view` itself is written by `publishDrawn`, from the
+        // same `withinView` rule, whenever the drawn set changes.
+        data-shown={tally.shown}
+        data-total={tally.total}
+        data-unknown-excluded={tally.unknownExcluded}
+        data-in-view-total={tally.inViewTotal}
+        data-in-view-unknown-excluded={tally.inViewUnknownExcluded}
+        className="h-full min-h-[420px] w-full overflow-hidden rounded-card border border-line-2"
+      />
+          <button
+            type="button"
+            data-testid="map-fullscreen"
+            aria-pressed={fullscreen}
+            onClick={toggleFullscreen}
+            className="absolute right-2.5 top-[120px] z-10 inline-flex min-h-12 items-center rounded-card border border-line-2 bg-surface px-4 text-sm font-semibold text-heading shadow"
+          >
+            {fullscreen ? "Exit full screen" : "Full screen"}
+          </button>
+        </div>
       {/* 🔴 THE SATELLITE CREDIT HAS TO LIVE HERE TOO, not only in
           MapLibre's own control. That control is built with
           `compact: true`, and `_updateCompactMinimize` strips
@@ -2720,7 +2849,26 @@ export default function CampsiteMap() {
           ? ` · ${satelliteSource.attribution}`
           : ""}
       </p>
-    </div>
+      </div>
+    </>
+  );
+}
+
+/** Titled group in the settings column. */
+function MapSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="mb-5 border-b border-line-2 pb-5 last:border-b-0">
+      <h2 className="mb-3 text-xs uppercase tracking-[0.1em] text-ink-2">
+        {title}
+      </h2>
+      {children}
+    </section>
   );
 }
 

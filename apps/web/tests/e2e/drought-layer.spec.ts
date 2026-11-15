@@ -120,13 +120,25 @@ const uniform = (value: number) =>
 const STUB_LAND = '#e8e8e8';
 
 /** A flat, local basemap, so the pixels are ours. See wildfire-layer.spec.ts. */
-async function stubStyles(page: Page, land: string = STUB_LAND) {
+async function stubStyles(page: Page, land: string = STUB_LAND, withLabels = false) {
   await page.route('**/styles/*', async (route) => {
     await route.fulfill({
       json: {
         version: 8,
-        sources: {},
-        layers: [{ id: 'bg', type: 'background', paint: { 'background-color': land } }],
+        // CAMP-454: a base style with labels, so the layer's place in the
+        // order can be asked of a map that has something to be under.
+        sources: withLabels
+          ? { pts: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } } }
+          : {},
+        layers: [
+          { id: 'bg', type: 'background', paint: { 'background-color': land } },
+          ...(withLabels
+            ? [
+                { id: 'base-label-a', type: 'symbol', source: 'pts', layout: { 'icon-image': 'none' } },
+                { id: 'base-label-b', type: 'symbol', source: 'pts', layout: { 'icon-image': 'none' } },
+              ]
+            : []),
+        ],
       },
     });
   });
@@ -184,8 +196,8 @@ async function skipWithoutWebGL(page: Page) {
  * rate-limits). Вікно повторів зв'язане ЧАСОМ — чому саме так, написано
  * в `open-map.ts`.
  */
-async function openMap(page: Page, land: string = STUB_LAND) {
-  await stubStyles(page, land);
+async function openMap(page: Page, land: string = STUB_LAND, withLabels = false) {
+  await stubStyles(page, land, withLabels);
   await openMapRetryingThrottle(page, { mapSelector: MAP, afterGoto: skipWithoutWebGL });
 }
 
@@ -547,6 +559,30 @@ test.describe('the colour maths the pixel checks use', () => {
 });
 
 test.describe('the picture', () => {
+  test('🔴 CAMP-454: it sits UNDER the base map labels, read from the style the map really holds', async ({ page }) => {
+    // The attribute is written from `map.getStyle().layers`, not remembered:
+    // `yes` means no label layer of the base style is below the drought
+    // layer. Mutation: take the `beforeId` argument out of `addLayer` in
+    // `attachDrought` (campsite-map.tsx) and this reads `no`.
+    await page.clock.setFixedTime(clockAt(27));
+    await serveDrought(page, uniform(3));
+    await stubSpots(page, []);
+    await openMap(page, STUB_LAND, true);
+    await mapReady(page);
+    await switchOn(page);
+    const map = page.locator(MAP);
+    await expect(map).toHaveAttribute('data-drought-drawn', '1');
+    await expect(map).toHaveAttribute('data-drought-under-labels', 'yes');
+    // And it survives a basemap change: setStyle drops the layer, `attach` restores it.
+    const other = page.locator('[data-source]:not([aria-pressed="true"])').first();
+    const id = await other.getAttribute('data-source');
+    await other.click();
+    await expect(map).toHaveAttribute('data-active-source', id!);
+    await page.waitForTimeout(1000);
+    await expect(map).toHaveAttribute('data-drought-drawn', '1');
+    await expect(map).toHaveAttribute('data-drought-under-labels', 'yes');
+  });
+
   test('🔴 it really reaches the canvas: the same map with the layer on and off differs', async ({ page, browserName }) => {
     test.skip(cameraUnreliable(browserName), 'WebKit on Linux cannot photograph a canvas — see wildfire-layer.spec.ts');
     // The words say the layer is drawn; this proves it. Class 3 everywhere,
@@ -624,7 +660,15 @@ test.describe('the picture', () => {
 
     // Only look at pixels well away from a cell edge: the overlay is rows of
     // about 1.5 km, and a pixel on the edge of a degree is a coin toss.
-    const away = (v: number) => Math.abs(v - Math.round(v)) > 0.08;
+    //
+    // 🔴 CAMP-454: 0.2°, not 0.08°. The layer is resampled LINEARLY now (it
+    // was `nearest`, the blocky squares the owner called pixelated), so a
+    // class edge is a ramp about one source cell (0.25°) wide, centred on the
+    // edge: ±0.125°. 0.2° leaves the ramp out and keeps the interior exact —
+    // the compositing check below still holds to the same 3/255. A pixel on
+    // the ramp measured 235,197,98 against a wanted 238,229,106 at 0.08°.
+    const MARGIN = 0.2;
+    const away = (v: number) => Math.abs(v - Math.round(v)) > MARGIN;
     const BASE = 232;
     const blend = (hex: string, alpha: number): number[] => {
       const eff = (0.76 * alpha) / 255;
@@ -643,10 +687,12 @@ test.describe('the picture', () => {
     // right and the attribution strip along the bottom.
     for (let y = 30; y < box.height - 45; y += 17) {
       for (let x = 30; x < box.width - 30; x += 23) {
-        if (x > box.width - 80 && y < 100) continue;
+        // CAMP-454: the Full screen button sits under the zoom buttons
+        // (top 120–168 px, about 130 px wide), so the corner to avoid grew.
+        if (x > box.width - 160 && y < 200) continue;
         const lat = latAt(y);
         const lon = lonAt(x);
-        if (!away(lat) || !away(lon) || Math.abs(lon - 14.5) < 0.08) continue;
+        if (!away(lat) || !away(lon) || Math.abs(lon - 14.5) < MARGIN) continue;
         spots.push({ at: [x, y], ...want(lat, lon) });
       }
     }

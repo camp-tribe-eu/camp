@@ -34,14 +34,22 @@ const DID_NOT_LOAD = 'This page did not load properly';
 
 export async function openMapRetryingThrottle(
   page: Page,
-  opts: { mapSelector: string; afterGoto?: (p: Page) => Promise<void> },
+  opts: {
+    mapSelector: string;
+    afterGoto?: (p: Page) => Promise<void>;
+    /** CAMP-454: лишити шухляду налаштувань закритою (тест самої шухляди). */
+    keepSettingsClosed?: boolean;
+  },
 ): Promise<void> {
   const deadline = Date.now() + RETRY_WINDOW_MS;
   let wait = 3_000;
   for (;;) {
     await page.goto('/map');
     if (opts.afterGoto) await opts.afterGoto(page);
-    if ((await page.locator(opts.mapSelector).count()) > 0) return;
+    if ((await page.locator(opts.mapSelector).count()) > 0) {
+      if (!opts.keepSettingsClosed) await openSettings(page);
+      return;
+    }
     // Щось інше зламалось — хай тест скаже про це сам, а не про ліміт.
     if ((await page.getByText(DID_NOT_LOAD).count()) === 0) return;
     const left = deadline - Date.now();
@@ -53,4 +61,29 @@ export async function openMapRetryingThrottle(
     await page.waitForTimeout(Math.min(wait, left));
     wait += 3_000;
   }
+}
+
+/**
+ * CAMP-454. Нижче `lg` налаштування мапи лежать у шухляді, закритій за
+ * замовчуванням (мапа на весь екран). Тест, що тягнеться до шарів чи
+ * фільтрів, спершу відкриває її — рівно як читач натиснув би кнопку.
+ *
+ * 🔴 НА ШИРОКОМУ ЕКРАНІ ЦЕ НІЧОГО НЕ РОБИТЬ, бо кнопки там немає: колонка
+ * завжди відкрита. Тож десктопні проєкти й далі стверджують те саме, що й
+ * раніше, а телефонні — те саме ПІСЛЯ натискання.
+ *
+ * Чекає, поки клієнтський компонент з'явиться (мапа вантажиться з
+ * `ssr: false`), інакше «кнопки ще нема» читалось би як «кнопки нема».
+ */
+export async function openSettings(page: Page): Promise<void> {
+  await page
+    .locator('[data-testid="map-bar"],[data-testid="map-unsupported"]')
+    .first()
+    .waitFor({ state: 'attached', timeout: 20_000 })
+    .catch(() => {});
+  const toggle = page.getByTestId('map-settings-toggle');
+  if (!(await toggle.isVisible())) return;
+  if ((await toggle.getAttribute('aria-expanded')) === 'true') return;
+  await toggle.click();
+  await page.getByTestId('map-settings').waitFor({ state: 'visible' });
 }
