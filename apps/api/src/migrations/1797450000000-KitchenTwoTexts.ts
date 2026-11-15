@@ -25,8 +25,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * власник уже переписав абзац в адмінці — збігу нема, і його правку
  * ніхто не перезаписує.
  */
-export class KitchenTwoTexts1797400000000 implements MigrationInterface {
-  name = 'KitchenTwoTexts1797400000000';
+export class KitchenTwoTexts1797450000000 implements MigrationInterface {
+  name = 'KitchenTwoTexts1797450000000';
 
   /** Дослівно з `SeedHomePage`. */
   static readonly OLD_HOME_STEP =
@@ -71,26 +71,26 @@ export class KitchenTwoTexts1797400000000 implements MigrationInterface {
   public async up(q: QueryRunner): Promise<void> {
     await this.swapHome(
       q,
-      KitchenTwoTexts1797400000000.OLD_HOME_STEP,
-      KitchenTwoTexts1797400000000.NEW_HOME_STEP,
+      KitchenTwoTexts1797450000000.OLD_HOME_STEP,
+      KitchenTwoTexts1797450000000.NEW_HOME_STEP,
     );
     await this.swapPostNote(
       q,
-      KitchenTwoTexts1797400000000.OLD_POST_NOTE,
-      KitchenTwoTexts1797400000000.NEW_POST_NOTE,
+      KitchenTwoTexts1797450000000.OLD_POST_NOTE,
+      KitchenTwoTexts1797450000000.NEW_POST_NOTE,
     );
   }
 
   public async down(q: QueryRunner): Promise<void> {
     await this.swapHome(
       q,
-      KitchenTwoTexts1797400000000.NEW_HOME_STEP,
-      KitchenTwoTexts1797400000000.OLD_HOME_STEP,
+      KitchenTwoTexts1797450000000.NEW_HOME_STEP,
+      KitchenTwoTexts1797450000000.OLD_HOME_STEP,
     );
     await this.swapPostNote(
       q,
-      KitchenTwoTexts1797400000000.NEW_POST_NOTE,
-      KitchenTwoTexts1797400000000.OLD_POST_NOTE,
+      KitchenTwoTexts1797450000000.NEW_POST_NOTE,
+      KitchenTwoTexts1797450000000.OLD_POST_NOTE,
     );
   }
 }

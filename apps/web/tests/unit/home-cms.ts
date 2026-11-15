@@ -25,7 +25,7 @@ export const MIGRATION = join(
 
 export const HOME_STEP_MIGRATION = join(
   __dirname,
-  "../../../api/src/migrations/1797400000000-KitchenTwoTexts.ts",
+  "../../../api/src/migrations/1797450000000-KitchenTwoTexts.ts",
 );
 
 /**
