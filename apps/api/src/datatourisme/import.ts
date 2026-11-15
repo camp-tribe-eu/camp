@@ -265,7 +265,7 @@ export function fieldsToFill(
 
 // ---------------------------------------------------------------------
 
-async function readCampsites(path: string): Promise<ParsedSpot[]> {
+export async function readCampsites(path: string): Promise<ParsedSpot[]> {
   const rl = createInterface({
     input: createReadStream(path, { encoding: 'utf8' }),
     crlfDelay: Infinity,

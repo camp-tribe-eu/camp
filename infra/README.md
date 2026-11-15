@@ -52,6 +52,8 @@ status=200/CHDIR
 | `systemd/camptribe-fuel-prices.timer` | 05:00 UTC, `Persistent=true` |
 | `systemd/camptribe-spot-tariffs.service` | 🔴 щотижня: `fetch-feed.mjs` (фід DATAtourisme → `/srv/camptribe/data/datatourisme/feed.zip`, `.part`+`rename`) → `import-prices.js --apply` (→ `spot_tariffs`, ставить `fetched_at`). Обидва кроки заміряно на машині: 14 с + 44 с (CAMP-400, пункт 2). Потребує міграції `SpotTariffFetchedAt` — до `--migrate` другий крок падає голосно |
 | `systemd/camptribe-spot-tariffs.timer` | четвер 05:10 UTC, `Persistent=true` — поза вівторковим ланцюгом OSM, до сторожа свіжості о 06:00 |
+| `systemd/camptribe-datatourisme-campsites.service` | 🔴 щотижня: `fetch-regions.mjs --metropolitan --refetch` (13 регіональних CSV data.gouv.fr → `/srv/camptribe/data/datatourisme/regions`, звіряє ліцензію `fr-lo`) → `refresh.js --apply --no-mark-missing` (→ `camping_spots`, лише рядки `osm_ref IS NULL`, за URI джерела: ставить `last_seen_at`, переписує змінені; без INSERT і DELETE). До 13.11.2026 оновлювача не було: 8 752 рядки стояли 50 діб (CAMP-528). На машині не заміряно |
+| `systemd/camptribe-datatourisme-campsites.timer` | субота 04:15 UTC, `Persistent=true` — після того, як джерело перезбирає файли (≈03:56 UTC), до сторожа свіжості о 06:00 |
 | `systemd/camptribe-webcams.service` | 🔴 щотижня: `scripts/windy/fetch-webcams.mjs` (один запит на регіон → `webcams`, лише `INSERT … ON CONFLICT DO UPDATE`, без видалень). Ключ і база — з `EnvironmentFile`, ніколи з argv: ручний запуск 02.11.2026 лишив обидва в journal. ~37 хв (CAMP-190) |
 | `systemd/camptribe-webcams.timer` | пʼятниця 04:15 UTC, `Persistent=true` — найрідше, що виконує бюджет 10 діб: умови Windy називають порушенням «continuous scanning», без числа |
 | `systemd/camptribe-deploy-nightly.service` | 🔴 щонічний деплой: `camptribe-deploy-nightly` (від root; `Nice=10`; `TimeoutStartSec=45min`) |
@@ -139,6 +141,26 @@ node scripts/ci/check-server-drift.mjs            # з машини, де є к�
 
 Повне порівняння з машиною потребує SSH-ключа й у CI не біжить; вдавати
 протилежне було б гірше за відсутність перевірки.
+
+## 🔴 Ручний запуск — лише через файл оточення
+
+Імпорт чи скрипт, якому потрібна база або ключ, запускається руками **однією
+формою**, тією самою, що в юнітах:
+
+```bash
+sudo systemd-run --collect --wait --pipe -p User=camptribe -p Group=camptribe \
+  -p WorkingDirectory=/srv/camptribe/current/apps/api \
+  -p EnvironmentFile=/srv/camptribe/current/apps/api/.env \
+  /usr/bin/node dist/spots/reconcile-sources.js          # без --apply — пробний прогін
+```
+
+Якщо юніт уже є — ще простіше: `sudo systemctl start --wait camptribe-<імʼя>.service`.
+
+**Ніколи** не передавай секрет присвоєнням після `sudo`: командний рядок `sudo`
+цілим лягає в `journald` і `/var/log/auth.log`. Саме так 02.11.2026 туди потрапили
+пароль бази й ключ Windy; 13.11.2026 пароль ротовано, а журнал вибірково не
+чиститься. У CI це стереже `scripts/ci/check-no-secret-in-argv.mjs` — але лише
+зразки в репозиторії: команду, набрану на машині з голови, він не бачить.
 
 ## 🔴 Таймер — не те саме, що ввімкнений таймер
 

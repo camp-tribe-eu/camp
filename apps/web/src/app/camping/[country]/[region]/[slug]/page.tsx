@@ -51,6 +51,8 @@ import ReportProblem from '@/components/report-problem';
 import SpotEvents from '@/components/spot-events';
 import { websiteHref } from '@/lib/events';
 import { Block } from '@/components/layout';
+import { TrustLegend } from '@/components/trust';
+import { TRUST_PAGE, amenityTrust, trustLegend } from '@/lib/trust';
 
 // CAMP-34 — the campsite page.
 //
@@ -324,6 +326,15 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
   // CAMP-502: the same for the disturbance block; a missing page costs the block.
   const disturbancePage = await pageContent(DISTURBANCE_PAGE).catch(() => null);
   const disturbance = disturbanceView(spot.disturbance, disturbancePage?.sections ?? null);
+  // CAMP-521: what the status words MEAN is prose and lives in the CMS. A CMS
+  // that cannot answer costs the legend; the words on the values stay.
+  const trustPage = await pageContent(TRUST_PAGE).catch(() => null);
+  const facts = spotFacts(spot);
+  const amenitiesTrust = amenityTrust(spot, spot.amenities, AMENITY_KEYS);
+  const legend = trustLegend(
+    [...facts.map((f) => f.trust), ...Object.values(amenitiesTrust)],
+    trustPage?.sections ?? null,
+  );
   const name = spot.name;
   const setting = settingParagraph(spot.context);
   const known = Object.values(spot.amenities).filter(
@@ -457,7 +468,7 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
             from what THIS campsite has, prints nothing for what it has
             not, and is absent altogether under two facts — the rules
             and the numbers are in `lib/spot-facts.ts`. */}
-        <SpotFactsLine facts={spotFacts(spot)} />
+        <SpotFactsLine facts={facts} />
       </header>
 
       {spot.missingSince && <MissingNotice since={spot.missingSince} />}
@@ -724,6 +735,7 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
             keys={AMENITY_KEYS}
             labels={AMENITY_LABEL}
             values={spot.amenities}
+            trust={amenitiesTrust}
           />
         </div>
         {/* 🔴 CAMP-256: when a mapper last touched the entry these
@@ -880,6 +892,12 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
         </Section>
       )}
 
+      {/* CAMP-521: the meaning of each status word used above, right before
+          the list of sources those words point at. */}
+      <TrustLegend
+        heading={trustPage?.sections.find((s) => s.slot === 'intro')?.heading ?? null}
+        rows={legend}
+      />
       <SourceNote sources={spot.sources} />
     </main>
   );

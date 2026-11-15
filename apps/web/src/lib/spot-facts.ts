@@ -9,6 +9,14 @@ import {
   type SpotContext,
 } from './api';
 import { RAILWAY_STOP, RAILWAY_STOP_TITLE } from './railway-stop';
+import {
+  CONTEXT_ORIGIN,
+  facilitiesCountOrigin,
+  fieldOrigin,
+  trustOf,
+  type TrustStatus,
+  type TrustSubject,
+} from './trust';
 
 // What a campsite page says in ONE LINE under its heading, and how far
 // away things are drawn in "What's around it" (docs/design-audit.md §10).
@@ -56,6 +64,12 @@ export interface SpotFact {
   key: SpotFactKey;
   label: string;
   value: string;
+  /**
+   * 🔴 CAMP-521: REQUIRED. A fact with no word about where it came from
+   * does not compile — the status is derived from the fact's origin in
+   * `lib/trust.ts`, never typed here.
+   */
+  trust: TrustStatus;
 }
 
 /** A distance we can say: a finite, non-negative number of metres. */
@@ -84,13 +98,22 @@ export function facilitiesPresent(amenities: Spot['amenities'] | undefined): num
  * fewer than `MIN_FACTS` of them.
  */
 export function spotFacts(
-  spot: Pick<Spot, 'type' | 'context' | 'amenities'>,
+  spot: Pick<Spot, 'type' | 'context' | 'amenities'> & TrustSubject,
+  today: Date = new Date(),
 ): SpotFact[] {
+  // Distances are ours, calculated from OpenStreetMap; the type is the
+  // source's own word; the count is as good as what it counts.
+  const derived = trustOf(CONTEXT_ORIGIN, today);
   const c: SpotContext = spot.context ?? {};
   const out: SpotFact[] = [];
 
   const type = SPOT_TYPE_LABEL[spot.type];
-  if (type) out.push({ key: 'type', label: 'Type', value: type });
+  if (type) out.push({
+      key: 'type',
+      label: 'Type',
+      value: type,
+      trust: trustOf(fieldOrigin(spot, 'type'), today),
+    });
 
   const waterName = named(c.water?.name);
   if (usable(c.water) && waterName) {
@@ -98,6 +121,7 @@ export function spotFacts(
       key: 'water',
       label: 'Nearest water',
       value: `${waterName}, ${formatDistance(c.water.m)}`,
+      trust: derived,
     });
   }
 
@@ -107,6 +131,7 @@ export function spotFacts(
       key: 'town',
       label: 'Nearest town',
       value: town ? `${town}, ${formatDistance(c.town.m)}` : formatDistance(c.town.m),
+      trust: derived,
     });
   }
 
@@ -118,6 +143,7 @@ export function spotFacts(
       value: stop
         ? `${stop}, ${formatDistance(c.station.m)}`
         : formatDistance(c.station.m),
+      trust: derived,
     });
   }
 
@@ -127,6 +153,7 @@ export function spotFacts(
       key: 'facilities',
       label: 'Facilities',
       value: `${n} recorded`,
+      trust: trustOf(facilitiesCountOrigin(spot, spot.amenities), today),
     });
   }
 
