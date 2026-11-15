@@ -3,6 +3,7 @@ import {
   ABOUT_PROSE,
   CONTACT_PROSE,
   splitAbout,
+  publicContactCard,
   splitContact,
 } from '../pages/about-contact-split';
 
@@ -250,7 +251,7 @@ export class AboutContactSections1797464100000 implements MigrationInterface {
         type: 'card',
         slot: 'aside',
         heading: 'Before you write',
-        body: contact.card,
+        body: publicContactCard(contact.card),
         ctaHref: cta[0].cta_href,
         ctaLabel: cta[0].cta_label,
       });

@@ -3,6 +3,7 @@ import "./globals.css";
 import { isPublic } from "@/lib/environment";
 import { SiteFooter, SiteHeader } from "@/components/site-chrome";
 import { footerNav, headerNav } from "@/lib/navigation";
+import { headerNavWithCountries } from "@/lib/nav-groups";
 import { siteSettings } from "@/lib/site-settings";
 import { DEFAULT_LOCALE } from "@/lib/i18n";
 import CookieConsent from "@/components/cookie-consent";
@@ -92,7 +93,10 @@ export default async function RootLayout({
   // у кореневому макеті, тож ходити по них послідовно означало б додати
   // їхні затримки одна до одної на КОЖНІЙ сторінці сайту.
   const [nav, footerLinks, settings, personaPage] = await Promise.all([
-    headerNav(),
+    // 🔴 CAMP-448: пункти з бази + країни з даних (мега-меню). Збій
+    // читання країн не валить сторінку — `headerNavWithCountries` ловить
+    // його сам; кидає, як і раніше, лише порожнє меню з бази.
+    headerNav().then(headerNavWithCountries),
     footerNav(),
     siteSettings(),
     // CAMP-501: підписи перемикача «маю кемпер / орендую» — у CMS. Збій
@@ -163,7 +167,11 @@ export default async function RootLayout({
         <PersonaOrder />
         <SiteHeader nav={nav} persona={personaLabels(personaPage?.sections ?? null)} />
         <div className="flex-1">{children}</div>
-        <SiteFooter nav={footerLinks} footerNote={settings.footerNote} />
+        <SiteFooter
+          nav={footerLinks}
+          footerNote={settings.footerNote}
+          socialLinks={settings.socialLinks}
+        />
         {/* 🔴 Last in the document, and it blocks nothing above it. The
             banner must never be a gate: a reader who ignores it keeps the
             whole site, which is what makes any consent given freely

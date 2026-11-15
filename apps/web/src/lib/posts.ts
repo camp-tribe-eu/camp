@@ -227,10 +227,12 @@ function itemStrings(node: unknown, key?: string): string[] {
  * Експортовано заради сторожа: тест звіряє цей перелік із тим, що
  * справді читає `page-sections.tsx`.
  */
+// 🔴 CAMP-488: `subheading` ДОДАНО. `page-sections.tsx` почав його
+// малювати (надзаголовок у рядку «текст + фото»), а сторож у
+// `reading-time.spec.ts` саме для цього й стоїть: поле, яке читач бачить,
+// мусить лічитись у часі читання.
 export const COUNTED_SECTION_FIELDS = [
   "heading",
-  // CAMP-464: `subheading` читає рендер «текст + фото» (надзаголовок), тож
-  // він видимий і лічиться. Раніше його не читав жоден рендер.
   "subheading",
   "body",
   "ctaLabel",

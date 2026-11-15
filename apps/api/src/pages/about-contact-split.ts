@@ -94,3 +94,24 @@ export function splitContact(prose: string): ContactParts {
   }
   return parts;
 }
+
+/**
+ * Речення про вивантаження фото — внутрішня кухня («ще не існує» говорить про
+ * наш беклог, а не про те, що робити читачеві). Власник це відзначив.
+ */
+export const CONTACT_OLD_UPLOADS =
+  'Uploads through the site do not exist yet, so email is the whole of it.';
+export const CONTACT_NEW_UPLOADS =
+  'Email is all it takes — there is nothing else to fill in.';
+
+/**
+ * Текст картки для читача: оригінальні абзаци, але без речення про те, чого
+ * «ще немає». Падає, якщо речення в оригіналі не знайшлось: мовчазна
+ * заміна нічого не змінила б і виглядала б як зроблена.
+ */
+export function publicContactCard(card: string): string {
+  if (!card.includes(CONTACT_OLD_UPLOADS)) {
+    throw new Error('contact: речення про вивантаження не знайдено в картці');
+  }
+  return card.replace(CONTACT_OLD_UPLOADS, CONTACT_NEW_UPLOADS);
+}

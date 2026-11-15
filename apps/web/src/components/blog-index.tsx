@@ -18,7 +18,7 @@ export const BLOG_TITLE = 'Blog';
 // «дурними обертами» і внутрішньою кухнею (ревю 445/9): читач блогу шукає
 // відповідь про кемпінг, а не звіт про те, що в нас не вийшло.
 export const BLOG_DESCRIPTION =
-  'Practical notes for camping and motorhome travel across the EU: rules, costs and planning.';
+  'Notes on camping and motorhoming in Europe, and what the data says.';
 
 /** Адреса сторінки каталогу: перша — без суфікса. */
 export function blogPagePath(n: number): string {

@@ -2,6 +2,9 @@ import {
   ABOUT_PROSE,
   CONTACT_PROSE,
   splitAbout,
+  CONTACT_NEW_UPLOADS,
+  CONTACT_OLD_UPLOADS,
+  publicContactCard,
   splitContact,
 } from './about-contact-split';
 
@@ -73,5 +76,19 @@ describe('splitContact', () => {
 
   it('🔴 чужа кількість абзаців — виняток', () => {
     expect(() => splitContact('one\n\ntwo')).toThrow(/4 абзаци/);
+  });
+});
+
+describe('publicContactCard: без внутрішньої кухні', () => {
+  it('«ще не існує» замінено порадою, решта картки дослівно', () => {
+    const { card } = splitContact(CONTACT_PROSE);
+    const out = publicContactCard(card);
+    expect(out).not.toContain('do not exist yet');
+    expect(out).toContain(CONTACT_NEW_UPLOADS);
+    expect(out.replace(CONTACT_NEW_UPLOADS, CONTACT_OLD_UPLOADS)).toBe(card);
+  });
+
+  it('🔴 немає речення в тексті — виняток, а не мовчазна «заміна»', () => {
+    expect(() => publicContactCard('щось інше')).toThrow(/не знайдено/);
   });
 });
