@@ -12,10 +12,14 @@ import {
   AddressLimiter,
   LINK_TTL_MS,
   METHOD_LINK,
+  MIN_STABLE_DAYS,
+  type SpotFacts,
   linkTokenHash,
   maskForClaim,
+  mentionsDomain,
   newLinkToken,
   ownerBasis,
+  spotDomains,
   typedEmail,
 } from './owner-email';
 import {
@@ -121,8 +125,13 @@ export class SpotClaimService {
       [spot.id],
     )) as { owner: string | null }[];
     const [{ for_spot }] = (await this.db.query(
+      // 🔴 `method = 'osm_code'`: рядки-посилання ЧУЖИХ акаунтів не мають
+      // права вичерпати цю межу (CAMP-505, рецензія PR #586). Інакше
+      // сторонній, що вписав справжню адресу з домену кемпінгу, відбирав би
+      // в власника й шлях із кодом.
       `SELECT count(*)::int AS for_spot FROM spot_claims
-        WHERE camping_spot_id = $1 AND created_at >= $2`,
+        WHERE camping_spot_id = $1 AND created_at >= $2
+          AND method = 'osm_code'`,
       [spot.id, since],
     )) as { for_spot: number }[];
     const [{ by_user }] = (await this.db.query(
@@ -244,9 +253,12 @@ export class SpotClaimService {
    * того, що надіслав сам запитувач (`bad-email`) або від налаштування
    * сервера (`mail-unavailable`): однакові для всіх.
    *
-   * 🔴 ПОРЯДОК: адреса рахується в лічильнику ДО будь-якого запиту до
-   * кемпінгу й для будь-якої добре сформованої адреси, збіг чи ні — інакше
-   * «ліміт спрацював» і «ліміт не спрацював» виказували б збіг.
+   * 🔴 УСЯ РОБОТА, ЩО ЗАЛЕЖИТЬ ВІД ДАНИХ, — ПІСЛЯ ВІДПОВІДІ. Пошук кемпінгу,
+   * збіг, запити до бази, вставка й лист різні для збігу й промаху (промах
+   * кінчається на першому запиті, збіг іде далі), і час відповіді виказував
+   * би результат. Запит чекає лише на те, що однакове для всіх: перевірку
+   * форми адреси й налаштування пошти. Те, що тепер ховається за `later`,
+   * раніше жило до відповіді (рецензія PR #586).
    */
   async startByEmail(
     spotSlug: string,
@@ -255,27 +267,53 @@ export class SpotClaimService {
   ): Promise<OwnerLinkStart> {
     const email = typedEmail(typed);
     if (email === null) return { ok: false, why: 'bad-email' };
-    if (!this.mailer) return { ok: false, why: 'mail-unavailable' };
+    const mailer = this.mailer;
+    if (!mailer) return { ok: false, why: 'mail-unavailable' };
+    this.later(() => this.attempt(spotSlug, viewerId, email, mailer));
+    return { ok: true };
+  }
 
-    if (!this.addresses.take(email)) return this.quiet('address-limit');
+  /**
+   * Те, що робиться після відповіді: рішення й лист. Кожна відмова —
+   * `quiet`: слово в журналі, ні адреси, ні slug.
+   */
+  private async attempt(
+    spotSlug: string,
+    viewerId: string,
+    email: string,
+    mailer: Mailer,
+  ): Promise<void> {
+    // 🔴 Ключ — ПАРА (акаунт, адреса), а не адреса. Інакше будь-хто, хто
+    // тричі впише чужу робочу адресу, відбирає лист у її власника на добу
+    // (рецензія PR #586). Межа лишається межею для того, хто шле.
+    if (!this.addresses.take(`${viewerId}|${email}`))
+      return this.quiet('address-limit');
 
     const rows = (await this.db.query(
-      `SELECT id, name, website, contact FROM camping_spots WHERE slug = $1`,
-      [spotSlug],
+      `SELECT id, name, website, contact,
+              (content_changed_at IS NOT NULL
+               AND content_changed_at <= now() - make_interval(days => $2))
+                AS stable
+         FROM camping_spots WHERE slug = $1`,
+      [spotSlug, MIN_STABLE_DAYS],
     )) as {
       id: string;
       name: string | null;
       website: string | null;
       contact: Record<string, unknown> | null;
+      stable: boolean;
     }[];
     if (rows.length === 0) return this.quiet('no-spot');
     const spot = rows[0];
+    const facts = { website: spot.website, contact: spot.contact };
 
-    const basis = ownerBasis(
-      { website: spot.website, contact: spot.contact },
-      email,
-    );
+    const shared = await this.sharedDomains(spot.id, facts);
+    const basis = ownerBasis(facts, email, shared);
     if (basis === null) return this.quiet('no-match');
+    // 🔴 Значення, яке з'явилось у наших даних щойно, автопідтвердження не
+    // дає: будь-хто може вписати свій сайт чи пошту в OSM і дочекатись
+    // імпорту. Див. `MIN_STABLE_DAYS`.
+    if (!spot.stable) return this.quiet('unstable');
     const masked = maskForClaim(email);
     if (masked === null) return this.quiet('unmaskable');
 
@@ -286,12 +324,14 @@ export class SpotClaimService {
       [spot.id],
     )) as { owner: string | null }[];
     if (owner !== null) return this.quiet('already-claimed');
-    const [{ for_spot }] = (await this.db.query(
-      `SELECT count(*)::int AS for_spot FROM spot_claims
-        WHERE camping_spot_id = $1 AND created_at >= $2`,
-      [spot.id, since],
-    )) as { for_spot: number }[];
-    if (for_spot >= PER_SPOT_PER_DAY) return this.quiet('spot-limit');
+    // 🔴 Межа кемпінгу — на ПАРУ (кемпінг, акаунт): три заявки стороннього
+    // не мають права закрити дорогу власнику (рецензія PR #586).
+    const [{ for_pair }] = (await this.db.query(
+      `SELECT count(*)::int AS for_pair FROM spot_claims
+        WHERE camping_spot_id = $1 AND user_id = $2 AND created_at >= $3`,
+      [spot.id, viewerId, since],
+    )) as { for_pair: number }[];
+    if (for_pair >= PER_SPOT_PER_DAY) return this.quiet('spot-limit');
     const [{ by_user }] = (await this.db.query(
       `SELECT count(*)::int AS by_user FROM spot_claims
         WHERE user_id = $1 AND created_at >= $2`,
@@ -316,21 +356,54 @@ export class SpotClaimService {
         basis,
       ],
     );
-    const mailer = this.mailer;
-    const message = claimOwnerLinkMessage(
-      email,
-      ownerLinkFor(mailer.webBase, token),
-      spot.name ?? 'this campsite',
-      Math.round(LINK_TTL_MS / 60_000),
+    await mailer.sender.send(
+      claimOwnerLinkMessage(
+        email,
+        ownerLinkFor(mailer.webBase, token),
+        spot.name ?? 'this campsite',
+        Math.round(LINK_TTL_MS / 60_000),
+      ),
     );
-    this.later(() => mailer.sender.send(message));
-    return { ok: true };
+  }
+
+  /**
+   * Домени цього кемпінгу, які згадує ще хтось.
+   *
+   * 🔴 ДОМЕН, ЯКИЙ ЗГАДУЮТЬ ДВА КЕМПІНГИ, НЕ НАЛЕЖИТЬ ЖОДНОМУ З НИХ. Сайт
+   * мережі, регіональний каталог, провайдер, на якому «живуть» десятки
+   * кемпінгів, — це домен, скриньку на якому має не власник. Список таких
+   * провайдерів нам не перелічити (kpn.nl, kabelbw.de, camping.it,
+   * bayern.de…), але їх видно за ПОВТОРОМ у наших же даних. За таким
+   * доменом автопідтвердження не дається — лише дослівна адреса з
+   * контактів.
+   *
+   * Запит бере кандидатів підрядком (`ILIKE`), а підрахунок повторює вже
+   * точно, за зареєстрованим доменом: підрядок знаходить зайве, і зайве
+   * тут відсіюється, а не рахується.
+   */
+  private async sharedDomains(
+    spotId: string,
+    facts: SpotFacts,
+  ): Promise<Set<string>> {
+    const out = new Set<string>();
+    for (const domain of spotDomains(facts)) {
+      const others = (await this.db.query(
+        `SELECT website, contact FROM camping_spots
+          WHERE id <> $1 AND (website ILIKE $2 OR contact::text ILIKE $2)
+          LIMIT 200`,
+        [spotId, `%${domain}%`],
+      )) as {
+        website: string | null;
+        contact: Record<string, unknown> | null;
+      }[];
+      if (others.some((o) => mentionsDomain(o, domain))) out.add(domain);
+    }
+    return out;
   }
 
   /** Тиха відмова: причина лише в журналі, і лише словом — ні адреси, ні slug. */
-  private quiet(reason: string): OwnerLinkStart {
+  private quiet(reason: string): void {
     this.log.log(`owner link not sent: ${reason}`);
-    return { ok: true };
   }
 
   /**

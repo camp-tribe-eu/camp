@@ -35,9 +35,24 @@ export const METHOD_LINK = 'link';
  * Зареєстрований домен хоста, або `null`, коли хост не годиться: IP-адреса,
  * невідомий суфікс, порожній рядок.
  */
+/**
+ * Що вважається хостом: літери, цифри, крапки й дефіси, без крайніх крапок і
+ * дефісів, і більше нічого.
+ *
+ * 🔴 ЦЕ ВХІДНА ПЕРЕВІРКА ДЛЯ `getDomain`, І ВОНА НЕ ПРИКРАСА. `tldts`
+ * розбирає ВХІД ЯК URL і відрізає все після `/`, `?` чи `#`: рядок
+ * `slashcamp.de/.evil.example` повертає `slashcamp.de`. Адреса
+ * `a@slashcamp.de/.evil.example` тоді «збігалась» із сайтом кемпінгу, а лист
+ * пішов би на скриньку під чужим доменом (знайдено рецензією PR #586).
+ * Хост, у якому є хоч один символ поза цим алфавітом, домену не має.
+ * Той самий вираз, що `HOST` у `auth/mail-smtp.ts`, але лише малі літери:
+ * вхід тут уже приведено до нижнього регістру.
+ */
+export const HOST_LC = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/;
+
 export function registrable(host: string): string | null {
   const clean = host.trim().toLowerCase().replace(/\.$/, '');
-  if (clean === '') return null;
+  if (clean === '' || !HOST_LC.test(clean) || clean.includes('..')) return null;
   const d = getDomain(clean, { allowPrivateDomains: true });
   return d === null || d === undefined || d === '' ? null : d;
 }
@@ -420,7 +435,8 @@ export function hostOfUrl(raw: string): string | null {
     const hasScheme = /^[a-z][a-z0-9+.-]*:(?!\d)/i.test(text);
     const url = new URL(hasScheme ? text : `http://${text}`);
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
-    return url.hostname === '' ? null : url.hostname;
+    const host = url.hostname.replace(/\.$/, '');
+    return host === '' || !HOST_LC.test(host) ? null : host;
   } catch {
     return null;
   }
@@ -434,26 +450,64 @@ export type SpotFacts = {
   contact?: Record<string, unknown> | null;
 };
 
+/** Один сайт кемпінгу з наших даних: хост і його зареєстрований домен. */
+export type SiteHost = {
+  /** Хост без початкового `www.`. */
+  host: string;
+  /** Зареєстрований домен (eTLD+1). */
+  domain: string;
+  /** Хост і є зареєстрованим доменом (`camp.de`, а не `camping.stadt.de`). */
+  apex: boolean;
+};
+
 /**
- * Домени САЙТУ кемпінгу (колонка `website` і `contact.website`), без
- * поштовиків і майданчиків.
+ * Сайти кемпінгу (колонка `website` і `contact.website`), без поштовиків і
+ * майданчиків.
  *
  * 🔴 ДОМЕН З АДРЕСИ ПОШТИ ТУТ НЕ БЕРЕТЬСЯ. Адреса `info@agency-x.com` у
  * тегах — це контакт, а не доказ, що весь `agency-x.com` належить
  * кемпінгу: так виглядає посередник, бронювальна агенція, провайдер.
  * Така адреса дає право лише сама, дослівно (`listedEmails`).
  */
-export function spotDomains(facts: SpotFacts): Set<string> {
-  const website = new Set<string>();
+export function siteHosts(facts: SpotFacts): SiteHost[] {
+  const out = new Map<string, SiteHost>();
   for (const raw of [
     ...parts(facts.website),
     ...parts(facts.contact?.['website']),
   ]) {
-    const host = hostOfUrl(raw);
-    const d = host === null ? null : registrable(host);
-    if (usableDomain(d)) website.add(d);
+    const full = hostOfUrl(raw);
+    if (full === null) continue;
+    const host = full.replace(/^www\./, '');
+    const domain = registrable(host);
+    if (!usableDomain(domain)) continue;
+    out.set(host, { host, domain, apex: host === domain });
   }
-  return website;
+  return [...out.values()];
+}
+
+/** Зареєстровані домени сайтів кемпінгу. */
+export function spotDomains(facts: SpotFacts): Set<string> {
+  return new Set(siteHosts(facts).map((h) => h.domain));
+}
+
+/** Зареєстровані домени пошт, які кемпінг сам оголосив (без поштовиків). */
+export function listedEmailDomains(facts: SpotFacts): Set<string> {
+  const out = new Set<string>();
+  for (const e of listedEmails(facts)) {
+    const d = emailDomain(e);
+    if (usableDomain(d)) out.add(d);
+  }
+  return out;
+}
+
+/**
+ * Чи згадує цей кемпінг цей зареєстрований домен — сайтом або поштою. Це те,
+ * що рахує «домен спільний»: див. `ownerBasis`.
+ */
+export function mentionsDomain(facts: SpotFacts, domain: string): boolean {
+  return (
+    spotDomains(facts).has(domain) || listedEmailDomains(facts).has(domain)
+  );
 }
 
 /** Адреси, які кемпінг сам оголосив, у нижньому регістрі. */
@@ -479,7 +533,15 @@ export function typedEmail(input: unknown): string | null {
   const e = input.trim().toLowerCase();
   if (e.length > 254) return null;
   if (/[\u0000-\u001f\u007f<>,;:"'()\\[\]]/.test(e)) return null;
-  return looksLikeEmail(e) ? e : null;
+  if (!looksLikeEmail(e)) return null;
+  // 🔴 Домен — лише літери, цифри, крапки й дефіси; локальна частина — без
+  // `/ ? # %` та інших знаків, яким URL-розбір дає значення. Див. `HOST_LC`.
+  const at = e.lastIndexOf('@');
+  const local = e.slice(0, at);
+  const domain = e.slice(at + 1);
+  if (!/^[a-z0-9._+-]+$/.test(local)) return null;
+  if (!HOST_LC.test(domain) || domain.includes('..')) return null;
+  return e;
 }
 
 /**
@@ -497,12 +559,30 @@ export function typedEmail(input: unknown): string | null {
 export function ownerBasis(
   facts: SpotFacts,
   typed: unknown,
+  /**
+   * Зареєстровані домени, які згадує БІЛЬШЕ ніж один кемпінг (див. нижче).
+   * За ними автопідтвердження по домену не дається, лише дослівна адреса.
+   */
+  sharedDomains: ReadonlySet<string> = new Set(),
 ): OwnerBasis | null {
   const email = typedEmail(typed);
   if (email === null) return null;
+  const host = email.slice(email.lastIndexOf('@') + 1);
   const domain = emailDomain(email);
   if (!usableDomain(domain)) return null;
-  if (spotDomains(facts).has(domain)) return 'website-domain';
+  for (const site of siteHosts(facts)) {
+    if (site.domain !== domain || sharedDomains.has(domain)) continue;
+    // 🔴 ХОСТ САЙТУ ВИРІШУЄ, ЧИ ВЕСЬ ДОМЕН НАШ.
+    //
+    // `camp.de` (або `www.camp.de`) — власник тримає весь домен, і пошта на
+    // будь-якому його піддомені (`mail.camp.de`) — його. А `camping.bayern.de`,
+    // `home.kpn.nl/camp`, `camp.kabelbw.de` — це кімната в чужому домені:
+    // решта домену належить регіону, провайдеру, каталогу, а скриньку під
+    // `bayern.de` може мати будь-хто з них. Тут збігається лише ТОЧНИЙ хост
+    // (`x@camping.bayern.de`), а не eTLD+1. Це загальне правило замість
+    // списку провайдерів, яких нам не перелічити (рецензія PR #586).
+    if (site.apex ? true : host === site.host) return 'website-domain';
+  }
   if (listedEmails(facts).has(email)) return 'listed-email';
   return null;
 }
@@ -536,6 +616,23 @@ export function linkTokenHash(token: string): string {
 
 /** Скільки живе посилання. Той самий строк, що й в усіх листах з посиланням. */
 export const LINK_TTL_MS = 60 * 60 * 1000;
+
+/**
+ * Скільки днів значення сайту чи пошти мусить стояти в наших даних
+ * НЕЗМІННИМ, щоб за ним можна було підтвердити власника автоматично.
+ *
+ * 🔴 ЦЕ ЗАХИСТ ВІД ОДНОГО ПРЯМОГО ОБХОДУ: будь-хто може вписати власний
+ * `website` чи `contact:email` в OpenStreetMap, дочекатись імпорту й
+ * підтвердити себе власником. Імпорт кладе `content_changed_at` у день, коли
+ * побачив ЗМІНУ в будь-якому видимому полі (назва, тип, зручності,
+ * `contact` ЦІЛКОМ, розташування) — тож це верхня межа віку значення, а не
+ * точний вік: зміна ЧОГОСЬ ІНШОГО теж обнуляє відлік, і це помилка в
+ * безпечний бік. Чого це НЕ ловить: мапера, що змінив тег і повернув старе
+ * значення між двома імпортами; і того, хто чекає 30 днів. Місяць — час,
+ * за який спільнота OSM звичайно бачить правку й повертає її; число
+ * обране, а не заміряне.
+ */
+export const MIN_STABLE_DAYS = 30;
 
 /** Скільки листів на ОДНУ адресу за добу, коли їх рахує пам'ять процесу. */
 export const PER_ADDRESS_PER_DAY = 3;

@@ -9,6 +9,7 @@ import {
   newLinkToken,
   ownerBasis,
   registrable,
+  siteHosts,
   spotDomains,
   typedEmail,
 } from './owner-email';
@@ -331,5 +332,86 @@ describe('per-address limiter (memory only)', () => {
     for (let i = 0; i < 500; i++) l.take(`u${i}@camp.de`, i);
     expect(l.size()).toBeLessThanOrEqual(100);
     expect(JSON.stringify([...(l as any).seen.keys()])).not.toContain('@');
+  });
+});
+
+describe('🔴 рецензія #586, п.1: домен пошти — хост, а не URL', () => {
+  const site = camp('https://www.slashcamp.de/', {});
+  const forms = [
+    'a@slashcamp.de/.evil.example',
+    'a@slashcamp.de?.evil.example',
+    'a@slashcamp.de#.evil.example',
+    'a@slashcamp.de\\.evil.example',
+    'a@slashcamp.de%2f.evil.example',
+    'a@slashcamp.de:443',
+  ];
+
+  it.each(forms)('%s: не адреса, не збіг', (bad) => {
+    expect(typedEmail(bad)).toBeNull();
+    expect(ownerBasis(site, bad)).toBeNull();
+  });
+
+  it.each([
+    'slashcamp.de/.evil.example',
+    'slashcamp.de?.evil.example',
+    'slashcamp.de#.evil.example',
+    'slashcamp.de:443',
+    'slash camp.de',
+    'a..de',
+    '-slashcamp.de',
+  ])('registrable(%j) — домену немає', (host) => {
+    expect(registrable(host)).toBeNull();
+  });
+
+  it('emailDomain не дістає домену з адреси з URL-символом', () => {
+    expect(emailDomain('a@slashcamp.de/.evil.example')).toBeNull();
+  });
+
+  it('звичайні адреси на тому ж домені проходять — перевірка не вбиває справжнє', () => {
+    expect(ownerBasis(site, 'a@slashcamp.de')).toBe('website-domain');
+    expect(ownerBasis(site, 'a.b+tag@mail.slashcamp.de')).toBe(
+      'website-domain',
+    );
+    expect(ownerBasis(site, 'a@xn--jgeva-dua.slashcamp.de')).toBe(
+      'website-domain',
+    );
+  });
+});
+
+describe('🔴 рецензія #586, п.3: хост сайту вирішує, чи весь домен наш', () => {
+  it('сайт у піддомені → збігається лише точний хост', () => {
+    const s = camp('https://camping.bayern.example.de/', {});
+    expect(siteHosts(s)).toEqual([
+      { host: 'camping.bayern.example.de', domain: 'example.de', apex: false },
+    ]);
+    expect(ownerBasis(s, 'x@camping.bayern.example.de')).toBe('website-domain');
+    expect(ownerBasis(s, 'x@example.de')).toBeNull();
+    expect(ownerBasis(s, 'x@mail.example.de')).toBeNull();
+    expect(ownerBasis(s, 'x@bayern.example.de')).toBeNull();
+    expect(ownerBasis(s, 'x@mail.camping.bayern.example.de')).toBeNull();
+  });
+
+  it('www. знімається, apex лишається apex', () => {
+    expect(siteHosts(camp('https://www.camp.de', {}))).toEqual([
+      { host: 'camp.de', domain: 'camp.de', apex: true },
+    ]);
+  });
+
+  it('домен у списку «спільних» не дає збігу по домену, але дозволяє дослівну адресу', () => {
+    const s = camp('https://www.chain.de/a', { email: 'booking@chain.de' });
+    const shared = new Set(['chain.de']);
+    expect(ownerBasis(s, 'x@chain.de', shared)).toBeNull();
+    expect(ownerBasis(s, 'x@chain.de')).toBe('website-domain');
+    expect(ownerBasis(s, 'booking@chain.de', shared)).toBe('listed-email');
+  });
+
+  it.each([
+    'http://home.kpn.nl/camp',
+    'https://camp.kabelbw.de',
+    'https://camping.bayern.de',
+  ])('провайдер чи регіон %s: пошта на корені домену не дає права', (url) => {
+    const host = hostOfUrl(url)!;
+    const root = registrable(host)!;
+    expect(ownerBasis(camp(url, {}), `x@${root}`)).toBeNull();
   });
 });

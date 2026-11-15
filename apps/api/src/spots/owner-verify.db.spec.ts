@@ -185,22 +185,33 @@ async function account(): Promise<{ token: string; id: string }> {
   return { token: res.json.token as string, id };
 }
 
+/**
+ * `ageDays` — скільки днів тому наші дані про кемпінг востаннє змінились
+ * (`content_changed_at`). За замовчуванням 60: старше за поріг у 30 днів, тож
+ * тести про ІНШІ правила не впираються в правило віку. `null` — невідомо.
+ */
 async function spot(
   slug: string,
   website: string | null,
   contact: Record<string, unknown> | null,
+  ageDays: number | null = 60,
 ): Promise<string> {
   const r = await db.query(
     `INSERT INTO camping_spots
        (osm_ref, country, region, slug, name, type, amenities, location,
-        website, contact)
+        website, contact, content_changed_at)
      VALUES ($1, 'DE', 'Bayern', $1, $2, 'paid'::camping_spots_type_enum, '{}',
-             ST_SetSRID(ST_MakePoint(11, 48), 4326), $3, $4)
+             ST_SetSRID(ST_MakePoint(11, 48), 4326), $3, $4,
+             CASE WHEN $5::int IS NULL THEN NULL
+                  ELSE now() - ($5::int * interval '1 day') END)
      RETURNING id`,
-    [slug, `Camping ${slug}`, website, contact],
+    [slug, `Camping ${slug}`, website, contact, ageDays],
   );
   return r.rows[0].id;
 }
+
+/** Домен, якого ще ніхто в цій базі не згадував: інакше він «спільний». */
+const dom = (prefix: string) => `${prefix}${uniq()}.de`;
 
 const lettersTo = (to: string) =>
   box.sent.filter((m) => m.to === to && m.kind === 'claim_owner_link');
@@ -231,8 +242,9 @@ describe('домен пошти збігається з доменом сайт�
   it('🔴 лист іде на введену адресу, клік підтверджує, грант записано', async () => {
     const u = await account();
     const slug = `alpen-${uniq()}`;
-    const spotId = await spot(slug, 'https://www.alpenblick-camping.de/', {});
-    const to = `chef.${uniq()}@mail.alpenblick-camping.de`;
+    const d = dom('alpenblick-camping');
+    const spotId = await spot(slug, `https://www.${d}/`, {});
+    const to = `chef.${uniq()}@mail.${d}`;
 
     const res = await ask(u.token, slug, to);
     expect(res.status).toBe(202);
@@ -312,7 +324,7 @@ describe('🔴 що НЕ підтверджує автоматично', () => {
   it('чужий домен — ні', async () => {
     const u = await account();
     const slug = `foreign-${uniq()}`;
-    const spotId = await spot(slug, 'https://www.alpenblick-camping.de', {});
+    const spotId = await spot(slug, `https://www.${dom('alpen')}`, {});
     const to = `chef.${uniq()}@some-other-company.de`;
     await ask(u.token, slug, to);
     expect(lettersTo(to)).toHaveLength(0);
@@ -320,14 +332,15 @@ describe('🔴 що НЕ підтверджує автоматично', () => {
   });
 
   it.each([
-    'evil-alpenblick-camping.de',
-    'alpenblick-camping.de.evil.com',
-    'alpenblick-camping.com',
-  ])('схожий домен %s — ні (не за підрядком)', async (domain) => {
+    (d: string) => `evil-${d}`,
+    (d: string) => `${d}.evil.com`,
+    (d: string) => d.replace(/\.de$/, '.com'),
+  ])('схожий домен — ні (не за підрядком)', async (look) => {
     const u = await account();
     const slug = `lookalike-${uniq()}`;
-    const spotId = await spot(slug, 'https://www.alpenblick-camping.de', {});
-    const to = `chef.${uniq()}@${domain}`;
+    const d = dom('alpenblick-camping');
+    const spotId = await spot(slug, `https://www.${d}`, {});
+    const to = `chef.${uniq()}@${look(d)}`;
     await ask(u.token, slug, to);
     expect(lettersTo(to)).toHaveLength(0);
     expect(await rowsFor(spotId)).toHaveLength(0);
@@ -337,7 +350,7 @@ describe('🔴 що НЕ підтверджує автоматично', () => {
     const u = await account();
     const slug = `bare-${uniq()}`;
     const spotId = await spot(slug, null, {});
-    const to = `chef.${uniq()}@alpenblick-camping.de`;
+    const to = `chef.${uniq()}@${dom('alpenblick-camping')}`;
     await ask(u.token, slug, to);
     expect(lettersTo(to)).toHaveLength(0);
     expect(await rowsFor(spotId)).toHaveLength(0);
@@ -365,8 +378,9 @@ describe('посилання: одноразове, з терміном, лиш�
   async function pending() {
     const u = await account();
     const slug = `link-${uniq()}`;
-    const spotId = await spot(slug, 'https://www.linkcamp.de', {});
-    const to = `chef.${uniq()}@linkcamp.de`;
+    const d = dom('linkcamp');
+    const spotId = await spot(slug, `https://www.${d}`, {});
+    const to = `chef.${uniq()}@${d}`;
     await ask(u.token, slug, to);
     const token = tokenIn(lettersTo(to)[0]);
     return { u, slug, spotId, to, token };
@@ -448,13 +462,46 @@ describe('посилання: одноразове, з терміном, лиш�
     expect(res.json.code).toBe('link_invalid');
   });
 
-  it('🔴 дві одночасні перевірки одного посилання: виграє рівно одна', async () => {
+  it('🔴 два кліки під блокуванням рядка: виграє рівно один (UPDATE один, а не SELECT і UPDATE)', async () => {
     const p = await pending();
-    const [a, b] = await Promise.all([
-      confirm(p.u.token, p.token),
-      confirm(p.u.token, p.token),
-    ]);
-    expect([a.status, b.status].sort()).toEqual([200, 400]);
+    const id = (await rowsFor(p.spotId))[0].id as string;
+    // Рядок тримає ДРУГЕ з'єднання. Обидва кліки доходять до бази й стоять
+    // у черзі на блокуванні; лише коли обидва вже чекають, блокування
+    // знімається. Без цього тест залежав би від того, чи два запити збігом
+    // обставин перетнуться, — і мутація «SELECT, потім UPDATE» його
+    // переживала (рецензія PR #586).
+    const holderUrl = new URL(ADMIN_URL!);
+    holderUrl.pathname = `/${dbName}`;
+    const holder = new Client({ connectionString: holderUrl.toString() });
+    await holder.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query(
+        'SELECT id FROM spot_claims WHERE id = $1 FOR UPDATE',
+        [id],
+      );
+      const a = confirm(p.u.token, p.token);
+      const b = confirm(p.u.token, p.token);
+      for (let i = 0; i < 100; i++) {
+        const waiting = await db.query(
+          `SELECT count(*)::int AS n FROM pg_stat_activity
+            WHERE datname = current_database() AND wait_event_type = 'Lock'`,
+        );
+        if (waiting.rows[0].n >= 2) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      const waiting = await db.query(
+        `SELECT count(*)::int AS n FROM pg_stat_activity
+          WHERE datname = current_database() AND wait_event_type = 'Lock'`,
+      );
+      expect(waiting.rows[0].n).toBeGreaterThanOrEqual(2);
+      await holder.query('COMMIT');
+      const [ra, rb] = await Promise.all([a, b]);
+      expect([ra.status, rb.status].sort()).toEqual([200, 400]);
+    } finally {
+      await holder.end();
+    }
+    expect((await rowsFor(p.spotId)).filter((r) => r.used_at)).toHaveLength(1);
   });
 
   it('🔴 два акаунти, два посилання на один кемпінг: підтверджений лишається один', async () => {
@@ -547,7 +594,9 @@ describe('🔴 відповідь однакова: є кемпінг чи ні,
     const statuses: number[] = [];
     for (let i = 0; i < 4; i++) {
       const slug = `addr-${uniq()}`;
-      await spot(slug, 'https://www.addrcamp.de', {});
+      // Адреса дослівно в контактах чотирьох кемпінгів: цей шлях не залежить
+      // від того, що домен `addrcamp.de` спільний.
+      await spot(slug, null, { email: to });
       statuses.push((await ask(u.token, slug, to)).status);
     }
     expect(statuses).toEqual([202, 202, 202, 202]);
@@ -558,7 +607,7 @@ describe('🔴 відповідь однакова: є кемпінг чи ні,
     const u = await account();
     for (let i = 0; i < 10; i++) {
       const slug = `user-${uniq()}`;
-      const id = await spot(slug, 'https://www.usercamp.de', {});
+      const id = await spot(slug, null, {});
       await db.query(
         `INSERT INTO spot_claims (camping_spot_id, user_id, code_hash, sent_to_masked, expires_at)
          VALUES ($1, $2, repeat('a', 64), 'a***@b***.de', now() + interval '1 hour')`,
@@ -577,10 +626,13 @@ describe('🔴 відповідь однакова: є кемпінг чи ні,
     // Кожен «збіг» — на власному кемпінгу: інакше межа «3 на кемпінг»
     // мовчки скасувала б лист, і вимірювали б промах, названий збігом.
     const slugs: string[] = [];
+    const hits: string[] = [];
     for (let i = 0; i < 7; i++) {
       const slug = `time-${uniq()}`;
-      await spot(slug, 'https://www.timecamp.de', {});
+      const addr = `h${i}.${uniq()}@timecamp.de`;
+      await spot(slug, null, { email: addr });
       slugs.push(slug);
+      hits.push(addr);
     }
     const before = box.sent.length;
     latencyMs = 200;
@@ -591,7 +643,7 @@ describe('🔴 відповідь однакова: є кемпінг чи ні,
         let t = performance.now();
         await post(
           '/spot-claims/by-email',
-          { slug: slugs[i], email: `h${i}.${uniq()}@timecamp.de` },
+          { slug: slugs[i], email: hits[i] },
           auth(u.token),
         );
         hit.push(performance.now() - t);
@@ -813,5 +865,219 @@ describe('схема', () => {
       );
     await ins(a);
     await expect(ins(b)).rejects.toThrow(/IDX_spot_claims_link_hash/);
+  });
+});
+
+// ── рецензія PR #586 ────────────────────────────────────────────────────
+
+describe('🔴 рецензія #586, п.1: домен пошти — це хост, а не URL', () => {
+  it.each([
+    (d: string) => `a@${d}/.evil.example`,
+    (d: string) => `a@${d}?.evil.example`,
+    (d: string) => `a@${d}#.evil.example`,
+  ])(
+    'форма з `/`, `?`, `#` не проходить як збіг і не дістає листа',
+    async (form) => {
+      const u = await account();
+      const slug = `slash-${uniq()}`;
+      const d = dom('slashcamp');
+      const spotId = await spot(slug, `https://www.${d}`, {});
+      const bad = form(d);
+      const res = await ask(u.token, slug, bad);
+      expect(res.status).toBe(400);
+      expect(res.json.code).toBe('bad_email');
+      expect(
+        box.sent.filter((m) => m.to.includes('evil.example')),
+      ).toHaveLength(0);
+      expect(await rowsFor(spotId)).toHaveLength(0);
+    },
+  );
+});
+
+describe('🔴 рецензія #586, п.2: сторонній не закриває дорогу власнику', () => {
+  it('три заявки чужого акаунта на кемпінг і три на адресу власника не заважають листу власника', async () => {
+    const stranger = await account();
+    const other = await account();
+    const owner = await account();
+    const slug = `block-${uniq()}`;
+    const d = dom('blockcamp');
+    await spot(slug, `https://www.${d}`, {});
+    const chef = `chef.${uniq()}@${d}`;
+    // Чужий акаунт тричі вписує саме адресу власника (вичерпує «3 на адресу»
+    // для себе) і ще двічі — інші адреси (разом «3 на кемпінг» для себе).
+    for (let i = 0; i < 3; i++) await ask(stranger.token, slug, chef);
+    for (let i = 0; i < 3; i++)
+      await ask(other.token, slug, `o${i}.${uniq()}@${d}`);
+    expect(lettersTo(chef)).toHaveLength(3);
+    // Власник — інший акаунт — отримує свій лист.
+    await ask(owner.token, slug, chef);
+    expect(lettersTo(chef)).toHaveLength(4);
+  });
+
+  it('межа на пару працює: четверта заявка ТОГО САМОГО акаунта на той самий кемпінг листа не шле', async () => {
+    const u = await account();
+    const slug = `pair-${uniq()}`;
+    const d = dom('paircamp');
+    await spot(slug, `https://www.${d}`, {});
+    const addrs = [0, 1, 2, 3].map((i) => `p${i}.${uniq()}@${d}`);
+    for (const a of addrs) await ask(u.token, slug, a);
+    expect(addrs.map((a) => lettersTo(a).length)).toEqual([1, 1, 1, 0]);
+  });
+
+  it('рядки-посилання чужих акаунтів не вичерпують межу коду з OSM-адреси', async () => {
+    const owner = await account();
+    const slug = `oldflow-${uniq()}`;
+    const d = dom('oldflow');
+    await spot(slug, `https://www.${d}`, { email: `info@${d}` });
+    for (let i = 0; i < 3; i++) {
+      const stranger = await account();
+      await ask(stranger.token, slug, `s${i}.${uniq()}@${d}`);
+    }
+    const res = await post('/spot-claims', { slug }, auth(owner.token));
+    expect(res.status).toBe(202);
+    expect(
+      box.sent.filter((m) => m.kind === 'claim_spot' && m.to === `info@${d}`),
+    ).toHaveLength(1);
+  });
+});
+
+describe('🔴 рецензія #586, п.3: домен не належить кемпінгу, якщо він чужий', () => {
+  it('сайт у піддомені: збігається лише точний хост, а не весь зареєстрований домен', async () => {
+    const u = await account();
+    const slug = `sub-${uniq()}`;
+    const d = dom('stadt');
+    await spot(slug, `https://camping.${d}/`, {});
+    for (const bad of [
+      `x.${uniq()}@${d}`,
+      `x.${uniq()}@mail.${d}`,
+      `x.${uniq()}@verein.${d}`,
+    ]) {
+      await ask(u.token, slug, bad);
+      expect(lettersTo(bad)).toHaveLength(0);
+    }
+    const good = `x.${uniq()}@camping.${d}`;
+    await ask(u.token, slug, good);
+    expect(lettersTo(good)).toHaveLength(1);
+  });
+
+  it('сайт на apex чи на www: вся родина піддоменів пошти — його', async () => {
+    const u = await account();
+    const slug = `apex-${uniq()}`;
+    const d = dom('apexcamp');
+    await spot(slug, `https://www.${d}/`, {});
+    const good = `x.${uniq()}@mail.${d}`;
+    await ask(u.token, slug, good);
+    expect(lettersTo(good)).toHaveLength(1);
+  });
+
+  it('домен, який згадують ДВА кемпінги (сайтом чи поштою), автопідтвердження по домену не дає; дослівна адреса з контактів — дає', async () => {
+    const u = await account();
+    const d = dom('chain');
+    const a = `chain-a-${uniq()}`;
+    const b = `chain-b-${uniq()}`;
+    const listed = `booking.${uniq()}@${d}`;
+    await spot(a, `https://www.${d}/a`, { email: listed });
+    await spot(b, `https://${d}/b`, {});
+    const viaDomain = `x.${uniq()}@${d}`;
+    await ask(u.token, a, viaDomain);
+    await ask(u.token, b, viaDomain.replace('x.', 'y.'));
+    expect(lettersTo(viaDomain)).toHaveLength(0);
+    expect(lettersTo(viaDomain.replace('x.', 'y.'))).toHaveLength(0);
+    // Дослівна адреса з контактів — окремий шлях, і він не заблокований.
+    await ask(u.token, a, listed);
+    expect(lettersTo(listed)).toHaveLength(1);
+  });
+
+  it('спільним домен стає й тоді, коли другий кемпінг згадує його лише ПОШТОЮ', async () => {
+    const u = await account();
+    const d = dom('mailonly');
+    const a = `mailonly-a-${uniq()}`;
+    await spot(a, `https://www.${d}`, {});
+    await spot(`mailonly-b-${uniq()}`, null, { email: `info@${d}` });
+    const to = `x.${uniq()}@${d}`;
+    await ask(u.token, a, to);
+    expect(lettersTo(to)).toHaveLength(0);
+  });
+
+  it('підрядок — не повтор: домен, що лише міститься в чужому, спільним не робить', async () => {
+    const u = await account();
+    const d = dom('substr');
+    const a = `substr-a-${uniq()}`;
+    await spot(a, `https://www.${d}`, {});
+    await spot(`substr-b-${uniq()}`, `https://www.not-${d}`, {});
+    const to = `x.${uniq()}@${d}`;
+    await ask(u.token, a, to);
+    expect(lettersTo(to)).toHaveLength(1);
+  });
+});
+
+describe('🔴 рецензія #586, п.4: час відповіді не залежить від збігу', () => {
+  it('+80 мс роботи лише на збігу не видно в часі відповіді', async () => {
+    const u = await account();
+    const slug = `lag-${uniq()}`;
+    const d = dom('lagcamp');
+    await spot(slug, `https://www.${d}`, {});
+    const real = (SpotClaimService.prototype as any).attempt;
+    const spy = jest
+      .spyOn(SpotClaimService.prototype as any, 'attempt')
+      .mockImplementation(async function (this: unknown, ...args: unknown[]) {
+        // args: slug, viewerId, email, mailer — «збіг» це адреса на домені.
+        if (String(args[2]).endsWith(`@${d}`))
+          await new Promise((r) => setTimeout(r, 80));
+        return real.apply(this, args);
+      });
+    try {
+      const hit: number[] = [];
+      const miss: number[] = [];
+      for (let i = 0; i < 7; i++) {
+        let t = performance.now();
+        await post(
+          '/spot-claims/by-email',
+          { slug, email: `h${i}.${uniq()}@${d}` },
+          auth(u.token),
+        );
+        hit.push(performance.now() - t);
+        t = performance.now();
+        await post(
+          '/spot-claims/by-email',
+          { slug, email: `m${i}.${uniq()}@elsewhere.de` },
+          auth(u.token),
+        );
+        miss.push(performance.now() - t);
+      }
+      await settle();
+      const median = (xs: number[]) =>
+        [...xs].sort((a, b) => a - b)[xs.length >> 1];
+      expect(median(hit) - median(miss)).toBeLessThan(40);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe('🔴 рецензія #586, п.7: свіжа правка в даних автопідтвердження не дає', () => {
+  async function tryAge(ageDays: number | null, mailOnly = false) {
+    const u = await account();
+    const slug = `age-${uniq()}`;
+    const d = dom('agecamp');
+    const to = `x.${uniq()}@${d}`;
+    if (mailOnly) await spot(slug, null, { email: to }, ageDays);
+    else await spot(slug, `https://www.${d}`, {}, ageDays);
+    await ask(u.token, slug, to);
+    return lettersTo(to).length;
+  }
+
+  it('значення, що змінилось 10 днів тому, — ні; 31 день тому — так', async () => {
+    expect(await tryAge(10)).toBe(0);
+    expect(await tryAge(31)).toBe(1);
+  });
+
+  it('невідомий вік (NULL) — ні', async () => {
+    expect(await tryAge(null)).toBe(0);
+  });
+
+  it('те саме для дослівної адреси з контактів', async () => {
+    expect(await tryAge(5, true)).toBe(0);
+    expect(await tryAge(45, true)).toBe(1);
   });
 });
