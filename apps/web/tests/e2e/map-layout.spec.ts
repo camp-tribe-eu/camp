@@ -105,6 +105,10 @@ test.describe('full screen', () => {
     const vp = { width: await page.evaluate(() => window.innerWidth), height: await page.evaluate(() => window.innerHeight) };
     const r = await pageRoot(page).boundingBox();
     expect(r, 'page root has no box').not.toBeNull();
+    // The corner too: a root with the right SIZE that still sits below the
+    // site header is not full screen — only a root laid over the page is at 0,0.
+    expect(Math.round(r!.x), 'full screen starts at the left edge').toBe(0);
+    expect(Math.round(r!.y), 'full screen starts at the top edge, over the header').toBe(0);
     expect(Math.round(r!.width), 'full screen covers the width').toBe(vp.width);
     expect(Math.round(r!.height), 'full screen covers the height').toBe(vp.height);
     const m = await box(page, 'map');
@@ -141,6 +145,7 @@ test.describe('full screen', () => {
     await expect(pageRoot(page)).toHaveAttribute('data-fullscreen', 'true');
     expect(await page.evaluate(() => document.fullscreenElement), 'the API was supposed to be absent').toBeNull();
     await expect.poll(async () => Math.round((await pageRoot(page).boundingBox())!.height) - (await page.evaluate(() => window.innerHeight)), { timeout: 20_000 }).toBe(0);
+    await covers(page);
     await btn.click();
     await expect(pageRoot(page)).not.toHaveAttribute('data-fullscreen', 'true');
   });
