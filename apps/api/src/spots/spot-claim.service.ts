@@ -362,6 +362,7 @@ export class SpotClaimService {
         ownerLinkFor(mailer.webBase, token),
         spot.name ?? 'this campsite',
         Math.round(LINK_TTL_MS / 60_000),
+        `${mailer.webBase}/legal/privacy`,
       ),
     );
   }
