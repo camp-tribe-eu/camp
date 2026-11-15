@@ -186,6 +186,16 @@ export class SpotsController {
     return this.spots.hubStats(country);
   }
 
+  /**
+   * CAMP-525: the winter page's figures. One segment, so it cannot be
+   * `:country/regions` or `:country/:region`, and it is declared with the
+   * other fixed paths before them.
+   */
+  @Get('winter')
+  winter() {
+    return this.spots.winter();
+  }
+
   /** CAMP-71: countries for /camping. */
   @Get('countries')
   countries() {

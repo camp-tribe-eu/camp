@@ -130,7 +130,7 @@ export const groupOf = (kind: CampServiceKind): CampServiceGroup =>
  * join variable). `gas` is `cylinder_swap = 'yes'`, the layer's definition
  * (route-poi.ts STORED_ONLY_KINDS).
  */
-const FILTER: Record<CampServiceKind, string> = {
+export const FILTER: Record<CampServiceKind, string> = {
   fuel: `p.kind = 'fuel'`,
   groceries: `p.kind = 'groceries'`,
   ev_charging: `p.kind = 'charging'`,

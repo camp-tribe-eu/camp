@@ -25,6 +25,7 @@ import { absoluteAlternates, liveLocales } from './i18n';
 import { byCountry, byTopic } from './guide-facets';
 import { getGuides } from './guides';
 import { postList } from './posts';
+import { winterSitemapEntry } from './winter';
 import { getRoutes } from './routes';
 import { FUEL, FUEL_COUNTRIES } from './fuel';
 import { MEASURED, publishableCountries } from './rental';
@@ -195,6 +196,18 @@ export async function hubUrls(): Promise<SitemapUrl[]> {
           : {}),
       });
     }
+  }
+
+  // CAMP-525: /camping/winter — only while it has something to say (see
+  // `winterSitemapEntry`).
+  const winter = await winterSitemapEntry();
+  if (winter) {
+    urls.push({
+      loc: `${SITE}${winter.path}`,
+      changefreq: 'monthly',
+      priority: '0.6',
+      ...(winter.lastmod ? { lastmod: winter.lastmod } : {}),
+    });
   }
 
   // CAMP-3 / CAMP-45: one entry per curated route.

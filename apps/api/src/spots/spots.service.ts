@@ -35,6 +35,8 @@ import {
 import { countRegionInsights, type RegionInsights } from './region-insights';
 export type { RegionInsights } from './region-insights';
 import { countHubStats, type HubRegionStats } from './hub-stats';
+import { countWinter, type WinterPayload } from './winter';
+export type { WinterPayload } from './winter';
 export type { HubRegionStats } from './hub-stats';
 export { NOTHING_TO_SAY_SQL } from './detail-query';
 import type { TariffView } from './tariffs';
@@ -620,6 +622,15 @@ export class SpotsService {
       country,
     );
     return rows.map((r) => ({ ...r, slug: slugifyRegion(r.region) }));
+  }
+
+  /**
+   * CAMP-525: /camping/winter — per country, the campsites recorded as open
+   * in winter (the chip's rule and denominator) and what they have within
+   * 10 km (see winter.ts).
+   */
+  async winter(): Promise<WinterPayload> {
+    return countWinter((sql) => this.db.query(sql), slugifyRegion);
   }
 
   /**
