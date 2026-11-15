@@ -38,9 +38,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * макет шукає секції за ТИПОМ, — а щоб міграція була ідемпотентною й
  * відкочуваною: `UNIQUE (page_id, slot)` не дасть вставити двічі.
  */
-export class HomeSliderSearchFeatures1797700000000
-  implements MigrationInterface
-{
+export class HomeSliderSearchFeatures1797700000000 implements MigrationInterface {
   name = 'HomeSliderSearchFeatures1797700000000';
 
   /** Усе, що ця міграція кладе, — щоб `down` знав, що забирати. */
