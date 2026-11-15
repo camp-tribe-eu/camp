@@ -3,6 +3,7 @@ import type { DataSource, QueryRunner } from 'typeorm';
 import { SpotOvernight1791500000000 } from '../migrations/1791500000000-SpotOvernight';
 import { SpotRecordEdited1791800000000 } from '../migrations/1791800000000-SpotRecordEdited';
 import { SpotOutline1792100000000 } from '../migrations/1792100000000-SpotOutline';
+import { SpotTravelStyles1797500000000 } from '../migrations/1797500000000-SpotTravelStyles';
 import { UPSERT_SPOT_SQL, upsertSpotParams } from '../osm/import-spots';
 import { mapOvernight } from '../osm/tag-mapping';
 import { MapQueryService } from './map.service';
@@ -114,6 +115,9 @@ beforeAll(async () => {
   // деінде: вісім тестів імпортера впали зі статусом 1 за відсутню
   // колонку, і причина читалась як поломка імпортера.
   await new SpotOutline1792100000000().up(runner());
+  // CAMP-520: the same hand-kept list, the same reason — the upsert now
+  // writes `travel_styles`.
+  await new SpotTravelStyles1797500000000().up(runner());
 });
 
 afterAll(async () => {
