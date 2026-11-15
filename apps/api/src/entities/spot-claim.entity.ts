@@ -75,6 +75,18 @@ export class SpotClaim {
   @Column({ type: 'int', default: 0 })
   attempts: number;
 
+  /**
+   * CAMP-505: як доведено. `osm_code` — код на адресу з тегів OSM;
+   * `link` — посилання на адресу, яку ввела людина й чий домен збігся з
+   * доменом кемпінгу. Для `link` у `codeHash` лежить хеш токена.
+   */
+  @Column({ type: 'varchar', length: 16, default: 'osm_code' })
+  method: 'osm_code' | 'link';
+
+  /** Чому збіг: лише для `link` (CHECK `spot_claims_basis_iff_link`). */
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  basis: 'website-domain' | 'listed-email' | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }

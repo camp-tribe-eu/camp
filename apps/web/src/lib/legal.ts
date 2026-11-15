@@ -178,8 +178,8 @@ export const LEGAL_PAGES: LegalPage[] = [
     // 2.8 (12.11.2026, CAMP-501): п'ятий запис у сховищі браузера — вибір
     // «маю кемпер / орендую» (`camptribe.persona`). Міграція
     // 1797100100000-PrivacyPersonaChoice.
-    version: '2.8',
-    effectiveFrom: '2026-11-12',
+    version: '2.9',
+    effectiveFrom: '2026-11-15',
   },
   {
     slug: 'cookies',
