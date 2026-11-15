@@ -17,6 +17,7 @@ import { PrivacyEventCounts1796800000000 } from '../migrations/1796800000000-Pri
 import { AttributionElevationFromBucket1796000000000 } from '../migrations/1796000000000-AttributionElevationFromBucket';
 import { PersonaChoiceCookies1797100200000 } from '../migrations/1797100200000-PersonaChoiceCookies';
 import { PrivacyPersonaChoice1797100100000 } from '../migrations/1797100100000-PrivacyPersonaChoice';
+import { PrivacyOwnerVerifyLink1797810000000 } from '../migrations/1797810000000-PrivacyOwnerVerifyLink';
 import { AttributionBannerImages1796600000000 } from '../migrations/1796600000000-AttributionBannerImages';
 
 /**
@@ -75,6 +76,8 @@ const UPDATES: ReadonlyArray<SeededLegalPage> = [
   // CAMP-501: п'ятий запис у сховищі браузера — вибір «маю кемпер / орендую».
   new PersonaChoiceCookies1797100200000().page,
   new PrivacyPersonaChoice1797100100000().page,
+  // CAMP-505: «Це мій кемпінг» — підтвердження власника адресою на домені кемпінгу.
+  new PrivacyOwnerVerifyLink1797810000000().page,
 ];
 
 export function seededLegalPages(): SeededLegalPage[] {

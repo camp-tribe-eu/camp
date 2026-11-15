@@ -10,6 +10,7 @@ import { Throttle } from '@nestjs/throttler';
 import { CurrentViewer } from '../auth/current-viewer.decorator';
 import type { Viewer } from '../auth/ownership';
 import { MAIL_LIMIT } from '../throttle';
+import { LINK_TTL_MS } from './owner-email';
 import { MAX_ATTEMPTS, PER_SPOT_PER_DAY, PER_USER_PER_DAY } from './spot-claim';
 import { SpotClaimService } from './spot-claim.service';
 
@@ -60,6 +61,11 @@ const REFUSAL: Record<
     code: 'user_flooded',
     message: `You have asked for ${PER_USER_PER_DAY} codes in a day. Try tomorrow.`,
   },
+  'bad-email': {
+    status: 400,
+    code: 'bad_email',
+    message: 'That does not look like an email address.',
+  },
   'mail-unavailable': {
     status: 503,
     code: 'mail_unavailable',
@@ -86,6 +92,17 @@ const REFUSAL: Record<
     message: 'That code does not match.',
   },
 };
+
+/**
+ * 🔴 ОДНЕ РЕЧЕННЯ НА ВСІ ВИПАДКИ, і воно чесне про обидва кінці: якщо
+ * адреса підійшла — лист іде; якщо листа немає, автоматично підтвердити
+ * не вдалося, і поруч названо, куди писати. Різниця між «підійшла» і «не
+ * підійшла» тут не видна навмисно.
+ */
+export const OWNER_LINK_ACCEPTED = `If that address belongs to this campsite, a letter with a link is on its way and works for ${Math.round(LINK_TTL_MS / 60_000)} minutes. If nothing arrives within a few minutes, we could not confirm you automatically — write to hello@camptribe.eu.`;
+
+export const LINK_INVALID =
+  'This link does not work: it has been used, it has expired, or it was started from another account. Start again from the campsite page.';
 
 /**
  * 🔴 `res.ok === false`, А НЕ `!res.ok`, І ЦЕ НЕ СТИЛЬ.
@@ -155,5 +172,56 @@ export class SpotClaimController {
     const res = await this.claims.confirm(slug, viewer.id, code);
     if (res.ok === false) refuse(res.why);
     return { confirmed: true };
+  }
+
+  /**
+   * CAMP-505: «Це мій кемпінг» — власник вводить свою пошту.
+   *
+   * 🔴 ВІДПОВІДЬ ОДНАКОВА ЗАВЖДИ: 202 і те саме тіло, чи є такий кемпінг,
+   * чи збігся домен, чи вичерпано межу. Тіло каже чесно, що саме відбулось
+   * «якщо адреса підійшла», і що робити, коли листа немає. Деталі —
+   * `SpotClaimService.startByEmail`.
+   *
+   * 🔴 АДРЕСА ВИХОДИТЬ ЛИШЕ В ЛИСТ. Ані в відповіді, ані в базі (там
+   * маска), ані в журналі.
+   */
+  @Post('by-email')
+  @HttpCode(202)
+  @Throttle(MAIL)
+  async startByEmail(
+    @CurrentViewer() viewer: Viewer,
+    @Body() body: { slug?: unknown; email?: unknown },
+  ) {
+    if (!viewer) throw new UnauthorizedException(NO_SESSION);
+    const slug = typeof body?.slug === 'string' ? body.slug : '';
+    const res = await this.claims.startByEmail(slug, viewer.id, body?.email);
+    if (res.ok === false) refuse(res.why);
+    return {
+      accepted: true,
+      message: OWNER_LINK_ACCEPTED,
+    };
+  }
+
+  /**
+   * CAMP-505: клік «підтвердити» на сторінці з листа. POST, а не GET:
+   * поштові сканери й попередній перегляд посилань відкривають GET самі,
+   * і одноразове посилання згоріло б, нікого не підтвердивши (або, гірше,
+   * підтвердило б).
+   */
+  @Post('by-email/confirm')
+  @HttpCode(200)
+  @Throttle(MAIL)
+  async confirmByEmail(
+    @CurrentViewer() viewer: Viewer,
+    @Body() body: { token?: unknown },
+  ) {
+    if (!viewer) throw new UnauthorizedException(NO_SESSION);
+    const res = await this.claims.confirmLink(body?.token, viewer.id);
+    if (res.ok === false)
+      throw new HttpException(
+        { code: 'link_invalid', message: LINK_INVALID },
+        400,
+      );
+    return { confirmed: true, slug: res.slug, name: res.name };
   }
 }

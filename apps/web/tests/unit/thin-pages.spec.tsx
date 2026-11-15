@@ -6,6 +6,7 @@ import { join } from "node:path";
 import CampingIndex from "@/app/camping/page";
 import { GET as llmsTxt } from "@/app/llms.txt/route";
 import MapPage from "@/app/map/page";
+import { countryTiles } from "@/components/country-tiles";
 import RoutePage from "@/app/routes/[slug]/page";
 import RoutesIndex from "@/app/routes/page";
 import SearchPage from "@/app/search/page";
@@ -681,10 +682,14 @@ test.describe("/search", () => {
     expect(memberStateCount([])).toBe(0);
   });
 
-  test("🔴 it says the box searches campsites only, and where the rest of the site is", async () => {
+  test("🔴 it says what the box finds, and where the rest of the site is", async () => {
     const html = await renderSearch();
     const text = visibleText(html);
-    expect(text).toContain("This box searches campsites only");
+    // CAMP-455: the box now finds three kinds of thing, and the sentence
+    // names exactly those — a page that went on saying "campsites only"
+    // would be as wrong as one that promised guides.
+    expect(text).toContain("finds campsites, regions and countries");
+    expect(text).not.toContain("campsites only");
     for (const href of ["/map", "/routes", "/guides", "/tools"]) {
       expect(html, `no way out to ${href}`).toContain(`href="${href}"`);
     }
@@ -692,10 +697,34 @@ test.describe("/search", () => {
     expect(text).toContain(`${CURATED_ROUTES.length} curated routes`);
   });
 
-  test("every country chip carries a thousands separator, like the lead does", async () => {
+  test("every country card carries a thousands separator, like the lead does", async () => {
     const text = visibleText(await renderSearch());
-    expect(text).toContain("France · 17,915");
-    expect(text).not.toMatch(/France · 17915/);
+    expect(text).toContain("17,915 campsites");
+    expect(text).not.toMatch(/17915 campsites/);
+  });
+
+  // 🔴 CAMP-455. The countries under the box are CARDS with a flag, the
+  // same ones /camping draws — not pills. Counted in the HTML the page
+  // sends, against the list the page was given: one card per published
+  // country, a flag image in each, and a link to the country's page.
+  test("🔴 the countries under the box are flag cards, one per published country", async () => {
+    const html = await renderSearch();
+    const withData = countryTiles(API_COUNTRIES).filter((t) => t.data);
+    expect(withData.length).toBeGreaterThan(20);
+    expect((html.match(/class="ct-tile"/g) ?? []).length).toBe(withData.length);
+    for (const t of withData) {
+      expect(html, `no card links to /camping/${t.code}`).toContain(
+        `href="/camping/${t.code}"`,
+      );
+    }
+    // Every card draws a flag. The flag is silent to a screen reader (the
+    // name is beside it), so the check is on the rendered <img>, not on a
+    // class somebody could add to an empty element.
+    const flags =
+      html.match(/<img class="ct-flag" src="\/flags\/[a-z]{2}\.svg"/g) ?? [];
+    expect(flags.length).toBeGreaterThanOrEqual(withData.length);
+    // The old pill is gone from this page.
+    expect(html).not.toContain("ct-country-chip");
   });
 });
 
