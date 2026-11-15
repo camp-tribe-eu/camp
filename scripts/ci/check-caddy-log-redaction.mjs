@@ -45,8 +45,18 @@ const DEFAULT_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..
 const CADDYFILE = 'infra/caddy/camptribe.eu.caddyfile';
 const SOURCE_DIRS = ['apps/api/src', 'apps/web/src'];
 
-/** Directus приймає токен і в рядку запиту; це не наш код, тож не з грепа. */
-export const QUERY_PARAMS = Object.freeze(['access_token']);
+/**
+ * Directus приймає токен і в рядку запиту; це не наш код, тож не з грепа.
+ *
+ * 🔴 `t` — токен у посиланні з листа (`/verify-email?t=…`,
+ * `/reset-password?t=…`, `/confirm-email-change?t=…`, і з CAMP-505 —
+ * `/account/claim/confirm?t=…`). Сторінки статичні, тож запит іде через
+ * Caddy, а журнал доступу пише повний URI. Токен одноразовий і живе
+ * годину, але журнал живе довше за посилання, а його читає хто завгодно з
+ * доступом до машини. Знайдено рецензією PR #586: цього рядка не було й
+ * для трьох старих листів.
+ */
+export const QUERY_PARAMS = Object.freeze(['access_token', 't']);
 
 const HEADER_LITERAL = /(['"`])(x-[a-z0-9-]*(?:secret|token|key))\1/gi;
 const SOURCE_FILE = /\.(?:ts|tsx|js|jsx|mjs)$/;
@@ -228,7 +238,7 @@ function main(root) {
 
 // ── самотест ──────────────────────────────────────────────────────────
 
-const EXPECTED_CASES = 17;
+const EXPECTED_CASES = 18;
 
 /** Caddyfile за зразком справжнього; рядки фільтра — параметром. */
 function caddy({ g, site, cms, globalBlock = true, extra = '' } = {}) {
@@ -237,6 +247,7 @@ function caddy({ g, site, cms, globalBlock = true, extra = '' } = {}) {
     'request>headers>X-Build-Token replace REDACTED',
     'request>uri query {',
     '\treplace access_token REDACTED',
+    '\treplace t REDACTED',
     '}',
   ];
   const filter = (rows) => (rows === null ? [] : ['format filter {', '\twrap json', ...rows.map((r) => `\t${r}`), '}']);
@@ -262,7 +273,7 @@ function selfTest() {
   const without = (drop) => [
     'request>headers>X-Revalidate-Secret replace REDACTED',
     'request>headers>X-Build-Token replace REDACTED',
-    'request>uri query {', '\treplace access_token REDACTED', '}',
+    'request>uri query {', '\treplace access_token REDACTED', '\treplace t REDACTED', '}',
   ].filter((l) => !l.includes(drop));
   const swap = (from, to) => without('\0').map((l) => l.replace(from, to));
   const n = (text, headers = H) => audit(text, headers).problems;
@@ -284,6 +295,7 @@ function selfTest() {
   add('🔴 replace без тексту', n(caddy({ site: swap('X-Build-Token replace REDACTED', 'X-Build-Token replace') })).length, 1);
   add('delete теж ховає', n(caddy({ site: swap('X-Build-Token replace REDACTED', 'X-Build-Token delete') })).length, 0);
   add('🔴 параметр запиту не редагується', says(n(caddy({ cms: without('access_token') })), 'access_token'), true);
+  add('🔴 параметр `t` (токен із листа) не редагується', says(n(caddy({ site: without('replace t ') })), '`t`'), true);
   add('🔴 новий заголовок у коді, якого немає в конфігу — по скарзі на журнал', n(caddy(), [...H, 'x-new-token']).length, 3);
   add('🔴 порожній перелік із коду — провал, а не зелене', says(n(caddy(), []), 'нічого не довів'), true);
   add('🔴 import усередині log', says(n(caddy({ site: [...without('\0'), 'import redact'] })), 'import'), true);

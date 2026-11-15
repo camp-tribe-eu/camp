@@ -85,6 +85,7 @@ const NOT_IN_MENU: ReadonlyArray<{ path: string; why: string }> = [
   { path: "/gone", why: "технічна сторінка 410 для знятих адрес: читач потрапляє туди лише за старим посиланням" },
   { path: "/account", why: "кабінет: лише для того, хто ввійшов; публічне меню одне на всіх" },
   { path: "/account/claim", why: "кабінет: підсторінка кабінету" },
+  { path: "/account/claim/confirm", why: "кабінет: підтвердження заявки власника (CAMP-505), відкривається з посилання в листі" },
   { path: "/account/data", why: "кабінет: підсторінка кабінету" },
   { path: "/account/delete", why: "кабінет: підсторінка кабінету" },
   { path: "/account/listings", why: "кабінет: підсторінка кабінету" },

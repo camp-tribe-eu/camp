@@ -24,7 +24,7 @@ export function SpotFactsLine({ facts }: { facts: readonly SpotFact[] }) {
     <ul
       data-testid="spot-facts"
       aria-label="Key facts"
-      className="mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line-2 bg-line-2 md:grid-flow-col md:auto-cols-fr"
+      className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-line-2 bg-line-2"
     >
       {facts.map((f) => (
         <li
