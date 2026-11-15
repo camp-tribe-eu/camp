@@ -19,6 +19,10 @@ import { pageContent, type SectionView } from '@/lib/page-content';
 import {
   PageSections,
 } from '@/components/page-sections';
+import { HeroSlider } from '@/components/home-slider';
+import { SearchWidget } from '@/components/search-widget';
+import { PAGE_VALUES } from '@/lib/page-content';
+import { searchOf, slidesOf } from '@/lib/slides';
 import { BRAND_TITLE } from '@/lib/brand';
 import { siteSettings } from '@/lib/site-settings';
 import {
@@ -27,6 +31,7 @@ import {
   assertHomeSectionsUsed,
   findSection,
   sectionBySlot,
+  sectionsOfType,
 } from '@/lib/home-sections';
 import { Block } from '@/components/layout';
 
@@ -167,6 +172,16 @@ export default async function Home() {
   const driveLinks = sectionBySlot(page.sections, HOME_SLOTS[2]);
   const notableText = sectionBySlot(page.sections, HOME_SLOTS[3]);
 
+  // 🔴 CAMP-488: ПЕРШИЙ ЕКРАН — СЛАЙДЕР І ПОШУК, ОБИДВА З CMS.
+  // `slidesOf` і `searchOf` кидають на зіпсованому рядку (слайд без фото,
+  // кнопка наполовину): мовчки зникла секція читається як «CMS не працює».
+  // Відсутність СЕКЦІЇ — інше, вона не валить сторінку (CAMP-365 п.3) і
+  // називається в `/internal/content-stamp`.
+  const allValues = { ...PAGE_VALUES, ...values };
+  const slides = slidesOf(sectionsOfType(page.sections, 'slide'), allValues);
+  const searchSection = findSection(page.sections, HOME_SECTIONS[2]);
+  const features = sectionsOfType(page.sections, 'image-text');
+
   return (
     <main>
       <script
@@ -191,6 +206,14 @@ export default async function Home() {
           називає, чого бракує, і сторож ISR це бачить. Інакше з
           увімкненим ISR Next лишив би попередню справну сторінку, і про
           зникнення блоку не дізнався б ніхто. */}
+      {(slides.length > 0 || searchSection) && (
+        <div className="mx-auto max-w-wrap px-4 pt-3 xl:px-6">
+          <HeroSlider slides={slides} label="Where to start" />
+          {searchSection && (
+            <SearchWidget search={searchOf(searchSection, allValues)} />
+          )}
+        </div>
+      )}
       <Hero
         stay={stay}
         drive={drive}
@@ -200,6 +223,9 @@ export default async function Home() {
         countries={countries}
       />
       {steps && <PageSections sections={[steps]} values={values} />}
+      {features.length > 0 && (
+        <PageSections sections={features} values={values} />
+      )}
       <Countries countries={countries} />
       <Notable spots={notable} text={notableText} />
     </main>
