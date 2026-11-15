@@ -61,7 +61,13 @@ export function evaluate(slug, html) {
     // Above the heading is fine too; only below the body is not.
   }
 
-  if (MACHINE_MADE.has(provenance)) {
+  // 🔴 CAMP-463: `data-generated` — лічильник записів, а не система ШІ, і
+  // ст. 50(2) AI Act говорить про вихід ШІ. Сторінка мусить мати блок
+  // походження (перевірка вище), але фраза «A program wrote this page»
+  // читачеві сторінки про воду нічого не давала й розповідала про наш
+  // спосіб виробництва. Слово «machine/program/model» і ім'я вимагаються
+  // лише там, де писала мовна модель.
+  if (MACHINE_MADE.has(provenance) && provenance !== 'data-generated') {
     // The words a reader can act on, not a badge.
     if (!/machine|program|model/i.test(html)) {
       problems.push(
@@ -77,7 +83,7 @@ export function evaluate(slug, html) {
     // відповідала. Сторінка все одно мусить сказати словами, що її писала
     // програма (перевірка вище лишилась) — зникла лише вимога імені.
     // Сторінка-СТАТТЯ друкує імʼя й надалі (components/guide-article.tsx).
-    if (provenance !== 'data-generated' && !/<code>[^<]+<\/code>/.test(html)) {
+    if (!/<code>[^<]+<\/code>/.test(html)) {
       problems.push(`${slug}: does not name the program that produced it`);
     }
   }
@@ -99,7 +105,7 @@ function selfTest() {
     } else console.log(`  ✓ ${name}`);
   };
 
-  const good = `<h1>Title</h1><aside data-testid="provenance" data-provenance="data-generated">Assembled from our database. A program wrote this page. The program is <code>region-facts@1</code>.</aside><p>body</p>`;
+  const good = `<h1>Title</h1><aside data-testid="provenance" data-provenance="data-generated">Assembled from our database. Every number on this page is a count of what our records hold.</aside><p>body</p>`;
 
   check('a properly marked generated page passes', evaluate('g', good), []);
 
@@ -133,12 +139,20 @@ function selfTest() {
   // one refuses a page that never mentions one), but it need not print
   // the program's internal name.
   check(
-    'a program-counted page needs no program name, only the words',
+    'a counted page needs neither a program name nor the word "program"',
     evaluate(
       'g',
-      `<h1>T</h1><aside data-testid="provenance" data-provenance="data-generated">A program wrote this page from our own records.</aside>`,
+      `<h1>T</h1><aside data-testid="provenance" data-provenance="data-generated">Every number on this page is a count of what our records hold.</aside>`,
     ),
     [],
+  );
+
+  // …but the block itself is still required: dropping the words for the
+  // counter must not drop the page's origin mark.
+  check(
+    'a counted page with no provenance block is still refused',
+    evaluate('g', '<h1>T</h1><p>Every number is a count.</p>'),
+    ['g: the page does not say how it was made'],
   );
 
   // A human-written page needs no machine disclosure and must not be
@@ -156,7 +170,7 @@ function selfTest() {
   // passed" is a line five scripts in this repository printed, so a CI
   // step grepping for it could be satisfied by somebody else's run; and
   // a case that stopped being reached prints what a passing case prints.
-  const EXPECTED_CASES = 6;
+  const EXPECTED_CASES = 7;
   if (cases !== EXPECTED_CASES) {
     console.log(`✗ ${cases} cases ran, expected ${EXPECTED_CASES}`);
     failures++;
