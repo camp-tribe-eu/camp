@@ -126,10 +126,22 @@ test.describe("час читання", () => {
         `лічимо «${f}», але page-sections.tsx його не малює`,
       ).toBe(true);
     }
-    expect(
-      /\.subheading\b/.test(renderer),
-      "subheading почали малювати — його треба додати в лічбу",
-    ).toBe(false);
+    // 🔴 CAMP-488: дзеркало перевірки вище. Раніше тут стояло «subheading
+    // НЕ малюється» — і саме це твердження перестало бути правдою, коли
+    // рядок «текст + фото» почав друкувати надзаголовок. Тепер сторож
+    // симетричний: КОЖНЕ видиме поле, яке читає рендер, мусить лічитись.
+    for (const f of ["heading", "subheading", "body", "ctaLabel"] as const) {
+      if (new RegExp(`\\.${f}\\b`).test(renderer)) {
+        expect(
+          (COUNTED_SECTION_FIELDS as readonly string[]).includes(f),
+          `page-sections.tsx малює «${f}», але в лічбу слів його не додано`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  test("надзаголовок (`subheading`) лічиться як видимий текст", () => {
+    expect(visibleWords([section({ subheading: "alpha beta" })])).toBe(2);
   });
 
   test("адреса й іконка в items не є текстом", () => {

@@ -25,7 +25,13 @@ test.describe("🔴 CAMP-365 — головна", () => {
     await expect(h1, "заголовка немає або їх кілька").toHaveCount(1);
     await expect(h1).toHaveText(HOME_H1);
 
-    const lead = await page.locator("main p").first().innerText();
+    // 🔴 CAMP-488: над вступом тепер стоїть слайдер, і його абзаци ідуть
+    // у розмітці РАНІШЕ. `main p` `.first()` більше не вступ — шукаємо його
+    // за змістом, а не за позицією.
+    const lead = await page
+      .locator("main p", { hasText: LEAD_TAIL })
+      .first()
+      .innerText();
     expect(lead, "вступ не закінчується рядком із бази").toContain(LEAD_TAIL);
 
     // 🔴 Початок вступу РАХУЄТЬСЯ (`heroLead`), і він має ЧОТИРИ форми,
@@ -87,9 +93,9 @@ test.describe("🔴 CAMP-365 — головна", () => {
     // загублений клас, і загублене правило.
     await expect(page.locator("main h1")).toHaveCSS("font-weight", "700");
     // CAMP-447: ширину дає `<Block measure="read">`, і її клас стоїть першим.
-    await expect(page.locator("main p").first()).toHaveClass(
-      /max-w-read.*mt-4.*text-ink-2/,
-    );
+    await expect(
+      page.locator("main p", { hasText: LEAD_TAIL }).first(),
+    ).toHaveClass(/max-w-read.*mt-4.*text-ink-2/);
   });
 
   // 🔴 І ТЕ, ЩО НАВМИСНО ЛИШИЛОСЬ У КОДІ. Блок двох лійок — перелік
@@ -99,8 +105,11 @@ test.describe("🔴 CAMP-365 — головна", () => {
     await page.goto("/");
     await expect(page.getByRole("heading", { name: "Where to stay" })).toHaveCount(1);
     await expect(page.getByRole("heading", { name: "What to drive" })).toHaveCount(1);
+    // 🔴 CAMP-488: слайдер теж має кнопку на /camping («Find a campsite»),
+    // тож рахувати по всьому `main` більше не можна — предмет перевірки це
+    // БЛОК ЛІЙОК, і шукаємо в ньому.
     await expect(
-      page.locator('main a[href="/camping"]'),
+      page.locator('[data-persona-group] a[href="/camping"]'),
       "немає посилання на всі кемпінги",
     ).toHaveCount(1);
     const countryLinks = page.locator('main a[href^="/camping/"]');
