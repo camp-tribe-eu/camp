@@ -235,9 +235,35 @@ export function fileSources() {
  * `budgetHours` — число або функція, що читає його з коду-споживача.
  */
 export const DB_SOURCES = Object.freeze([
+  // 🔴 `where` — БО В ОДНІЙ ТАБЛИЦІ ЖИВУТЬ ДВА ДЖЕРЕЛА З РІЗНИМИ ЗБИРАЧАМИ.
+  //
+  // До 13.11.2026 тут був один рядок на всю `camping_spots`, і читав він
+  // `max(last_seen_at)` по всій таблиці. Заміряно на проді того дня:
+  //
+  //   osm_ref IS NOT NULL    54 555 рядків, max(last_seen_at) 2026-11-10
+  //   osm_ref IS NULL         8 752 рядки,  max(last_seen_at) 2026-09-24
+  //
+  // Тобто 8 752 кемпінги DATAtourisme стояли 50 діб при бюджеті 10, а
+  // сторож щоранку казав «свіже»: щотижневий OSM тримав максимум таблиці.
+  // Оновлювача в них не було взагалі (CAMP-528) — рівно той клас, що
+  // камери Windy, тільки ще й невидимий.
+  //
+  // 🔴 ФІЛЬТР СТОЇТЬ НА ОБОХ РЯДКАХ, і другий не для симетрії. Щойно
+  // DATAtourisme отримав свій таймер, нефільтрований рядок OSM ховав би
+  // вже зупинку OSM за свіжим DATAtourisme — той самий дефект дзеркально.
   { name: 'camping_spots (OSM кемпінги)', card: 'CAMP-28',
     table: 'camping_spots', column: 'last_seen_at', budgetHours: 10 * 24,
+    where: 'osm_ref IS NOT NULL',
     unit: 'camptribe-osm-import' },
+  // Джерело перезбирає регіональні файли щодня (data.gouv.fr, `frequency:
+  // daily`; 13.11.2026 усі 13 файлів мали мітку того ж ранку 03:44–03:56
+  // UTC). Таймер — щосуботи 04:15 UTC, бюджет 10 діб: запас 3 доби.
+  // `last_seen_at` ставить `datatourisme/refresh.ts` кожному рядку, який
+  // джерело назвало знову; зниклі лишаються зі старою міткою.
+  { name: 'camping_spots (кемпінги DATAtourisme)', card: 'CAMP-528',
+    table: 'camping_spots', column: 'last_seen_at', budgetHours: 10 * 24,
+    where: `osm_ref IS NULL AND sources @> '[{"id":"datatourisme"}]'`,
+    unit: 'camptribe-datatourisme-campsites' },
   { name: 'osm_route_poi (POI маршрутів)', card: 'CAMP-113',
     table: 'osm_route_poi', column: 'last_seen_at', budgetHours: 10 * 24,
     unit: 'camptribe-route-poi-import' },
@@ -420,14 +446,32 @@ const groupFilter = (s, now) => {
   return ` WHERE (${s.groupBy})::text NOT IN (${live.map((k) => `'${k}'`).join(', ')})`;
 };
 
+/**
+ * Частина таблиці, яку стереже цей рядок переліку.
+ *
+ * 🔴 І ЛІЧИЛЬНИК РЯДКІВ ТЕЖ ПІД ФІЛЬТРОМ. «0 рядків» має означати «цього
+ * джерела в таблиці немає», а не «таблиця непорожня завдяки сусідові».
+ *
+ * `where` разом із `groupBy` не підтримано й відмовляє голосно: у
+ * групованого запиту власний фільтр (прийняті групи), і склеїти два
+ * `WHERE` мовчки означало б загубити один із них.
+ */
+const whereOf = (s) => {
+  if (s.where === undefined) return '';
+  if (typeof s.where !== 'string' || s.where.trim() === '')
+    throw new Error(`${s.table}: порожній where — фільтр, який нічого не фільтрує`);
+  if (s.groupBy) throw new Error(`${s.table}: where разом із groupBy не підтримано`);
+  return ` WHERE ${s.where}`;
+};
+
 export const probeSql = (s, now = Date.now()) =>
-  s.groupBy
+  s.groupBy && whereOf(s) === ''
     ? `WITH g AS (SELECT max(${s.column}) AS m, (${s.groupBy})::text AS k ` +
       `FROM ${s.table}${groupFilter(s, now)} GROUP BY ${s.groupBy}) ` +
       `SELECT (SELECT count(*) FROM ${s.table}), ` +
       `to_char((SELECT min(m) FROM g) AT TIME ZONE 'UTC', ${ISO}), ` +
       `(SELECT k FROM g ORDER BY m ASC NULLS LAST, k ASC LIMIT 1)`
-    : `SELECT count(*), to_char(max(${s.column}) AT TIME ZONE 'UTC', ${ISO}) FROM ${s.table}`;
+    : `SELECT count(*), to_char(max(${s.column}) AT TIME ZONE 'UTC', ${ISO}) FROM ${s.table}${whereOf(s)}`;
 
 /** Живе читання через psql — він є на машині (Postgres локальний). */
 export function readDbLive(dbUrl) {
@@ -644,7 +688,32 @@ function selfTest() {
   t('з --db прочитано КОЖНУ таблицю з переліку', withDb.calls.length, DB_SOURCES.length);
 
   // ── перелік ───────────────────────────────────────────────────────
-  t('девʼять таблиць із датою імпорту (замір по міграціях 27.10.2026)', DB_SOURCES.length, 9);
+  t('десять джерел у девʼяти таблицях із датою імпорту (замір по міграціях 27.10.2026; CAMP-528 розділив camping_spots)',
+    [DB_SOURCES.length, new Set(DB_SOURCES.map((s) => s.table)).size].join('/'), '10/9');
+  t('🔴 імена джерел унікальні — звіт шукає скаргу за іменем',
+    new Set(DB_SOURCES.map((s) => s.name)).size, DB_SOURCES.length);
+  // ── CAMP-528: два джерела в одній таблиці ─────────────────────────
+  t('🔴 where потрапляє в запит — і під лічильник, і під max()',
+    probeSql({ table: 'tt', column: 'cc', where: 'k IS NULL' }),
+    `SELECT count(*), to_char(max(cc) AT TIME ZONE 'UTC', ${ISO}) FROM tt WHERE k IS NULL`);
+  t('🔴 where разом із groupBy — відмова, а не тихо загублений фільтр',
+    (() => { try { probeSql({ table: 'tt', column: 'cc', groupBy: 'g', where: 'k IS NULL' }); return 'пройшло'; } catch (e) { return e.message; } })(),
+    'tt: where разом із groupBy не підтримано');
+  t('🔴 порожній where — відмова',
+    (() => { try { probeSql({ table: 'tt', column: 'cc', where: ' ' }); return 'пройшло'; } catch (e) { return e.message.includes('порожній where'); } })(),
+    true);
+  const SPOTS = DB_SOURCES.filter((s) => s.table === 'camping_spots');
+  t('🔴 camping_spots стережуть ДВА рядки, і ЖОДЕН не читає таблицю цілком',
+    SPOTS.map((s) => typeof s.where === 'string' && probeSql(s).endsWith(` FROM camping_spots WHERE ${s.where}`)).join(','),
+    'true,true');
+  t('🔴 рядок OSM бачить лише рядки OSM — DATAtourisme його не освіжає',
+    SPOTS.find((s) => s.unit === 'camptribe-osm-import')?.where, 'osm_ref IS NOT NULL');
+  const DT = SPOTS.find((s) => s.card === 'CAMP-528');
+  t('🔴 рядок DATAtourisme бачить лише НЕ-OSM рядки з записом datatourisme',
+    [DT?.where.includes('osm_ref IS NULL'), DT?.where.includes(`sources @> '[{"id":"datatourisme"}]'`), DT?.column].join(','),
+    'true,true,last_seen_at');
+  t('🔴 у кемпінгів DATAtourisme є юніт і бюджет 10 діб',
+    [DT?.unit, DT?.budgetHours, String(DT?.manual)].join(','), 'camptribe-datatourisme-campsites,240,undefined');
   t('у кожної є таблиця, колонка, картка й бюджет > 0',
     DB_SOURCES.every((s) => s.table && s.column && s.card && hours(s.budgetHours) > 0), true);
   t('запит називає саме цю колонку й таблицю',
@@ -733,7 +802,7 @@ function selfTest() {
 
   // 🔴 Лічильник стверджується, бо випадок, до якого не дійшло,
   // виглядає точно як випадок, що пройшов.
-  t('🔴 лічильник: усі випадки дійшли до кінця', p + f, 49);
+  t('🔴 лічильник: усі випадки дійшли до кінця', p + f, 57);
   console.log(`check-data-freshness self-test: ran ${p + f}, passed ${p}, failed ${f}`);
   return f === 0 ? 0 : 1;
 }

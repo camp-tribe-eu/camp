@@ -1146,6 +1146,21 @@ jobs:
       - name: Every Next route handler is reachable through Caddy
         run: node scripts/ci/check-next-routes-reachable.mjs
 
+      # 🔴 13.11.2026 на проді: 618 рядків журналу Caddy за 14 діб несли
+      # `X-Revalidate-Secret` відкритим текстом, і ще двічі він ліг у
+      # journald через журнал ПОМИЛОК. Caddy сам редагує лише Cookie й
+      # Authorization. Сторож бере імена секретних заголовків із коду
+      # (apps/*/src) і вимагає `format filter` на кожне в КОЖНОМУ блоці
+      # `log`, включно з `log default` у глобальних опціях.
+      - name: The log-redaction guard still catches a secret header left in plain text
+        run: |
+          set -o pipefail
+          node scripts/ci/check-caddy-log-redaction.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-caddy-log-redaction self-test:' >/dev/null
+
+      - name: Caddy redacts every secret header in every log
+        run: node scripts/ci/check-caddy-log-redaction.mjs
+
       # 🔴 CAMP-396. `dynamicParams = false` несумісний зі скиданням кешу
       # за міткою: заміряно на проді — один revalidateTag('navigation')
       # поклав 56 525 сторінок у 404 до перезапуску служби.
