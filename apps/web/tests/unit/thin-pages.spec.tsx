@@ -9,6 +9,7 @@ import MapPage from "@/app/map/page";
 import RoutePage from "@/app/routes/[slug]/page";
 import RoutesIndex from "@/app/routes/page";
 import SearchPage from "@/app/search/page";
+import CamperRentalHub from "@/app/camper-rental/page";
 import MapEmbed from "@/components/map-embed";
 import RouteMapEmbed from "@/components/route-map-embed";
 import { memberState, memberStateCount } from "@/lib/campsite-count";
@@ -328,6 +329,35 @@ const NUMBER_WORDS = [
   "twenty",
 ];
 
+// 🔴 CAMP-463 (коло 2): вступ до переліку країн оренди каже, що правда про
+// країни, а не чому сторінок небагато. Читається ВІДДАНА розмітка хабу.
+test.describe("/camper-rental: the intro above the country list", () => {
+  test("says what each country has, and does not explain our page policy", async () => {
+    let html = "";
+    await withFetch(
+      (url) => {
+        if (url.includes("/rental/countries")) {
+          return json(
+            /\/rental\/countries\/.+/.test(url)
+              ? RENTAL_COUNTRY_FIXTURE
+              : { countries: [RENTAL_COUNTRY_FIXTURE] },
+          );
+        }
+        if (url.includes("/pages/")) return json({ sections: [] });
+        return json({});
+      },
+      async () => {
+        html = await renderAsyncComponent(CamperRentalHub, {});
+      },
+    );
+    const text = visibleText(html);
+    // Якір: перелік країн справді намальовано (інакше «нема фрази» — ні про що).
+    expect(html).toContain('data-testid="rental-country-index"');
+    expect(text).toContain("a toll system, a winter rule, a law about where you may sleep");
+    expect(text).not.toMatch(/thin one|two hundred city pages|rather not have|both tests/i);
+  });
+});
+
 test.describe("/routes", () => {
   let html = "";
   test.beforeAll(async () => {
@@ -471,7 +501,7 @@ test.describe("/routes", () => {
   });
 
   test("🔴 the word on the page for how many routes there are is the number there are", () => {
-    // "Twelve routes", "twelve rather than fifty" are typed. Add a
+    // "Twelve routes", "There are twelve routes" are typed. Add a
     // thirteenth route and they say a thing that is no longer true.
     const word = NUMBER_WORDS[CURATED_ROUTES.length];
     expect(word, "more routes than the word list has words for").toBeDefined();
@@ -485,7 +515,9 @@ test.describe("/routes", () => {
     //
     // Число у вступі лишається ризиком — його прибрано з посіяного
     // тексту окремою міграцією, щоб там не було чому старіти.
-    expect(text).toContain(`${word} rather than fifty`);
+    expect(text).toContain(`there are ${word} routes here`);
+    // 🔴 CAMP-463: …і сторінка не пояснює, чому їх не п'ятдесят.
+    expect(text).not.toMatch(/rather than fifty|one template/);
   });
 
   test("🔴 what it says stands behind each stop is what the route page says, rendered separately", async () => {

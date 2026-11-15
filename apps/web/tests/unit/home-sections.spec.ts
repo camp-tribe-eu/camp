@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import {
+  HOME_REPEATED,
   HOME_SECTIONS,
   HOME_SLOTS,
   assertHomeSectionsUsed,
@@ -41,18 +42,41 @@ test.describe("секції головної", () => {
   test("порожній перелік — названі і типи, і слоти", () => {
     expect(missingHomeSections([])).toEqual([
       ...HOME_SECTIONS,
+      ...HOME_REPEATED,
       ...HOME_SLOTS.map((x) => `слот:${x}`),
     ]);
   });
 
   const full = () => [
-    s("hero"), s("steps"),
+    s("hero"), s("steps"), s("search"),
+    s("slide"), s("slide"), s("slide"),
+    s("image-text"), s("image-text"),
     s("prose", "stay"), s("prose", "drive"), s("cards", "drive-links"),
     s("prose", "notable"),
   ];
 
   test("усі на місці — скаржитись нема на що", () => {
     expect(missingHomeSections(full())).toEqual([]);
+  });
+
+  // 🔴 CAMP-488: слайди й рядки з фото — «один або більше», а не «рівно
+  // один». Два слайди не роблять секцію «відсутньою» (на відміну від двох
+  // `hero`), а нуль — роблять, і про нуль сторож каже поіменно.
+  test("кілька слайдів — норма; жодного — названо", () => {
+    expect(missingHomeSections(full())).toEqual([]);
+    expect(missingHomeSections(full().filter((x) => x.type !== "slide")))
+      .toEqual(["slide"]);
+    expect(missingHomeSections(full().filter((x) => x.type !== "image-text")))
+      .toEqual(["image-text"]);
+  });
+
+  test("пошуку немає — названо `search`", () => {
+    expect(missingHomeSections(full().filter((x) => x.type !== "search")))
+      .toEqual(["search"]);
+  });
+
+  test("слайди й рядки з фото не вважаються зайвими", () => {
+    expect(() => assertHomeSectionsUsed(full())).not.toThrow();
   });
 
   test("бракує однієї — названо саме її", () => {

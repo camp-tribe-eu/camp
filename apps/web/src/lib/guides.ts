@@ -61,7 +61,7 @@ export const PROVENANCE_LABEL: Record<
   'data-generated': {
     short: 'Assembled from our database',
     explain:
-      'A program wrote this page from our own records. Every number on it is a count of what has been recorded.',
+      'Every number on this page is a count of what our records hold.',
   },
 };
 

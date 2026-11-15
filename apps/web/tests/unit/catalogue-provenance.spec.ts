@@ -64,11 +64,11 @@ test.describe('the catalogue disclosure says what is on the page', () => {
     expect(text([guide('data-generated')])).not.toMatch(/model invented/i);
   });
 
-  test('…and never claims a program wrote what a person wrote', () => {
+  test('…and never claims a person wrote what is only a count', () => {
     const mixed = text([guide('data-generated'), guide('human', null)]);
     // Both kinds are named, with their counts, so the block and the cards
     // under it cannot contradict each other.
-    expect(mixed).toContain('1 was written by a program');
+    expect(mixed).toContain('1 is a count of what our records hold');
     expect(mixed).toContain('1 was written by a person');
   });
 
@@ -79,7 +79,7 @@ test.describe('the catalogue disclosure says what is on the page', () => {
       guide('data-generated'),
       guide('human', null),
     ]);
-    expect(many).toContain('3 were written by a program');
+    expect(many).toContain('3 are counts of what our records hold');
     expect(many).toContain('1 was written by a person');
   });
 
@@ -111,8 +111,10 @@ test.describe('the catalogue disclosure says what is on the page', () => {
     ]);
     expect(out).not.toContain('region-facts');
     expect(out).not.toContain('<code>');
-    // …but it still says, in words, that a program wrote it.
-    expect(text([guide('data-generated')])).toContain('written by a program');
+    // 🔴 CAMP-463: …and it does not narrate who or what made the page
+    // either: it says what the numbers are.
+    expect(text([guide('data-generated')])).not.toMatch(/written by a program|a program wrote/i);
+    expect(text([guide('data-generated')])).toContain('is a count of what our records hold');
   });
 
   // 🔴 Сусідній тест бере сторінку з ОДНИМИ лічильниками. Дефект жив на
@@ -128,9 +130,9 @@ test.describe('the catalogue disclosure says what is on the page', () => {
     // й на сторінці, яка перестала називати програми взагалі.
     expect(out).toContain('The program is <span><code>drafter@1</code></span>');
     expect(out).not.toContain('region-facts');
-    // …а про лічильник сказано словами.
+    // …а про лічильник сказано, чим є числа, а не хто їх писав.
     expect(text([guide('ai-assisted', 'drafter@1'), guide('data-generated')])).toContain(
-      'written by a program that counted',
+      'is a count of what our records hold',
     );
   });
 
@@ -140,10 +142,16 @@ test.describe('the catalogue disclosure says what is on the page', () => {
 
   test('…and the block still carries what the AI Act guard looks for', () => {
     const out = render([guide('data-generated')]);
-    // The three things check-guide-disclosure.mjs reads.
+    // What check-guide-disclosure.mjs reads for a counted page.
     expect(out).toContain('data-testid="provenance"');
     expect(out).toMatch(/data-provenance="[^"]+"/);
-    expect(out).toMatch(/machine|program|model/i);
+    // 🔴 CAMP-463: для лічильника слів «machine/program/model» більше не
+    // вимагається (check-guide-disclosure); блок і атрибут — так.
+  });
+
+  test('…and for model-written text it still says a machine or model was involved', () => {
+    expect(render([guide('ai-generated', 'drafter@2')])).toMatch(/machine|model/i);
+    expect(render([guide('ai-assisted', 'drafter@2')])).toMatch(/machine|model/i);
   });
 
   test('…and for model-written text it also names the program, as the guard demands', () => {

@@ -654,6 +654,7 @@ export class SpotsService {
         facets: {
           types: {} as RegionFacets['types'],
           amenities: {} as RegionFacets['amenities'],
+          styles: {} as RegionFacets['styles'],
         },
         dropOne: [],
         sort: query.sort,

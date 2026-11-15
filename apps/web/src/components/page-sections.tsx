@@ -1,4 +1,8 @@
 import FeatureRow from '@/components/feature-row';
+import { HeroSlider } from "./home-slider";
+import { ImageWithText } from "./image-with-text";
+import { SearchWidget } from "./search-widget";
+import { searchOf, slidesOf } from "@/lib/slides";
 import { ButtonLink, buttonClasses } from "./button";
 import { RichText } from "./rich-text";
 import { PAGE_VALUES, type SectionView } from "@/lib/page-content";
@@ -425,6 +429,73 @@ function FuelCountries({ section, values }: RenderProps) {
   );
 }
 
+/**
+ * 🔴 CAMP-488 — ТРИ ТИПИ ДЛЯ ГОЛОВНОЇ, І ВСІ ТРИ УНІВЕРСАЛЬНІ.
+ *
+ * `slide`, `search`, `image-text` не привʼязані до головної: будь-який
+ * лендинг може мати слайдер, пошукове поле й рядок «текст + фото». Саме
+ * тому це типи каталогу, а не три рядки в `page.tsx`, і саме тому їх
+ * правка — в адмінці (CAMP-365: усе, що бачить читач, живе в CMS).
+ *
+ * Окремий `slide` сам по собі малює слайдер із одного слайда; кілька
+ * слайдів в одному слайдері збирає сторінка (головна бере ВСІ секції
+ * `slide` і віддає їх одному `HeroSlider`), бо `PageSections` обходить
+ * секції по одній і не знає, що сусідні належать до однієї групи.
+ */
+function Slide({ section, values }: RenderProps) {
+  return (
+    <HeroSlider
+      slides={slidesOf([section], values)}
+      label={section.heading ?? "Highlights"}
+    />
+  );
+}
+
+function Search({ section, values }: RenderProps) {
+  return <SearchWidget search={searchOf(section, values)} />;
+}
+
+/**
+ * Рядок «текст + фото». `subheading` — надзаголовок над заголовком,
+ * `variant: "reverse"` — фото праворуч на десктопі (чергування).
+ *
+ * 🔴 КАРТИНКА Й ЗАГОЛОВОК ОБОВʼЯЗКОВІ І КИДАЮТЬ, А НЕ ХОВАЮТЬСЯ. Сам
+ * `ImageWithText` без заголовка чи фото повертає `null` (правило каталогу
+ * «порожнє не малюємо»), і для компонента це правильно. Для СЕКЦІЇ з CMS —
+ * ні: власник заповнив рядок в адмінці й не побачив його на сайті, а
+ * нічого про це не сказало. Тому той самий випадок тут падає.
+ */
+function ImageText({ section, values }: RenderProps) {
+  if (!section.heading || section.heading.trim() === "") {
+    throw new Error("page-sections: секція image-text без заголовка.");
+  }
+  if (!section.imageUrl || section.imageUrl.trim() === "") {
+    throw new Error(
+      `page-sections: секція image-text «${section.heading}» без картинки.`,
+    );
+  }
+  const href = section.ctaHref;
+  const label = section.ctaLabel;
+  if ((href === null || href === "") !== (label === null || label === "")) {
+    throw new Error(
+      `page-sections: секція image-text «${section.heading}» — кнопка наполовину.`,
+    );
+  }
+  return (
+    <div className="mx-auto max-w-wrap px-4 py-3 xl:px-6">
+      <ImageWithText
+        image={{ src: section.imageUrl, alt: section.imageAlt ?? "" }}
+        caption={section.subheading ?? undefined}
+        heading={section.heading}
+        text={section.body ? substitute(section.body, values) : undefined}
+        cta={href && label ? { href, label } : undefined}
+        imagePosition={section.variant === "reverse" ? "right" : "left"}
+        testId="image-text"
+      />
+    </div>
+  );
+}
+
 const RENDERERS = {
   prose: Prose,
   cta: Cta,
@@ -432,6 +503,9 @@ const RENDERERS = {
   "fuel-countries": FuelCountries,
   hero: Hero,
   steps: Steps,
+  slide: Slide,
+  search: Search,
+  "image-text": ImageText,
 } as const;
 
 export const SECTION_TYPES = Object.keys(RENDERERS) as Array<
