@@ -301,11 +301,16 @@ test.describe('<RouteSources>: назва, джерело, ліцензія, д�
     expect(html).toContain('Open Database License');
   });
 
-  test('🔴 УМОВА ЛІЦЕНЗІЇ: позицію Produced Work цей PR не чіпає, слово в слово', () => {
+  test('🔴 УМОВА ЛІЦЕНЗІЇ: позиція Produced Work лишилась, людською мовою (CAMP-463)', () => {
     const text = guardText(render());
-    expect(text).toContain(
-      'Under the Open Database License it is a Produced Work rather than a derivative database, so the share-alike term does not apply to it.',
-    );
+    // Зміст ліцензії: джерело названо, це Produced Work, share-alike на
+    // маршрут не переходить. Слово «derivative database» зникло — це
+    // мова юриста, а не читача.
+    expect(text).toContain('comes from OpenStreetMap');
+    expect(text).toContain('Open Database License calls a Produced Work');
+    expect(text).toContain('OpenStreetMap is credited');
+    expect(text).toContain('share-alike term does not pass to the route');
+    expect(text).not.toMatch(/derivative database/i);
   });
 });
 

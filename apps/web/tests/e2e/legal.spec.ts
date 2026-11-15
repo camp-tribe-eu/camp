@@ -310,7 +310,11 @@ test.describe('the legal pages', () => {
     page,
   }) => {
     await page.goto('/camping');
-    const footer = page.getByRole('navigation', { name: 'Legal' });
+    // 🔴 CAMP-448. Правові сторінки в підвалі — у ДВОХ списках: правила
+    // («Legal») і походження даних («Data and sources»), кожна рівно в
+    // одному. Вимога тесту — що КОЖНУ видно в підвалі, а не що всі вони в
+    // одному `<nav>`; тож шукаємо по всьому `<footer>`.
+    const footer = page.locator('footer');
     for (const p of LEGAL_PAGES) {
       await expect(
         footer.getByRole('link', { name: p.title }),

@@ -126,7 +126,7 @@ const GLASS_MOTION =
 
 /** Ряд: у смузі — поля розкладки; в острові — 8px теми. */
 const ROW =
-  "relative flex min-h-[62px] flex-wrap items-center gap-x-6 gap-y-2 py-2 sm:h-[62px] sm:flex-nowrap sm:py-0";
+  "relative flex min-h-[62px] flex-wrap items-center gap-x-6 gap-y-2 py-2 sm:h-[62px] sm:flex-nowrap sm:py-0 xl:gap-x-3";
 const ROW_TOP = " mx-auto max-w-wrap px-4 xl:px-6";
 const ROW_STACKED = " px-2";
 
@@ -205,12 +205,32 @@ export function SiteHeaderFrame({ children }: { children: ReactNode }) {
   // шапкою не сховалась, але проміжок теми був 14, а не 24. Константа,
   // що копіює чужу висоту, розходиться з нею мовчки; ResizeObserver читає
   // її з коробки. Без JavaScript лишається запасне 63px.
+  //
+  // 🔴 CAMP-448. ЗМІННА — ДО НИЖНЬОГО КРАЮ ТОГО, ЩО ЧИТАЧ БАЧИТЬ, а не до
+  // нижнього краю коробки. В острові капсула зсунута вниз на 4px (від
+  // 1200 — на 12) через `position: relative; top`, який висоти коробки не
+  // міняє, тож «висота шапки» лишалась 63, а видимий низ капсули стояв на
+  // 75: смуга сортування, що липне на `63 + 24`, відступала від капсули не
+  // на 24px, а на 12, і біле світіння її тіні (`0 6px 16px`, ще 22px
+  // нижче) лягало на верх смуги. Заміряно 15.11.2026 на `/camping/hr/
+  // zadarska`: капсула 12→75, смуга з 87; тінь до 97. Тепер змінна рахує
+  // видимий низ — `max(коробка, низ капсули)` — і проміжок під острівом
+  // той самий 24px, що й під смугою вгорі сторінки. Перераховується й при
+  // зміні стану (`stacked`): розмір коробки тоді не міняється, тож
+  // ResizeObserver не спрацює.
   useEffect(() => {
     const el = header.current;
     if (!el || typeof ResizeObserver === "undefined") return;
     const root = document.documentElement;
-    const write = () =>
-      root.style.setProperty("--ct-header-h", `${Math.round(el.getBoundingClientRect().height)}px`);
+    const bar = el.querySelector<HTMLElement>('[data-testid="site-header-bar"]');
+    const write = () => {
+      const box = el.getBoundingClientRect();
+      const visibleBottom = bar ? bar.getBoundingClientRect().bottom - box.top : 0;
+      root.style.setProperty(
+        "--ct-header-h",
+        `${Math.round(Math.max(box.height, visibleBottom))}px`,
+      );
+    };
     write();
     const ro = new ResizeObserver(write);
     ro.observe(el);
@@ -218,7 +238,7 @@ export function SiteHeaderFrame({ children }: { children: ReactNode }) {
       ro.disconnect();
       root.style.removeProperty("--ct-header-h");
     };
-  }, []);
+  }, [stacked]);
 
   return (
     <HeaderFrame ref={header} stacked={stacked}>

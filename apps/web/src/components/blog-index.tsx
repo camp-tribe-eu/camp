@@ -14,7 +14,7 @@ import { Block } from '@/components/layout';
 export const BLOG_PATH = '/blog';
 export const BLOG_TITLE = 'Blog';
 export const BLOG_DESCRIPTION =
-  'What we are building, what the data says, and what we got wrong.';
+  'Notes on camping and motorhoming in Europe, and what the data says.';
 
 /** Адреса сторінки каталогу: перша — без суфікса. */
 export function blogPagePath(n: number): string {

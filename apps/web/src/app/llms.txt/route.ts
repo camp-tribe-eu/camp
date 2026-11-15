@@ -285,7 +285,7 @@ export async function GET() {
     );
     lines.push(
       "- Every post ends with a note on who wrote it. Where it says the " +
-        "text was composed by AI, it is machine-written general " +
+        "text was written by AI, it is general " +
         "background, not human editorial material, and not a statement " +
         "about any particular campsite.",
     );

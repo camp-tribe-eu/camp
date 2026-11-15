@@ -146,7 +146,10 @@ const codeOf = (rel: string) =>
     .replace(/^\s*\/\/[^\n]*$/gm, '');
 
 test('🔴 рік у підвалі рахує клієнтський компонент, а не розмітка', () => {
-  const chrome = codeOf('components/site-chrome.tsx');
+  // CAMP-448: підвал переїхав із site-chrome.tsx у власний файл; сторож
+  // іде за ним. Читати старий файл означало б шукати «CurrentYear» там, де
+  // його вже немає, і червоніти не від дефекту, а від переїзду.
+  const chrome = codeOf('components/site-footer.tsx');
   expect(chrome).toMatch(/<CurrentYear\s+fallback=\{/);
   // Єдиний дозволений `new Date()` тут — той, що віддає ЗАПАСНИЙ рік у
   // проп. Будь-який інший означає рік збірки в розмітці.

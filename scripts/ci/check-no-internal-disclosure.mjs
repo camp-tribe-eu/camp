@@ -154,8 +154,8 @@ async function run(source, label) {
 
 // ── самотест ──────────────────────────────────────────────────────────
 
-// правило × 1 (приклад) + законне × 1 + 17 іменованих перевірок нижче.
-const EXPECTED_CASES = FORBIDDEN.length + LEGITIMATE.length + 17;
+// правило × 1 (приклад) + законне × 1 + 19 іменованих перевірок нижче.
+const EXPECTED_CASES = FORBIDDEN.length + LEGITIMATE.length + 19;
 
 function selfTest() {
   let bad = 0;
@@ -274,6 +274,20 @@ function selfTest() {
     'роздільник між значеннями проходить, у кінці блоку — червоніє',
     scanPage('/x', page('<p>1 depot · fleet of 3</p>')).length === 0 &&
       scanPage('/x', page('<p>depots: 1 · fleet: 3 · </p><p>next</p>')).length >= 1,
+  );
+  // 10b. CAMP-463 коло 2: «called ahead» — те саме речення, що «phoned
+  // ahead», і ловиться тим самим правилом; законне речення поруч — ні.
+  check(
+    '«called ahead» ловиться, «Check with the site» — ні',
+    scanPage('/x', page('<p>We have not called ahead.</p>')).some((f) => f.id === 'A-phoned-ahead') &&
+      scanPage('/x', page('<p>Check with the site before you set off.</p>')).length === 0,
+  );
+  // 10c. Розкриття машинного тексту (ст. 50 AI Act) — законне й не червоніє,
+  // а канцелярит навколо нього — так.
+  check(
+    '«written by AI» проходить, «composed by AI» червоніє',
+    scanPage('/x', page('<p>This article was written by AI.</p>')).length === 0 &&
+      scanPage('/x', page('<p>This article was composed by AI.</p>')).some((f) => f.id === 'A-composed-by'),
   );
   // 11. Знаменник і нуль сторінок — це поведінка run(), не scanPage();
   // її доводить зовнішній прогін (див. опис PR), а тут — що порожній

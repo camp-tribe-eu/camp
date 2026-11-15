@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { NavItem } from "@/lib/navigation";
+import { Flag } from "./flag";
+import { isMega, megaColumns } from "@/lib/mega-menu";
 
 /**
  * Пункт шапки з підпунктами — розкривач (CAMP-448, частина 1).
@@ -69,6 +71,7 @@ export function NavDropdown({ item }: { item: NavItem }) {
   const trigger = useRef<HTMLButtonElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const panelId = `nav-sub-${useId().replace(/[^a-zA-Z0-9-]/g, "")}`;
+  const mega = isMega(item);
 
   const cancelClose = useCallback(() => {
     if (timer.current !== null) {
@@ -104,7 +107,8 @@ export function NavDropdown({ item }: { item: NavItem }) {
     <li
       ref={root}
       data-nav-parent={item.href}
-      className="relative"
+      data-nav-kind={mega ? "mega" : "dropdown"}
+      className={mega ? undefined : "relative"}
       onMouseEnter={() => {
         cancelClose();
         setOpen(true);
@@ -185,29 +189,109 @@ export function NavDropdown({ item }: { item: NavItem }) {
       {/* 🔴 `pt-2` — МІСТОК для миші між словом і панеллю, а не відступ
           заради вигляду. Панель лежить усередині того самого `<li>`, тож
           курсор, що йде вниз через ці 8px, не викликає `mouseleave`. У
-          теми ту саму роль грає `.is-active::before` на тригері. */}
+          теми ту саму роль грає `.is-active::before` на тригері.
+
+          🔴 CAMP-448. МЕГА-ПАНЕЛЬ НЕ `relative` ДО ПУНКТУ, а до РЯДУ шапки:
+          `<li>` тут без `relative`, тож `absolute inset-x-0` рахується від
+          найближчого позиційованого предка — ряду (site-header-frame.tsx,
+          `relative`), і панель стає на всю ширину контейнера, а не
+          стирчить за правий край від крайнього пункту. */}
       <div
         id={panelId}
         data-nav-sub
         className={
-          "absolute left-0 top-full z-10 pt-2 transition-[opacity,visibility] [transition-duration:var(--timing-base)] [transition-timing-function:var(--ease)] motion-reduce:transition-none" +
+          (mega
+            ? "absolute inset-x-4 top-full z-10 pt-2 xl:inset-x-6"
+            : "absolute left-0 top-full z-10 pt-2") +
+          " transition-[opacity,visibility] [transition-duration:var(--timing-base)] [transition-timing-function:var(--ease)] motion-reduce:transition-none" +
           (open ? " visible opacity-100" : " invisible opacity-0")
         }
       >
-        <ul className="flex max-h-[min(60vh,400px)] min-w-[220px] max-w-[320px] flex-col divide-y divide-line-2 overflow-auto rounded-card border border-line-2 bg-surface shadow-[var(--shadow-pop)]">
-          {item.children.map((child) => (
-            <li key={child.href}>
-              <Link
-                href={child.href}
-                onClick={close}
-                className="flex items-center px-5 py-[15px] text-base font-semibold leading-[1.44] text-heading ct-button-motion hover:bg-surface-2"
-              >
-                {child.label}
-              </Link>
-            </li>
-          ))}
-        </ul>
+        {mega ? (
+          <MegaPanel item={item} onNavigate={close} />
+        ) : (
+          <ul className="flex max-h-[min(60vh,400px)] min-w-[220px] max-w-[320px] flex-col divide-y divide-line-2 overflow-auto rounded-card border border-line-2 bg-surface shadow-[var(--shadow-pop)]">
+            {item.children.map((child) => (
+              <li key={child.href}>
+                <Link
+                  href={child.href}
+                  onClick={close}
+                  className="flex items-center px-5 py-[15px] text-base font-semibold leading-[1.44] text-heading ct-button-motion hover:bg-surface-2"
+                >
+                  {child.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </li>
+  );
+}
+
+/**
+ * Мега-панель: колонки за групами, країни з прапорцями.
+ *
+ * 🔴 Розмітка — та сама, що в простого розкривача: `<ul>` посилань, лише
+ * згрупована. Кожне посилання тут — звичайний `<a href>`: пошуковик і
+ * читач без скрипта бачать той самий перелік.
+ */
+function MegaPanel({
+  item,
+  onNavigate,
+}: {
+  item: NavItem;
+  onNavigate: () => void;
+}) {
+  const columns = megaColumns(item);
+  return (
+    <div
+      data-testid="mega-panel"
+      className="grid max-h-[min(70vh,560px)] gap-x-10 gap-y-6 overflow-auto rounded-card border border-line-2 bg-surface p-6 shadow-[var(--shadow-pop)]"
+      style={{
+        gridTemplateColumns: `repeat(${Math.min(columns.length, 3)}, minmax(0, 1fr))`,
+      }}
+    >
+      {columns.map((col) => (
+        <section key={col.href ?? col.title ?? "main"} aria-label={col.title ?? item.label}>
+          {col.title && (
+            <h2 className="mb-3 text-xs uppercase tracking-wide text-ink-2">
+              {col.href ? (
+                <Link href={col.href} onClick={onNavigate} className="hover:text-heading">
+                  {col.title}
+                </Link>
+              ) : (
+                col.title
+              )}
+            </h2>
+          )}
+          <ul
+            className={
+              col.items.length > 8
+                ? "columns-2 gap-x-6 xl:columns-3 [&>li]:break-inside-avoid"
+                : undefined
+            }
+          >
+            {col.items.map((child) => (
+              <li key={child.href}>
+                <Link
+                  href={child.href}
+                  onClick={onNavigate}
+                  className="flex min-h-10 items-center gap-2 rounded-md px-2 text-base font-semibold text-heading ct-button-motion hover:bg-surface-2"
+                >
+                  {child.flag && (
+                    <Flag
+                      code={child.flag}
+                      className="h-3.5 w-[18px] shrink-0 rounded-[2px] object-cover"
+                    />
+                  )}
+                  {child.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
   );
 }
