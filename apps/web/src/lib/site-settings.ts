@@ -12,6 +12,55 @@ import { NAV_REVALIDATE_SECONDS } from "./navigation";
 export interface SiteSettings {
   tagline: string | null;
   footerNote: string | null;
+  /** CAMP-448: соцмережі підвалу. Порожньо — блоку немає. */
+  socialLinks: SocialLink[];
+}
+
+export type SocialNetwork =
+  | "instagram"
+  | "facebook"
+  | "youtube"
+  | "tiktok"
+  | "x"
+  | "linkedin"
+  | "pinterest";
+
+export interface SocialLink {
+  network: SocialNetwork;
+  url: string;
+}
+
+const NETWORKS: readonly SocialNetwork[] = [
+  "instagram",
+  "facebook",
+  "youtube",
+  "tiktok",
+  "x",
+  "linkedin",
+  "pinterest",
+];
+
+/**
+ * 🔴 ВЕБ ПЕРЕВІРЯЄ ЩЕ РАЗ, І ЦЕ НЕ ДУБЛЬ. API розгортається окремо від
+ * сайту: сайт зібраний проти старого чи зіпсованого API не повинен
+ * перетворити чужий рядок на `href` кожної сторінки. Один зіпсований запис
+ * відпадає сам, решта лишається.
+ */
+export function cleanSocialLinks(raw: unknown): SocialLink[] {
+  if (!Array.isArray(raw)) return [];
+  const out: SocialLink[] = [];
+  for (const row of raw) {
+    const r = row as { network?: unknown; url?: unknown } | null;
+    if (!r || typeof r.network !== "string" || typeof r.url !== "string") continue;
+    if (!NETWORKS.includes(r.network as SocialNetwork)) continue;
+    try {
+      if (new URL(r.url).protocol !== "https:") continue;
+    } catch {
+      continue;
+    }
+    out.push({ network: r.network as SocialNetwork, url: r.url });
+  }
+  return out;
 }
 
 /**
@@ -51,13 +100,16 @@ export async function siteSettings(): Promise<SiteSettings> {
   const res = await apiFetch("/site-settings", {
     next: { revalidate: SETTINGS_REVALIDATE_SECONDS },
   });
-  if (!res.ok) return { tagline: null, footerNote: null };
+  if (!res.ok) return { tagline: null, footerNote: null, socialLinks: [] };
 
-  const body = (await res.json()) as Partial<SiteSettings>;
+  const body = (await res.json()) as Partial<
+    Record<keyof SiteSettings, unknown>
+  >;
   const clean = (v: unknown) =>
     typeof v === "string" && v.trim() !== "" ? v.trim() : null;
   return {
     tagline: clean(body.tagline),
     footerNote: clean(body.footerNote),
+    socialLinks: cleanSocialLinks(body.socialLinks),
   };
 }

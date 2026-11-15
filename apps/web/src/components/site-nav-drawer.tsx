@@ -4,6 +4,10 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { NavItem } from "@/lib/navigation";
 import PersonaToggle, { type PersonaLabels } from "./persona-toggle";
+import { Flag } from "./flag";
+import { LanguageSwitch } from "./language-switch";
+import type { Locale } from "@/lib/i18n";
+import { MEGA_MIN_CHILDREN } from "@/lib/mega-menu";
 
 /**
  * Бургер-меню нижче 1200 px (CAMP-350).
@@ -61,11 +65,24 @@ const ITEM =
 const CHILD =
   "flex min-h-14 items-center text-xl font-semibold leading-tight text-ink-2";
 
+/**
+ * 🔴 CAMP-448. СКІЛЬКИ ДІТЕЙ ПОКАЗУЄМО ОДРАЗУ. Країни додали двадцять сім
+ * рядків по 56 px = 1,5 тис. px під одним пунктом: решта меню зʼїхала б за
+ * екран. Довгий перелік складається в `<details>` (посилання лишаються в
+ * HTML — пошуковик і читач екрана їх бачать), короткий, як раніше, стоїть
+ * відкритим. Межа та сама, що в мега-меню (`MEGA_MIN_CHILDREN`): де на
+ * десктопі панель стає мега, тут стає складка.
+ */
+const FOLD_FROM = MEGA_MIN_CHILDREN;
+
 export function SiteNavDrawer({
   items,
   persona = null,
+  locales = [],
 }: {
   items: NavItem[];
+  /** Живі мови (CAMP-448); порожньо — перемикача мови в шухляді немає. */
+  locales?: readonly Locale[];
   /** CAMP-501: на вузькій ширині перемикач «маю кемпер / орендую» живе тут. */
   persona?: PersonaLabels | null;
 }) {
@@ -286,32 +303,90 @@ export function SiteNavDrawer({
                     <Link href={item.href} onClick={close} className={ITEM}>
                       {item.label}
                     </Link>
-                    {item.children.length > 0 && (
-                      <ul
-                        data-nav-children={item.href}
-                        aria-label={`${item.label} pages`}
-                        className="flex flex-col gap-1 ps-6"
-                      >
-                        {item.children.map((child) => (
-                          <li key={child.href}>
-                            <Link
-                              href={child.href}
-                              onClick={close}
-                              className={CHILD}
+                    {item.children.length > 0 &&
+                      (item.children.length >= FOLD_FROM ? (
+                        <details data-nav-fold={item.href} className="group/fold">
+                          <summary
+                            className={`${CHILD} cursor-pointer list-none ps-6 [&::-webkit-details-marker]:hidden`}
+                          >
+                            <span>
+                              {item.children.length} more in {item.label}
+                            </span>
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 16 16"
+                              aria-hidden="true"
+                              fill="none"
+                              className="ms-2 transition-transform group-open/fold:-rotate-180"
                             >
-                              {child.label}
-                            </Link>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
+                              <path d="M3.5 6l4.5 4.5L12.5 6" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          </summary>
+                          <DrawerChildren item={item} onNavigate={close} />
+                        </details>
+                      ) : (
+                        <DrawerChildren item={item} onNavigate={close} />
+                      ))}
                   </li>
                 ))}
               </ul>
             </nav>
+
+            {/* 🔴 CAMP-448. ВХІД І МОВА — ТУТ, нижче 1200 px: ряд шапки
+                там тримає лише лого, тему й бургер. */}
+            <div className="flex items-center justify-between gap-3 border-t border-line-2 px-9 pt-3">
+              <Link
+                href="/account"
+                onClick={close}
+                data-testid="drawer-account"
+                className="flex min-h-14 items-center gap-3 text-xl font-semibold text-heading"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                  <path d="M14.5 4.5h3.2A1.8 1.8 0 0 1 19.5 6.3v11.4a1.8 1.8 0 0 1-1.8 1.8h-3.2" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M4.5 12h9M10.5 8l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                Account
+              </Link>
+              <LanguageSwitch locales={locales} variant="footer" />
+            </div>
           </div>
         </div>
       )}
     </>
+  );
+}
+
+function DrawerChildren({
+  item,
+  onNavigate,
+}: {
+  item: NavItem;
+  onNavigate: () => void;
+}) {
+  return (
+    <ul
+      data-nav-children={item.href}
+      aria-label={`${item.label} pages`}
+      className="flex flex-col gap-1 ps-6"
+    >
+      {item.children.map((child) => (
+        <li key={child.href}>
+          <Link
+            href={child.href}
+            onClick={onNavigate}
+            className={`${CHILD} gap-3`}
+          >
+            {child.flag && (
+              <Flag
+                code={child.flag}
+                className="h-4 w-[21px] shrink-0 rounded-[2px] object-cover"
+              />
+            )}
+            {child.label}
+          </Link>
+        </li>
+      ))}
+    </ul>
   );
 }

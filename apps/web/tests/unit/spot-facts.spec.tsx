@@ -154,6 +154,44 @@ function fillOf(row: string): number | null {
 /** The row's label and value as a reader reads them. */
 const rowText = (row: string) => visibleText(row);
 
+// ═══ 0. CAMP-463 (коло 2): підпис під контактами ═════════════════════
+
+test.describe('the note under the contact details', () => {
+  test('🔴 tells the reader what to do, not what we did not do', async () => {
+    // Свій slug: `getSpot` кешує відповідь за адресою, і спільний
+    // `camping-test` віддав би рядок з попереднього тесту без контактів.
+    let html = '';
+    await withFetch(
+      (url) =>
+        url.includes('/spots/hr/istria/camping-contact')
+          ? json({
+              spot: spot({ slug: 'camping-contact', contact: { phone: '+385 52 123 456' } }),
+              nearby: [],
+            })
+          : json({}, 404),
+      async () => {
+        html = await renderAsyncComponent(
+          CampsitePage,
+          { params: Promise.resolve({ ...PARAMS, slug: 'camping-contact' }) },
+          { omit: CLIENT_ISLANDS },
+        );
+      },
+    );
+    // Блок читається сам, без обгортки: колонка має клас `empty:hidden`, і
+    // `visibleText` приймає його за приховану (тест нижче доводить, що
+    // блок видно — телефон у ньому читається).
+    const block = /<section[^>]*>\s*<h2[^>]*>Getting in touch<\/h2>[\s\S]*?<\/section>/.exec(html);
+    expect(block, 'the page has no "Getting in touch" section').not.toBeNull();
+    const text = visibleText(block![0]);
+    // Якір: блок контактів ВЗАГАЛІ намальовано, інакше «немає called ahead»
+    // істинне й на сторінці без блоку.
+    expect(text).toContain('+385 52 123 456');
+    expect(text).toContain('only as current as the last person to edit them');
+    expect(text).toContain('Check with the site before you set off.');
+    expect(text).not.toMatch(/called ahead|phoned ahead/i);
+  });
+});
+
 // ═══ 1. The line of facts ══════════════════════════════════════════════
 
 test.describe('the line of facts under the heading', () => {

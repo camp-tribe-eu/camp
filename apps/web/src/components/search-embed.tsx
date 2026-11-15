@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import SiteSearch from './site-search';
+import SiteSearch, { isTab, type CountryInput, type Tab } from './site-search';
 
 // CAMP-67: the client boundary for the search box.
 //
@@ -15,11 +15,18 @@ import SiteSearch from './site-search';
 // search params through the router would opt the whole route into
 // dynamic rendering, and there is nothing on it that needs a server.
 
-export default function SearchEmbed() {
-  const [initial, setInitial] = useState<string | null>(null);
+export default function SearchEmbed({
+  countries,
+}: {
+  /** Країни, які сторінка вже має, — для вкладки «Countries». */
+  countries: CountryInput[];
+}) {
+  const [initial, setInitial] = useState<{ q: string; tab: Tab } | null>(null);
 
   useEffect(() => {
-    setInitial(new URLSearchParams(window.location.search).get('q') ?? '');
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab');
+    setInitial({ q: params.get('q') ?? '', tab: isTab(tab) ? tab : 'campsites' });
   }, []);
 
   // Until the URL has been read there is nothing honest to render: an
@@ -28,10 +35,16 @@ export default function SearchEmbed() {
     return (
       <div
         aria-hidden="true"
-        className="h-11 w-full rounded-sm border border-line-2 bg-surface-2"
+        className="mx-auto h-14 w-full max-w-[910px] rounded-card border border-line-2 bg-surface-2"
       />
     );
   }
 
-  return <SiteSearch initialQuery={initial} />;
+  return (
+    <SiteSearch
+      initialQuery={initial.q}
+      initialTab={initial.tab}
+      countries={countries}
+    />
+  );
 }

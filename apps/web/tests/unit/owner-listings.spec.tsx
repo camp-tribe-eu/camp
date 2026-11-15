@@ -136,8 +136,8 @@ test.describe("запити", () => {
 test.describe("розмітка", () => {
   test("порожній кабінет пояснює дорогу, а не мовчить", () => {
     const html = renderClient(EmptyView, {});
-    expect(html).toContain("Claim the listing");
-    expect(html).toContain("OpenStreetMap");
+    expect(html).toContain("This is my campsite");
+    expect(html).toContain("website domain");
   });
 
   test("🔴 форма каже, що правка ПЕРЕКРИВАЄ OSM, а не змінює його", () => {

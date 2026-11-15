@@ -188,29 +188,31 @@ function hasContact(spot: Spot): boolean {
 }
 
 /**
- * CAMP-51 — вхід у «claim your listing», і лише там, де він працює.
+ * CAMP-51, CAMP-505 — «Це мій кемпінг», і лише там, де самоверифікація
+ * може спрацювати.
  *
- * 🔴 ПОКАЗУЄМО ЛИШЕ ЗА НАЯВНОСТІ ПОШТИ В OSM. Без неї заявка впирається
- * у «нема куди слати» вже після натискання, тобто ми ведемо людину в
- * глухий кут і там пояснюємо. Заміряно 03.11.2026: пошта є в 11 628
- * кемпінгів із 63 159 — тобто посилання побачить менш ніж кожен п'ятий,
- * і це чесне число, а не недоробка.
+ * 🔴 ПОКАЗУЄМО ЛИШЕ ТАМ, ДЕ Є ЩО ПОРІВНЯТИ: сайт кемпінгу або пошта в
+ * контактах. Без жодного з двох домен порівняти нема з чим, і людину
+ * вели б у форму, яка заздалегідь не має шансу. Це не обіцянка, що
+ * домен збіжиться: сайт може стояти на Facebook, а пошта бути на Gmail,
+ * і тоді форма скаже це прямо й назве, куди писати.
  *
- * Нічого нового про кемпінг це не видає: адресу сторінка вже показує в
- * блоці «Getting in touch», бо вона публічна в OSM.
+ * Нічого нового про кемпінг це не видає: і сайт, і пошту сторінка вже
+ * показує в блоці «Getting in touch».
  *
  * 🔴 Звичайне посилання, не острівець. Сторінки кемпінгів будуються один
  * раз на всі 63 тисячі; форма живе за /account/claim, за сесією.
  */
 function ClaimListing({ spot }: { spot: Spot }) {
-  if (!spot.contact?.email) return null;
+  const contact = spot.contact ?? {};
+  if (!spot.website && !contact.website && !contact.email) return null;
   return (
     <p className="mt-6 text-sm text-ink-2">
       Is this your campsite?{' '}
       <Link className="underline" href={`/account/claim?spot=${spot.slug}`}>
-        Claim the listing
+        This is my campsite
       </Link>{' '}
-      — we send a code to the email address already in its OpenStreetMap tags.
+      — confirm with an email address on the campsite’s own website domain.
     </p>
   );
 }
@@ -308,7 +310,7 @@ function Contact({ spot }: { spot: Spot }) {
       </Block>
       <Block as="p" measure="read" className="mt-3 text-xs text-ink-2">
         Contact details come from OpenStreetMap and are only as current as
-        the last person to edit them. We have not called ahead.
+        the last person to edit them. Check with the site before you set off.
       </Block>
     </Section>
   );

@@ -1,5 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-import { PrivacyPersonaChoice1797100100000 } from './1797100100000-PrivacyPersonaChoice';
+import { PrivacyOwnerVerifyLink1797810000000 } from './1797810000000-PrivacyOwnerVerifyLink';
 import {
   applyLegalUpdate,
   replaceOnce,
@@ -7,7 +7,7 @@ import {
 } from '../pages/legal-update';
 
 /**
- * Приватність 2.8 → 2.9 (CAMP-456): планувальник тепер шукає місця за
+ * Приватність 2.9 → 3.0 (CAMP-456), поверх 2.9 з CAMP-505 (1797810000000): планувальник тепер шукає місця за
  * назвою, ділить поїздку на перегони, зберігає поїздку в браузері й дає
  * посилання.
  *
@@ -42,7 +42,7 @@ import {
 export class PrivacyTripStorage1797850000000 implements MigrationInterface {
   name = 'PrivacyTripStorage1797850000000';
 
-  readonly previous = new PrivacyPersonaChoice1797100100000().page;
+  readonly previous = new PrivacyOwnerVerifyLink1797810000000().page;
 
   readonly page = (() => {
     let body = replaceOnce(
@@ -90,7 +90,7 @@ Two things about the page address. When you open the planner from a campsite’s
       slug: 'privacy',
       title: this.previous.title,
       summary: this.previous.summary,
-      version: '2.9',
+      version: '3.0',
       effectiveFrom: '2026-11-15',
       body,
     };

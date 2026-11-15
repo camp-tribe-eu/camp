@@ -35,6 +35,7 @@
     "pg": "^8.23.1",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.1",
+    "tldts": "7.4.18",
     "typeorm": "^1.1.2"
   },
   "devDependencies": {

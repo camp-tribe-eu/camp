@@ -79,8 +79,22 @@ const PLAIN_ADDRESS = new RegExp(
   'u',
 );
 
+// Те саме, що HOST, але літера — будь-яка літера Unicode: `anna@jõgeva.ee` —
+// справжня адреса, і ми вже пишемо на неї (nodemailer шле `xn--jgeva-dua.ee`).
+// Не пропускає нічого, що читається як URL: `/ ? # %` не літери й не цифри.
+const RECIPIENT_HOST = /^[\p{L}\p{N}]([\p{L}\p{N}.-]*[\p{L}\p{N}])?$/u;
+
+/**
+ * 🔴 ДОМЕННА ЧАСТИНА — ХОСТ І БІЛЬШЕ НІЧОГО. Без цього `a@camp.de/.evil.example`,
+ * `a@camp.de?.evil.example` і `a@camp.de#.evil.example` — «прості адреси»:
+ * в них немає жодного символу з переліку вище, а все ж будь-який розбір, що
+ * читає домен як URL, бачить `camp.de`. Знайдено рецензією PR #586.
+ */
 export const isPlainAddress = (v: unknown): v is string =>
-  typeof v === 'string' && v.length <= 254 && PLAIN_ADDRESS.test(v);
+  typeof v === 'string' &&
+  v.length <= 254 &&
+  PLAIN_ADDRESS.test(v) &&
+  RECIPIENT_HOST.test(v.slice(v.lastIndexOf('@') + 1));
 
 const given = (v: string | undefined): v is string =>
   typeof v === 'string' && v.trim() !== '';
