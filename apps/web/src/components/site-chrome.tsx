@@ -1,14 +1,12 @@
 import Link from "next/link";
-import { COMPANY, LEGAL_PAGES, legalPath } from "@/lib/legal";
-import { CookieSettingsLink } from "./cookie-consent";
-import { CurrentYear } from "./current-year";
 import { SiteNavDrawer } from "./site-nav-drawer";
 import ThemeToggle from "./theme-toggle";
 import PersonaToggle, { type PersonaLabels } from "./persona-toggle";
 import { NavDropdown } from "./site-nav-dropdown";
 import { SiteHeaderFrame } from "./site-header-frame";
 import type { NavItem } from "@/lib/navigation";
-import { Block } from "@/components/layout";
+import { LanguageSwitch } from "./language-switch";
+import { liveLocales, type Locale } from "@/lib/i18n";
 
 // CAMP-41: the header and footer every page wears.
 //
@@ -33,10 +31,13 @@ import { Block } from "@/components/layout";
 export function SiteHeader({
   nav,
   persona = null,
+  locales = liveLocales(),
 }: {
   nav: NavItem[];
   /** Підписи перемикача із CMS; `null` — перемикач не малюється. */
   persona?: PersonaLabels | null;
+  /** Лише ЖИВІ мови (CAMP-448); порожньо — перемикача мови немає. */
+  locales?: readonly Locale[];
 }) {
   return (
     /* 🔴 CAMP-374 — `sticky`, А НЕ `fixed`, І ЦЕ СВІДОМО ІНАКШЕ, НІЖ У
@@ -184,6 +185,10 @@ export function SiteHeader({
               // CAMP-448: без JS розкривач не відкриється, тож підпункти
               // стають у ряд поруч із батьком — як і сам ряд меню вище.
               "            header [data-nav-sub] { position: static !important; visibility: visible !important; opacity: 1 !important }\n" +
+              // CAMP-448: мега-панель (країни) без JS не розгортаємо — у рядок
+              // шапки вона не влізає й накрила б сторінку; посилання лишаються
+              // в HTML, а країни без скрипта читач бере з плиток `/camping`.
+              "            header [data-nav-kind='mega'] [data-nav-sub] { display: none !important }\n" +
               "          </style>",
           }}
         />
@@ -225,10 +230,20 @@ export function SiteHeader({
           aria-label="Main"
           className="ml-auto hidden xl:block group-data-[stacked=true]/header:hidden"
         >
-          <ul className="flex flex-wrap items-center justify-end gap-x-5 gap-y-1 text-sm font-medium text-ink-2">
-            {nav.map((item) =>
+          <ul className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-sm font-medium text-ink-2">
+            {/* Лупа — ПОСЛІДНЯ в ряду, хоч у базі `sort` ставить її третьою:
+                іконки живуть разом, праворуч, як у темі. Порядок решти —
+                порядок бази. */}
+            {[...nav].sort(
+              (a, b) =>
+                Number(a.href === SEARCH_HREF) - Number(b.href === SEARCH_HREF),
+            ).map((item) =>
               item.children.length > 0 ? (
                 <NavDropdown key={item.href} item={item} />
+              ) : item.href === SEARCH_HREF ? (
+                <li key={item.href}>
+                  <SearchIconLink item={item} />
+                </li>
               ) : (
                 <li key={item.href}>
                   <Link href={item.href} className="hover:text-heading">
@@ -246,184 +261,75 @@ export function SiteHeader({
             системі. Кнопка віддає цей вибір читачеві й уміє повернути
             його системі назад. */}
         {persona && <PersonaToggle labels={persona} />}
+        {/* 🔴 CAMP-448. МОВА Й ВХІД — ЛИШЕ ВІД 1200 px: нижче вони йдуть у
+            шухляду (site-nav-drawer.tsx), бо ряд там і так тримає лого,
+            перемикач теми й бургер. У острові мова ховається разом із
+            рядом меню; вхід лишається — іконка без підпису, як у темі. */}
+        <div className="hidden items-center xl:flex group-data-[stacked=true]/header:hidden">
+          <LanguageSwitch locales={locales} />
+        </div>
+        <AccountLink className="hidden xl:grid" />
         <ThemeToggle />
 
-        <SiteNavDrawer items={nav} persona={persona} />
+        <SiteNavDrawer items={nav} persona={persona} locales={locales} />
     </SiteHeaderFrame>
   );
 }
 
-/** Батько, за ним його діти, і так углиб — порядок бази збережено. */
-function flattenNav(items: NavItem[], out: NavItem[] = []): NavItem[] {
-  for (const item of items) {
-    out.push(item);
-    flattenNav(item.children, out);
-  }
-  return out;
+/**
+ * 🔴 CAMP-448. ПОШУК — ІКОНКА, А НЕ СЛОВО. Пункт лишається рядком бази
+ * (його підпис стає `aria-label`, тож читач екрана й тест читають те саме
+ * «Search»), а малюється лупою: у темі іконки шапки без підписів, і слово
+ * «Search» забирало ширину, якої десяти пунктам і так бракувало.
+ * Адреса `/search` тут названа, бо вигляд — рішення шапки, а не бази:
+ * знімеш пункт у CMS — зникне й лупа.
+ */
+export const SEARCH_HREF = "/search";
+
+const ICON_BUTTON =
+  "size-12 place-items-center rounded-full text-heading ct-button-motion hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-line-blue group-data-[stacked=true]/header:text-[#fff] group-data-[stacked=true]/header:hover:bg-transparent";
+
+function SearchIconLink({ item }: { item: NavItem }) {
+  return (
+    <Link
+      href={item.href}
+      aria-label={item.label}
+      title={item.label}
+      data-testid="header-search"
+      className={`${ICON_BUTTON} grid`}
+    >
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <circle cx="11" cy="11" r="6.5" />
+        <path d="M16 16l4.5 4.5" strokeLinecap="round" />
+      </svg>
+    </Link>
+  );
 }
 
 /**
- * ODbL requires attribution wherever the data is shown, so it belongs in
- * the footer of every page rather than being repeated per template and
- * eventually forgotten on one of them.
+ * 🔴 CAMP-448. ВХІД — ІКОНКА «УВІЙТИ», А НЕ ЛЮДИНА. До цього в шапці входу
+ * не було зовсім: іконку людини, яку ревю прийняло за вхід, малює перемикач
+ * «маю кемпер / орендую». Друга людина поруч читалась би як дубль, тому
+ * вхід — стрілка в двері. Веде на `/account`: кабінет сам відправляє непідписаного на
+ * `/login` з поверненням (`account-cabinet.tsx`), а підписаному не треба
+ * екрана входу.
  */
-export function SiteFooter({
-  nav = [],
-  footerNote = null,
-}: {
-  nav?: NavItem[];
-  /**
-   * Речення під назвою — з CMS (CAMP-481). `null` означає, що редактор
-   * його не вписав або база недосяжна; тоді абзацу немає зовсім, бо
-   * порожній абзац читається як поломка верстки, а не як порожнеча.
-   */
-  footerNote?: string | null;
-}) {
-  const more = flattenNav(nav);
+function AccountLink({ className = "" }: { className?: string }) {
   return (
-    <footer className="mt-16 border-t border-line-2 bg-surface">
-      <div className="mx-auto max-w-wrap px-4 py-10 text-xs text-ink-2 xl:px-6">
-        {/* 🔴 ЧОТИРИ КОЛОНКИ, А НЕ СМУЖКА (CAMP-448, знімки 441/25–441/26).
-            Власник: підвал має бути витвором. Було: три плоскі ряди
-            посилань і два абзаци — усе одного розміру, без ієрархії.
-
-            Розподіл за призначенням, як просить картка: основна
-            навігація лишається в шапці, а сюди йдуть розділи, правові
-            сторінки, контакт і походження даних. */}
-        <div className="grid gap-8 md:grid-cols-2 xl:grid-cols-4">
-          {/* 1. Хто ми. */}
-          <div>
-            <Link
-              href="/"
-              className="flex items-center gap-2 text-base font-bold text-heading"
-            >
-              <span aria-hidden="true">⛺</span>
-              CampTribe
-            </Link>
-            {footerNote && (
-              <p className="mt-3 max-w-[32ch]">{footerNote}</p>
-            )}
-          </div>
-
-          {/* 2. Розділи з CMS. Порожній перелік не малює колонки взагалі:
-               заголовок над порожнечею читається як поломка. */}
-          {more.length > 0 && (
-            <nav aria-label="More">
-              <h2 className="text-xs text-heading">More</h2>
-              <ul className="mt-3">
-                {more.map((item) => (
-                  <li key={item.href}>
-                    <Link
-                      href={item.href}
-                      className="flex min-h-12 items-center underline"
-                    >
-                      {item.label}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </nav>
-          )}
-
-          {/* 3. Правові сторінки. 🔴 Будуються з `LEGAL_PAGES` (CAMP-56),
-               а не з CMS: обовʼязкове посилання не можна випадково
-               видалити з бази. */}
-          <nav aria-label="Legal">
-            <h2 className="text-xs text-heading">Legal</h2>
-            <ul className="mt-3">
-              {LEGAL_PAGES.map((p) => (
-                <li key={p.slug}>
-                  <Link
-                    href={legalPath(p.slug)}
-                    className="flex min-h-12 items-center underline"
-                  >
-                    {p.title}
-                  </Link>
-                </li>
-              ))}
-              <li className="flex min-h-12 items-center">
-                <CookieSettingsLink />
-              </li>
-            </ul>
-          </nav>
-
-          {/* 4. Звідки дані. ODbL вимагає атрибуції там, де дані
-               показують, тож вона в підвалі кожної сторінки. */}
-          <div>
-            <h2 className="text-xs text-heading">
-              Where the data comes from
-            </h2>
-            <Block as="p" measure="read" className="mt-3">
-              Campsite data ©{" "}
-              <a
-                href="https://www.openstreetmap.org/copyright"
-                className="underline"
-                rel="noopener"
-              >
-                OpenStreetMap contributors
-              </a>
-              , available under the{" "}
-              <a
-                href="https://opendatacommons.org/licenses/odbl/"
-                className="underline"
-                rel="noopener"
-              >
-                Open Database License
-              </a>
-              . Boundaries from Natural Earth. Elevation from the Copernicus
-              DEM. Distances and terrain are calculated by CampTribe from that
-              data —{" "}
-              <Link href="/legal/attribution" className="underline">
-                full sources and licences
-              </Link>
-              .
-            </Block>
-          </div>
-        </div>
-
-        {/* 🔴 НИЗ: НАЗВА, РІК, ПРАВА — І БІЛЬШЕ НІЧОГО.
-            Рішення власника 20.10.2026: адреса й номер підприємства
-            публікуються на правових сторінках, а не під кожною
-            сторінкою сайту. Обовʼязок — опублікувати; показувати осідок
-            під кожною фотографією обовʼязком не є, а осідок це його дім.
-
-            Рік рахує `CurrentYear` у браузері, а не розмітка на збірці —
-            чому саме так, пояснено в тому компоненті. */}
-        <div className="mt-10 flex flex-wrap items-center justify-between gap-4 border-t border-line-2 pt-6">
-          <p>
-            © <CurrentYear fallback={new Date().getFullYear()} />.{" "}
-            {COMPANY.name}. All rights reserved.
-          </p>
-          {/* 🔴 «ДОГОРИ» — ЗВИЧАЙНЕ ПОСИЛАННЯ НА ЯКІР, А НЕ КНОПКА З JS.
-              Підвал опиняється під читачем після довгої сторінки, і
-              найдешевший спосіб повернути його вгору не повинен залежати
-              від того, чи доїхав скрипт. `#top` стоїть на `<body>`
-              макета.
-
-              🔴 ПЛАВНОСТІ НЕ ДОДАЄМО НАВМИСНО. `scroll-behavior: smooth`
-              на `html` — правило сайту, не цього посилання: воно зачепило б
-              і решту якорів, і повносторінкові знімки, які Playwright
-              робить прокручуванням. Стрибок угору миттєвий і цим чесний. */}
-          <a
-            href="#top"
-            data-testid="to-top"
-            className="flex min-h-12 items-center gap-2 underline"
-          >
-            Back to top
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              aria-hidden="true"
-            >
-              <path d="M12 19V5M5 12l7-7 7 7" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </a>
-        </div>
-      </div>
-    </footer>
+    <Link
+      href="/account"
+      aria-label="Account"
+      title="Account"
+      data-testid="header-account"
+      className={`${ICON_BUTTON} ${className}`}
+    >
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <path d="M14.5 4.5h3.2A1.8 1.8 0 0 1 19.5 6.3v11.4a1.8 1.8 0 0 1-1.8 1.8h-3.2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M4.5 12h9M10.5 8l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </Link>
   );
 }
+
+/** Підвал живе у власному файлі (CAMP-448); імпорт звідси лишається чинним. */
+export { SiteFooter } from "./site-footer";

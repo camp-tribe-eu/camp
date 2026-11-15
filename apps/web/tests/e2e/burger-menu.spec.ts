@@ -1,4 +1,5 @@
 import { test, expect, type Page } from './api-request';
+import { DATA_LEGAL_SLUGS, LEGAL_PAGES } from '../../src/lib/legal';
 
 /**
  * Покрутити СПРАВЖНІМ коліщатком і сказати, куди доїхала сторінка.
@@ -83,11 +84,26 @@ test.describe('🔴 CAMP-350 — шухляда', () => {
     await page.getByTestId('burger-open').click();
     await page.getByTestId('burger-panel').waitFor();
 
+    // 🔴 CAMP-448. МІРЯЄТЬСЯ ТЕ, ЩО ЧИТАЧ БАЧИТЬ. Шухляда має прокручуваний
+    // список (`overflow-y-auto`) і нерухомий низ (вхід і мова). Пункт, що
+    // виїхав за край списку, у розкладці лежить ПІД нижнім рядом, але на
+    // екрані його немає — і порівнювати його коробку з нижнім рядом
+    // означало б звітувати про накладання, якого ніхто не бачить. Тому
+    // коробка зрізається по видимій області списку. Згорнуті складки
+    // (`<details>` закритий, висота 0) в обмір не потрапляють.
     const boxes = await page.evaluate(() =>
-      [...document.querySelectorAll('[data-testid="burger-panel"] a')].map((a) => {
-        const r = a.getBoundingClientRect();
-        return { t: (a.textContent || '').trim(), top: r.top, bottom: r.bottom, h: r.height };
-      }),
+      [...document.querySelectorAll('[data-testid="burger-panel"] a')]
+        .map((a) => {
+          const r = a.getBoundingClientRect();
+          const clip = a.closest('nav')?.getBoundingClientRect();
+          return {
+            t: (a.textContent || '').trim(),
+            top: clip ? Math.max(r.top, clip.top) : r.top,
+            bottom: clip ? Math.min(r.bottom, clip.bottom) : r.bottom,
+            h: r.height,
+          };
+        })
+        .filter((b) => b.h > 0 && b.bottom > b.top),
     );
 
     // 🔴 Пара до тверджень нижче: порожня панель задовольнила б і «жоден
@@ -208,13 +224,31 @@ test.describe('🔴 CAMP-350 — підвал', () => {
       ),
     );
     // Пара: порожній ряд задовольнив би заборону.
-    // 🔴 `toBe`, а не `toBeGreaterThanOrEqual(4)`: сім сторінок із
-    // LEGAL_PAGES плюс кнопка «Cookie settings». З порогом «не менше 4»
-    // половина ряду могла зникнути, лишивши тест зеленим.
-    expect(heights.length, 'юридичний ряд змінив склад').toBe(8);
+    // 🔴 `toBe`, а не `toBeGreaterThanOrEqual(4)`: з половиною ряду, що
+    // зникла, тест лишився б зеленим.
+    // 🔴 CAMP-448: правила й «звідки дані» — два різні списки, кожна правова
+    // сторінка в одному з них. У «Legal» лишаються сторінки поза
+    // `DATA_LEGAL_SLUGS` плюс кнопка «Cookie settings»; у «Data and
+    // sources» — решта. Число береться з тих самих `LEGAL_PAGES`, що й
+    // підвал, а не переписується руками.
+    const inLegal = LEGAL_PAGES.length - DATA_LEGAL_SLUGS.length + 1;
+    expect(heights.length, 'юридичний ряд змінив склад').toBe(inLegal);
     expect(
       heights.filter((h) => h < 48).length,
       `${heights.filter((h) => h < 48).length} із ${heights.length} нижчі за 48 px`,
+    ).toBe(0);
+
+    const dataHeights = await page.evaluate(() =>
+      [...document.querySelectorAll('footer nav[aria-label="Data and sources"] a')].map(
+        (e) => e.getBoundingClientRect().height,
+      ),
+    );
+    expect(dataHeights.length, 'ряд «звідки дані» змінив склад').toBe(
+      DATA_LEGAL_SLUGS.length,
+    );
+    expect(
+      dataHeights.filter((h) => h < 48).length,
+      'посилання «звідки дані» нижчі за 48 px',
     ).toBe(0);
   });
 });

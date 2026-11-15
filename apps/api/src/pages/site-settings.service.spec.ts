@@ -1,5 +1,8 @@
 import { DataSource, type QueryRunner } from 'typeorm';
-import { SiteSettingsService } from './site-settings.service';
+import {
+  parseSocialLinks,
+  SiteSettingsService,
+} from './site-settings.service';
 
 /**
  * CAMP-481 — налаштування сайту читаються з бази, а не вгадуються.
@@ -67,6 +70,7 @@ describe('SiteSettingsService: що доїжджає до вебу', () => {
     expect(await service.get('en')).toEqual({
       tagline: 'Підпис сайту',
       footerNote: 'Речення підвалу',
+      socialLinks: [],
     });
   });
 
@@ -81,6 +85,7 @@ describe('SiteSettingsService: що доїжджає до вебу', () => {
     expect(await service.get('en')).toEqual({
       tagline: null,
       footerNote: null,
+      socialLinks: [],
     });
   });
 
@@ -92,6 +97,51 @@ describe('SiteSettingsService: що доїжджає до вебу', () => {
     expect(await service.get('fr')).toEqual({
       tagline: null,
       footerNote: null,
+      socialLinks: [],
     });
+  });
+
+  it('🔴 CAMP-448: соцмережі йдуть із бази й не залежать від мови', async () => {
+    await seed('Підпис сайту', 'Речення підвалу');
+    await qr.query(`UPDATE site_settings SET social_links = $1::jsonb`, [
+      JSON.stringify({
+        facebook: 'https://www.facebook.com/camptribe',
+        instagram: 'https://www.instagram.com/camptribe',
+      }),
+    ]);
+    const en = await service.get('en');
+    // Порядок — порядок кнопок (SOCIAL_NETWORKS), а не порядок ключів у базі.
+    expect(en.socialLinks.map((l) => l.network)).toEqual([
+      'instagram',
+      'facebook',
+    ]);
+    // Мови без перекладу тексту кнопки не зникають: LEFT JOIN, не JOIN.
+    const fr = await service.get('fr');
+    expect(fr.tagline).toBeNull();
+    expect(fr.socialLinks).toHaveLength(2);
+  });
+});
+
+describe('parseSocialLinks: один зіпсований запис коштує одного запису', () => {
+  const good = 'https://www.instagram.com/camptribe';
+
+  it('порожня база, не обʼєкт і масив — жодної кнопки', () => {
+    expect(parseSocialLinks({})).toEqual([]);
+    expect(parseSocialLinks(null)).toEqual([]);
+    expect(parseSocialLinks('x')).toEqual([]);
+    expect(parseSocialLinks([good])).toEqual([]);
+  });
+
+  it('🔴 небезпечна, чужа й порожня адреси відпадають поодинці', () => {
+    const got = parseSocialLinks({
+      instagram: good,
+      facebook: 'javascript:alert(1)',
+      youtube: 'http://youtube.com/c/x',
+      tiktok: '   ',
+      x: 42,
+      linkedin: 'not a url',
+      myspace: 'https://myspace.com/x',
+    });
+    expect(got).toEqual([{ network: 'instagram', url: good }]);
   });
 });
