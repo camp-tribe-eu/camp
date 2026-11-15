@@ -24,6 +24,9 @@ const post = (i: number): PostSummary => ({
   summary: `Summary ${i}`,
   publishedAt: `2026-10-${String((i % 28) + 1).padStart(2, '0')}T00:00:00.000Z`,
   authorName: 'Yurii S',
+  coverUrl: null,
+  coverAlt: null,
+  tags: [],
 });
 
 const many = Array.from({ length: POSTS_PER_PAGE * 2 + 3 }, (_, i) => post(i));
@@ -242,4 +245,26 @@ test.describe('🔴 «читати далі» на сторінці допису
     expect(html).toContain('data-testid="reading-time"');
     expect(html).toContain('1 min read');
   });
+});
+
+// 🔴 CAMP-464: ОБКЛАДИНКА Й ТЕГИ ДОХОДЯТЬ ДО КАРТКИ У ВІДДАНОМУ HTML. Мутація
+// «каталог не передає image/tags картці» лишала б зелений увесь файл вище:
+// там усі дописи без обкладинки.
+test('🔴 обкладинка й теги допису доходять у картку каталогу', () => {
+  const withCover: PostSummary = {
+    ...post(1),
+    coverUrl: '/banners/lake.webp',
+    coverAlt: 'A calm lake',
+    tags: ['Rules', 'Costs'],
+  };
+  const html = renderComponent(BlogIndexView, {
+    all: [withCover, post(2)],
+    posts: [withCover, post(2)],
+    page: 1,
+  });
+  expect(html).toContain('src="/banners/lake.webp"');
+  expect(html).toContain('alt="A calm lake"');
+  expect(html).toContain('>Rules<');
+  // Допис без обкладинки лишається з лого, а не з порожньою плиткою.
+  expect(html).toContain('data-testid="post-placeholder"');
 });

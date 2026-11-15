@@ -15,10 +15,16 @@ import { expect, test } from "./api-request";
 // переписаним реченням. Посимвольність доводить лише посимвольна
 // цитата.
 
+// 🔴 CAMP-464: сторінка розкладена на секції каталогу, і абзаци розійшлись по
+// СЕКЦІЯХ — 2-й і 3-й по картках, 3-й навіть по двох. Тому одиниця
+// перевірки тут не абзац, а те, що лишилось цілим усередині секції: перший
+// абзац, решта другого після виділеного зачину, два речення третього,
+// четвертий. Жодне слово оригіналу не перефразовано й не загублено.
 const PARAGRAPHS = [
   "CampTribe is a directory of campsites, motorhome parks and camper stops across the twenty-seven member states of the European Union. It is built from OpenStreetMap and from official open data published by national and European bodies, and every page says which source a fact came from.",
   "Open data is uneven: a campsite may have no recorded opening hours, no price and no answer to whether you may legally spend the night there. Where that is the case the page says so instead of guessing. An empty field is a fact about our data, not a fact about the place.",
-  "Alongside the directory we show conditions that change by the hour — official weather warnings, wildfire reports, bathing-water quality and fuel prices — each from the body that issues it, with the time it was issued. Where a reading is older than its source allows, the page says that too rather than showing a stale number as current.",
+  "Alongside the directory we show conditions that change by the hour — official weather warnings, wildfire reports, bathing-water quality and fuel prices — each from the body that issues it, with the time it was issued.",
+  "Where a reading is older than its source allows, the page says that too rather than showing a stale number as current.",
 ];
 
 test.describe("🔴 CAMP-365 — /about із CMS", () => {
@@ -38,15 +44,16 @@ test.describe("🔴 CAMP-365 — /about із CMS", () => {
     }
   });
 
-  test("виділене речення лишилось виділеним, а не стало текстом", async ({
+  test("зачин «What we do not know, we say» лишився заголовком картки", async ({
     page,
   }) => {
     await page.goto("/about");
     // Коментар у старому файлі називав його «найважливішим абзацом
-    // сторінки». Переїзд не сміє перетворити його на звичайний текст.
-    await expect(
-      page.locator("main strong", { hasText: "What we do not know, we say." }),
-    ).toHaveCount(1);
+    // сторінки». Він не сміє зникнути, коли абзац розкладається на картки:
+    // тепер це назва першої картки, і вона стоїть у ній, а не деінде.
+    const card = page.locator('main [data-testid="features"] li').first();
+    await expect(card.locator("h3")).toHaveText("What we do not know, we say");
+    await expect(card).toContainText("An empty field is a fact about our data");
   });
 
   test("посилання ВСЕРЕДИНІ речення веде на правову сторінку", async ({

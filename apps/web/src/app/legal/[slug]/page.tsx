@@ -6,7 +6,6 @@ import { alternatesFor } from '@/lib/i18n';
 import { COMPANY, LEGAL_PAGES, legalPage, legalPath } from '@/lib/legal';
 import { legalDocument, legalSlugs } from '@/lib/legal-content';
 import { breadcrumbList, jsonLdProps, legalPageGraph } from '@/lib/jsonld';
-import { Block } from '@/components/layout';
 
 // CAMP-56 — the legal pages. CAMP-365 — and their text comes from the CMS.
 //
@@ -70,6 +69,9 @@ export default async function LegalPageRoute({
   if (!legalPage(slug)) notFound();
   // Throws, naming the document, if it is missing or its body is empty.
   const doc = await legalDocument(slug);
+  const otherPagesListedInBody = LEGAL_PAGES.filter(
+    (p) => p.slug !== doc.slug,
+  ).every((p) => doc.body.includes(`](${legalPath(p.slug)})`));
 
   return (
     <main className="mx-auto max-w-wrap px-4 py-8 xl:px-6">
@@ -105,11 +107,17 @@ export default async function LegalPageRoute({
         · Legal
       </nav>
 
-      <header className="mt-4 border-b border-line-2 pb-5">
-        <h1 className="text-2xl text-heading sm:text-3xl">
+      {/* 🔴 ЗАГОЛОВОК ВЕЛИКИЙ І ПО ЦЕНТРУ, КОЛОНКА ТЕКСТУ — ПО ЦЕНТРУ (CAMP-464).
+          Як `.shopify-policy__container{max-width:840px;margin:0 auto}` у
+          теми: центрується СЕКЦІЯ цілком, тож заголовок і текст не
+          розʼїжджаються. Було: малий заголовок ліворуч і колонка 540 px,
+          права половина порожня (ревю 445/7). ТЕКСТ документів не
+          змінено — лише верстка (його читає `scripts/seo/legal-review.json`). */}
+      <header className="mx-auto mt-4 max-w-[840px] border-b border-line-2 pb-5 text-center">
+        <h1 className="text-4xl leading-tight text-heading md:text-[56px]">
           {doc.title}
         </h1>
-        <Block as="p" measure="read" className="mt-2 text-sm text-ink-2">{doc.summary}</Block>
+        <p className="mx-auto mt-3 max-w-read text-sm text-ink-2">{doc.summary}</p>
 
         {/* 🔴 The version and its date, on the page rather than buried in
             a changelog. "Which text applied on the day I used the site"
@@ -130,13 +138,19 @@ export default async function LegalPageRoute({
         </p>
       </header>
 
-      <article className="mt-6">
+      <article className="mx-auto mt-6 max-w-[840px]">
         <LegalProse text={doc.body} />
       </article>
 
+      {/* 🔴 ПЕРЕЛІК ІНШИХ СТОРІНОК — ОДИН РАЗ (CAMP-464). Документ «Legal
+          notice» сам несе в тексті розділ «The other pages» з посиланнями на
+          всі інші; цей блок додавав їх удруге, а підвал — утретє. Текст
+          документа міняти не можна, тож блок ховається, коли текст уже
+          називає КОЖНУ іншу сторінку. */}
+      {!otherPagesListedInBody && (
       <nav
         aria-label="Other legal pages"
-        className="mt-12 border-t border-line-2 pt-5"
+        className="mx-auto mt-12 max-w-[840px] border-t border-line-2 pt-5"
       >
         <h2 className="text-xs uppercase tracking-wide text-ink-2">
           Also here
@@ -151,6 +165,7 @@ export default async function LegalPageRoute({
           ))}
         </ul>
       </nav>
+      )}
     </main>
   );
 }

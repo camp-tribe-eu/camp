@@ -76,6 +76,14 @@ export interface ImageWithTextProps {
   caption?: string;
   heading: string;
   text?: ReactNode;
+  /**
+   * 🔴 `div`, КОЛИ `text` САМ МІСТИТЬ АБЗАЦИ (CAMP-464). `text` лежав у
+   * `<p>`, а текст із CMS приходить розміткою з `<p>` усередині: абзац в
+   * абзаці браузер закриває сам, і другий абзац вилітає з обгортки та
+   * втрачає клас. Типово лишається `p`, бо так було в усіх, хто вже
+   * користується секцією.
+   */
+  textAs?: "p" | "div";
   cta?: { href: string; label: string };
   /** Де стоїть фото на десктопі. Нижче 992px воно завжди зверху. */
   imagePosition?: "left" | "right";
@@ -122,6 +130,7 @@ export function ImageWithText({
   caption,
   heading,
   text,
+  textAs = "p",
   cta,
   imagePosition = "left",
   imageWidth = 70,
@@ -140,6 +149,7 @@ export function ImageWithText({
   if (heading.trim() === "" || image.src.trim() === "") return null;
 
   const Heading = headingLevel === 2 ? "h2" : "h3";
+  const Text = textAs;
   const classes = [
     "ct-iwt",
     imageWidth === 70 ? "ct-iwt--w70" : "ct-iwt--w50",
@@ -168,7 +178,7 @@ export function ImageWithText({
       <div className="ct-iwt__content">
         {caption ? <span className="ct-iwt__caption">{caption}</span> : null}
         <Heading className="ct-iwt__heading">{heading}</Heading>
-        {text ? <p className="ct-iwt__text">{text}</p> : null}
+        {text ? <Text className="ct-iwt__text">{text}</Text> : null}
         {cta ? (
           <div className="ct-iwt__button">
             <ButtonLink href={cta.href} variant="secondary">
