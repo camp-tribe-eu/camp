@@ -380,3 +380,36 @@ test.describe("доступність нових сторінок", () => {
     });
   }
 });
+
+test.describe("кожна секція «текст + фото» показує фото", () => {
+  // 🔴 CAMP-461, рецензія PR #582. На знімку хаба секція «Stay» мала порожню
+  // ліву половину. Причина — не шлях, не alt і не поле в міграції: фото
+  // `loading="lazy"`, а повносторінковий знімок знімався без прокрутки, тож
+  // браузер ще не завантажив ті, що нижче першого екрана. Читач прокручує і
+  // бачить усе. Тест робить те, що читач: докручує кожну секцію до екрана
+  // й вимагає `naturalWidth > 0`. Порожній src чи 404 лишили б 0.
+  const PAGES: Array<[string, number]> = [
+    ["/camper-rental", 4],
+    ["/camper-rental/de", 2],
+    ["/camper-rental/providers", 2],
+  ];
+  for (const [path, expected] of PAGES) {
+    test(`🔴 ${path}: усі ${expected} фото завантажені`, async ({ page }) => {
+      await page.goto(path);
+      const sections = page.getByTestId("image-text");
+      // Кількість — з очікування, а не «скільки намалювалось»: секція, яка не
+      // намалювалась, не повинна зникати з підрахунку разом зі своїм фото.
+      await expect(sections).toHaveCount(expected);
+      for (let i = 0; i < expected; i++) {
+        const img = sections.nth(i).locator("img.ct-iwt__image");
+        await img.scrollIntoViewIfNeeded();
+        await expect
+          .poll(
+            () => img.evaluate((el: HTMLImageElement) => el.naturalWidth),
+            { message: `${path}: фото секції ${i} не завантажилось` },
+          )
+          .toBeGreaterThan(0);
+      }
+    });
+  }
+});
