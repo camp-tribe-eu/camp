@@ -189,8 +189,13 @@ function itemStrings(node: unknown, key?: string): string[] {
  * Експортовано заради сторожа: тест звіряє цей перелік із тим, що
  * справді читає `page-sections.tsx`.
  */
+// 🔴 CAMP-488: `subheading` ДОДАНО. `page-sections.tsx` почав його
+// малювати (надзаголовок у рядку «текст + фото»), а сторож у
+// `reading-time.spec.ts` саме для цього й стоїть: поле, яке читач бачить,
+// мусить лічитись у часі читання.
 export const COUNTED_SECTION_FIELDS = [
   "heading",
+  "subheading",
   "body",
   "ctaLabel",
 ] as const;
@@ -200,6 +205,7 @@ export function visibleWords(sections: readonly SectionView[]): number {
   const text = sections
     .flatMap((s) => [
       s.heading ?? "",
+      s.subheading ?? "",
       s.body ?? "",
       s.ctaLabel ?? "",
       ...itemStrings(s.items),

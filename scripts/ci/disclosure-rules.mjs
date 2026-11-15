@@ -94,7 +94,8 @@ export const FORBIDDEN = [
   },
   {
     id: 'A-phoned-ahead',
-    re: /\bphoned ahead\b/i,
+    // CAMP-463 коло 2: і «called ahead» — те саме речення іншими словами.
+    re: /\b(?:phoned|called) ahead\b/i,
     why: 'Розповідь про наші дії (не телефонували) замість меж даних (не перевірено на місці).',
     example: 'We have not phoned ahead, and we hold no ratings.',
   },
@@ -103,6 +104,50 @@ export const FORBIDDEN = [
     re: /a (sentence )?(a )?model invented/i,
     why: 'Захист від звинувачення, якого читач не висував.',
     example: 'Nothing here is an opinion, an estimate or a sentence a model invented.',
+  },
+
+  // ── A (коло 2). спосіб, яким зроблено текст, і чого ми не робимо ──────
+  {
+    id: 'A-written-by-a-program',
+    re: /written by a program|a program wrote/i,
+    why: 'Розповідь про те, ЯК зроблено сторінку, на місці того, ЩО вона містить. Лічильник записів — не система ШІ, і читачеві досить «кожне число — підрахунок наших записів». Для мовної моделі діє окрема вимога розкриття (ст. 50 AI Act), і вона говорить «language model», а не «program».',
+    example: 'Of the titles and summaries on this page, 3 were written by a program that counted what our records hold',
+  },
+  {
+    id: 'A-composed-by',
+    re: /\bcomposed by (?:AI|a model|a language model|an AI)\b/i,
+    why: 'Канцелярит на місці простого слова: «written by AI». Розкриття машинного тексту ЗАКОННЕ й лишається (ст. 50 AI Act) — заборонено лише це формулювання.',
+    example: 'This article was composed by AI. It is general background.',
+  },
+  {
+    id: 'A-one-template',
+    re: /one template with|rather than fifty/i,
+    why: 'Пояснення, чому маршрутів не п’ятдесят, — наша логіка тонкого контенту. Читач прийшов по маршрут, не по причини.',
+    example: 'There are twelve rather than fifty on purpose. Fifty would mean one template with the place names swapped.',
+  },
+  {
+    id: 'A-thin-page',
+    re: /rather not have a thin|not two hundred city pages/i,
+    why: 'Розмова про те, які сторінки ми вирішили не робити, і чому. Читач питав про оренду в країні.',
+    example: 'Countries where we could not meet both tests do not have a page, and would rather not have a thin one.',
+  },
+  {
+    id: 'A-pretends-ready',
+    re: /nothing here pretends|are being built/i,
+    why: 'Оголошення того, чого ще нема й чого ми не вдаємо. Читачеві — що Є.',
+    example: 'Route planning and weather along the way are being built. Nothing here pretends they are ready.',
+  },
+  {
+    id: 'A-what-we-got-wrong',
+    re: /what we got wrong|what we are building/i,
+    why: 'Блог описано як щоденник нашої роботи, а не як текст для читача про кемпінг.',
+    example: 'What we are building, what the data says, and what we got wrong.',
+  },
+  {
+    id: 'A-derivative-database',
+    re: /rather than a derivative database/i,
+    why: 'Мова юриста про наш статус щодо ліцензії ODbL. Зміст (Produced Work, джерело названо, share-alike не переходить) лишається, але людськими словами.',
+    example: 'Under the Open Database License it is a Produced Work rather than a derivative database.',
   },
 
   // ── B. машинний формат, показаний читачеві ────────────────────────────
@@ -192,6 +237,12 @@ export const LEGITIMATE = [
   '2 depots · fleet of 14 · trading since 2005',
   'Road distance is not shown: the only distance on this page is the straight line between the stops.',
   'Weekly extract from OpenStreetMap, shop=supermarket, railway=station, tourism=camp_site',
+  // CAMP-463 коло 2: розкриття машинного тексту ЗАКОННЕ й має пройти.
+  'Written by a machine. A language model wrote this text and a person checked it before publication. Marked under Article 50 of the EU AI Act.',
+  'This article was written by AI. It is general background, not a statement about any particular campsite.',
+  'Every number on this page is a count of what our records hold.',
+  'This route is our own work. The map data under it comes from OpenStreetMap, and a route built from that data is what the Open Database License calls a Produced Work: OpenStreetMap is credited, and the licence’s share-alike term does not pass to the route.',
+  'Contact details come from OpenStreetMap and are only as current as the last person to edit them. Check with the site before you set off.',
 ];
 
 // ── витягування видимого тексту ───────────────────────────────────────

@@ -67,7 +67,18 @@ export async function revealSubmenu(
 ): Promise<void> {
   const parent = menu.locator(`[data-nav-parent="${parentHref}"]`);
   const toggle = parent.locator('button[aria-expanded]');
-  if ((await toggle.count()) === 0) return;
+  if ((await toggle.count()) === 0) {
+    // 🔴 CAMP-448. У шухляді довгий перелік дітей (країни) складений у
+    // `<details data-nav-fold>`: посилання лишаються в DOM, але читач їх
+    // не бачить, поки складку не розкрито. Розкриваємо клацанням по
+    // `<summary>`, як робить людина, а не виставленням атрибута.
+    const fold = menu.locator(`details[data-nav-fold="${parentHref}"]`);
+    if ((await fold.count()) > 0 && (await fold.getAttribute('open')) === null) {
+      await fold.locator('summary').click();
+      await expect(fold, `складка «${parentHref}» не розкрилась`).toHaveAttribute('open', '');
+    }
+    return;
+  }
 
   // 🔴 СПЕРШУ СТАН, ПОТІМ ВИДИМІСТЬ. Клік Playwright — це рух миші і
   // натискання: рух відкриває меню наведенням, натискання-перемикач його

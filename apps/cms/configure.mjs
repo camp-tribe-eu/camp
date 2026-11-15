@@ -516,6 +516,12 @@ const FIELD_META = {
           { text: 'Банер (hero)', value: 'hero' },
           { text: 'Кроки (steps)', value: 'steps' },
           { text: 'Країни з паливом (fuel-countries)', value: 'fuel-countries' },
+          // CAMP-488. Три типи головної. Слайд — ОДИН рядок на слайд (заголовок,
+          // текст, кнопка, картинка — звичайні поля); слайдів може бути скільки
+          // завгодно. Тексти слайда й рядка «текст + фото» — звичайний текст.
+          { text: 'Слайд головної (slide)', value: 'slide' },
+          { text: 'Пошукове поле (search)', value: 'search' },
+          { text: 'Текст + фото (image-text)', value: 'image-text' },
         ],
       },
     },

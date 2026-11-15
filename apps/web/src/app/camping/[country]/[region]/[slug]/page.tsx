@@ -310,7 +310,7 @@ function Contact({ spot }: { spot: Spot }) {
       </Block>
       <Block as="p" measure="read" className="mt-3 text-xs text-ink-2">
         Contact details come from OpenStreetMap and are only as current as
-        the last person to edit them. We have not called ahead.
+        the last person to edit them. Check with the site before you set off.
       </Block>
     </Section>
   );

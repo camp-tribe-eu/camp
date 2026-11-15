@@ -129,15 +129,20 @@ test.describe("🔴 CAMP-448 — пункт із дітьми в шапці", ()
 // `navigation.spec.ts` на `mobile-chrome` — там `flatten(body.header)` бере
 // кожен підпункт із бази й шукає його посилання у відкритій шухляді.
 test.describe("🔴 CAMP-448 — діти в підвалі", () => {
-  test("підвал малює дітей одразу за батьком, у його порядку", () => {
+  test("підвал малює дітей одразу за батьком-заголовком, у його порядку", () => {
     const html = renderComponent(SiteFooter, { nav: NAV });
-    const more = /<nav aria-label="More"[^>]*>([\s\S]*?)<\/nav>/.exec(html);
-    expect(more, "у підвалі немає nav[aria-label=More]").not.toBeNull();
-    expect(links(more![1]).map((l) => l.href)).toEqual([
-      "/map",
+    // Батько з дітьми — колонка: заголовок-посилання, за ним діти (CAMP-448,
+    // підвал за Fuse). Пункт без дітей іде в колонку «More».
+    const col = /<nav aria-label="Tools"[^>]*>([\s\S]*?)<\/nav>/.exec(html);
+    expect(col, "у підвалі немає колонки Tools").not.toBeNull();
+    expect(links(col![1]).map((l) => l.href)).toEqual([
       "/tools",
       "/tools/camper-trip-cost",
       "/tools/camper-packing-list",
     ]);
+    const more = /<nav aria-label="More"[^>]*>([\s\S]*?)<\/nav>/.exec(html);
+    expect(more, "у підвалі немає nav[aria-label=More]").not.toBeNull();
+    expect(links(more![1]).map((l) => l.href)).toEqual(["/map"]);
   });
 });
+

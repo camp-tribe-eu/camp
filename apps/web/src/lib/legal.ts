@@ -272,3 +272,10 @@ export function legalPage(slug: string): LegalPage | undefined {
 }
 
 export const legalPath = (slug: string) => `/legal/${slug}`;
+
+/**
+ * 🔴 CAMP-448. Правові сторінки, що відповідають на «звідки дані», а не «за
+ * яких умов». Підвал показує їх окремо від правил, і кожну рівно один раз;
+ * розподіл живе тут, щоб підвал і тести читали одне джерело.
+ */
+export const DATA_LEGAL_SLUGS: readonly string[] = ['attribution', 'database'];

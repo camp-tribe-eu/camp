@@ -89,7 +89,7 @@ export function CatalogueProvenance({ guides }: { guides: readonly Guide[] }) {
     'ai-assisted': (n) =>
       `${plural(n, 'was', 'were')} written by a person with help from a language model`,
     'data-generated': (n) =>
-      `${plural(n, 'was', 'were')} written by a program that counted what our records hold`,
+      `${plural(n, 'is a count', 'are counts')} of what our records hold`,
     human: (n) => `${plural(n, 'was', 'were')} written by a person`,
   };
   const order: GuideProvenance[] = [

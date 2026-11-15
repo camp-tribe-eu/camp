@@ -61,7 +61,7 @@ SELECT id, 1, 'prose', 'provenance', true
 
 INSERT INTO page_section_translations (section_id, language_code, body, items)
 SELECT s.id, 'en',
-       'This article was composed by AI. It is general background, not a statement about any particular campsite.',
+       'This article was written by AI. It is general background, not a statement about any particular campsite.',
        '[]'::jsonb
   FROM page_sections s
   JOIN pages p ON p.id = s.page_id
