@@ -608,6 +608,26 @@ test.describe('the picture', () => {
     expect(Buffer.compare(before, off) === 0, 'switching the layer off did not restore the map').toBe(true);
   });
 
+  test('🔴 CAMP-530: the picture is painted by the WORKER, not by the fallback quietly doing it', async ({ page }) => {
+    // The fallback paints the same picture on the main thread, so every other
+    // test here passes whether or not the worker works. This one reads which
+    // path painted it. In CI the build is `next build --webpack` + `next start`,
+    // so this is also the proof that the worker file loads in the production
+    // bundle under the production CSP. Mutation: make `makeDroughtWorker`
+    // throw — the picture still draws, the attribute says `main`, this fails.
+    await page.clock.setFixedTime(clockAt(27));
+    await serveDrought(page, uniform(3));
+    await stubSpots(page, []);
+    await openMap(page);
+    await mapReady(page);
+    await switchOn(page);
+    await expect(page.locator(MAP)).toHaveAttribute('data-drought-drawn', '1');
+    await expect(page.locator(MAP)).toHaveAttribute('data-drought-painter', 'worker');
+    // The key is there once, and only because the picture is.
+    await expect(page.locator(NOTE)).toHaveAttribute('data-drawn', 'yes');
+    await expect(page.locator('[data-testid="drought-legend"]')).toBeVisible();
+  });
+
   test('🔴 it is in the right PLACE, and bare where the indicator does not look', async ({ page, browserName }) => {
     test.skip(cameraUnreliable(browserName), 'WebKit on Linux cannot photograph a canvas — see wildfire-layer.spec.ts');
     // A checkerboard of 1° cells — class 1 where floor(lat) + floor(lon) is

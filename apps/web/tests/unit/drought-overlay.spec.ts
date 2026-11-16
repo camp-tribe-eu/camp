@@ -488,10 +488,9 @@ test.describe("paintSmoothOverlay", () => {
   const isPure = (v: number[]) => PURE.has(v.join(","));
 
   test("🔴 inside a class the colour is the palette's, exactly; mixed colours live only in a band at the edge, and the lone cell is gone", () => {
-    // Mutation: in `paintSmoothOverlay` use `cls` for `tidy` (skip
-    // `dropLoneCells`) — a class-5 pixel is drawn in the lone cell and the
-    // `fives` count in the next test fails; THIS test is the blur's: set
-    // `EDGE_BLUR` to [1] — no pixel is mixed, the band is empty and it fails.
+    // THIS test is the blur's. Mutation: set `EDGE_BLUR` to [1] — no pixel is
+    // mixed, the band is empty and it fails. (The lone-cell filter's test is
+    // "a lone cell the smoothing alone would keep is absorbed first", below.)
     const o = paintSmoothOverlay(tinyState(T2));
     const mixed: Array<[number, number]> = [];
     for (let r = 0; r < o.height; r++)
@@ -686,6 +685,21 @@ test.describe("paintSmoothOverlay", () => {
     expect(stray / mixed, "mixed pixels with no pure pixel within 6 px").toBeLessThan(0.005);
     expect(mixed, "there is a blurred band").toBeGreaterThan(10_000);
     expect(mixed / u.length, "the band is a minority of the picture").toBeLessThan(0.15);
+  });
+
+  test("🔴 until the picture is on the map the panel says it is drawing, and shows no key; with it, the key", () => {
+    // Mutation: ignore `pictureReady` in the panel — the key stands beside a
+    // map with no colours and the first expectation fails.
+    const state = tinyState(T2);
+    const drawing = renderComponent(DroughtLayerPanel, { state, pictureReady: false });
+    expect(visibleText(drawing)).toContain("Drawing the drought layer");
+    expect(drawing).not.toContain('data-testid="drought-legend"');
+    expect(drawing).toContain('data-drawn="no"');
+    expect(drawing).toContain('data-state="current"');
+    const drawn = renderComponent(DroughtLayerPanel, { state, pictureReady: true });
+    expect(drawn).toContain('data-testid="drought-legend"');
+    expect(visibleText(drawn)).not.toContain("Drawing the drought layer");
+    expect(drawn).toContain('data-drawn="yes"');
   });
 
   test("the panel says the picture is smoothed and that a campsite's class is read from the data", () => {

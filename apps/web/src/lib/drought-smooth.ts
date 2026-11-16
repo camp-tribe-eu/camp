@@ -307,41 +307,51 @@ export function paintBlurred(
     has[k] = 1;
     table.set(v as ArrayLike<number>, k * 4);
   }
-  // bad[i]: the class changes between pixel i and the one to its right or below.
-  const bad = new Uint8Array(width * height);
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const i = y * width + x;
-      if ((x + 1 < width && picked[i] !== picked[i + 1]) || (y + 1 < height && picked[i] !== picked[i + width])) bad[i] = 1;
-    }
-  }
-  // near[i]: a change within `reach + 1` pixels in x and y. Two window passes.
+  // 🔴 NO FULL-SIZE FLAG ARRAYS. "Is there a class change within `reach + 1`
+  // pixels of this one?" is answered a row at a time: `hor` holds the answer
+  // along x for the 2·win+1 rows around the row being painted (a ring, built
+  // as the rows come), and `nearRow` is their OR. A picture this size is
+  // 6.8 M pixels, and each full-size byte array is 6.8 MB on a phone that is
+  // also holding the 27 MB result.
   const win = reach + 1;
-  const hor = new Uint8Array(width * height);
-  const near = new Uint8Array(width * height);
-  const count = new Int32Array(Math.max(width, height) + 1);
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) count[x + 1] = count[x] + bad[y * width + x];
+  const ring = 2 * win + 1;
+  const hor = Array.from({ length: ring }, () => new Uint8Array(width));
+  const horRow = (r: number): Uint8Array => {
+    const row = hor[r % ring];
+    // bad[x]: the class changes between (x, r) and the pixel to its right or below.
+    const base = r * width;
+    count[0] = 0;
     for (let x = 0; x < width; x++) {
-      const lo = Math.max(0, x - win);
-      const hi = Math.min(width, x + win + 1);
-      hor[y * width + x] = count[hi] - count[lo] > 0 ? 1 : 0;
+      const i = base + x;
+      const bad = (x + 1 < width && picked[i] !== picked[i + 1]) || (r + 1 < height && picked[i] !== picked[i + width]);
+      count[x + 1] = count[x] + (bad ? 1 : 0);
     }
-  }
-  for (let x = 0; x < width; x++) {
-    for (let y = 0; y < height; y++) count[y + 1] = count[y] + hor[y * width + x];
-    for (let y = 0; y < height; y++) {
-      const lo = Math.max(0, y - win);
-      const hi = Math.min(height, y + win + 1);
-      near[y * width + x] = count[hi] - count[lo] > 0 ? 1 : 0;
+    for (let x = 0; x < width; x++) {
+      row[x] = count[Math.min(width, x + win + 1)] - count[Math.max(0, x - win)] > 0 ? 1 : 0;
     }
-  }
+    return row;
+  };
+  const count = new Int32Array(width + 1);
+  const nearRow = new Uint8Array(width);
+  let built = -1; // the last row whose `hor` has been built
   for (let y = 0; y < height; y++) {
+    const lastNeeded = Math.min(height - 1, y + win);
+    while (built < lastNeeded) horRow(++built);
+    nearRow.fill(0);
+    for (let r = Math.max(0, y - win); r <= lastNeeded; r++) {
+      const row = hor[r % ring];
+      for (let x = 0; x < width; x++) nearRow[x] |= row[x];
+    }
     for (let x = 0; x < width; x++) {
       const i = y * width + x;
-      if (!near[i]) {
+      if (!nearRow[x]) {
         const k = picked[i];
-        if (has[k]) out.set(table.subarray(k * 4, k * 4 + 4), i * 4);
+        if (has[k]) {
+          out[i * 4] = table[k * 4];
+          out[i * 4 + 1] = table[k * 4 + 1];
+          out[i * 4 + 2] = table[k * 4 + 2];
+          out[i * 4 + 3] = table[k * 4 + 3];
+        }
         continue;
       }
       let sa = 0;

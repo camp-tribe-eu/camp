@@ -19,6 +19,11 @@ const scope = self as unknown as {
   postMessage: (message: unknown, transfer?: Transferable[]) => void;
 };
 
+// 🔴 Said as soon as this file has loaded and run, before any job: the page
+// uses it to tell "the worker did not start" (give up after a timeout) from
+// "the worker is busy" (wait for it; a live worker is never killed for being slow).
+scope.postMessage({ started: true });
+
 scope.onmessage = (e) => {
   try {
     const { meta, cdi, domain } = e.data;

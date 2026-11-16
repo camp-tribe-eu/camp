@@ -202,22 +202,54 @@ export function readingAt(
   lat: number,
   lon: number,
 ): DroughtReading {
-  const { grid } = state.meta;
-  const outside = { known: false, why: 'This indicator does not cover this location.' } as const;
-  if (!isFiniteNumber(lat) || !isFiniteNumber(lon)) return outside;
-  const col = Math.floor((lon - grid.lon0) / grid.pixel);
-  const row = Math.floor((grid.lat0 - lat) / grid.pixel);
-  if (col < 0 || col >= grid.width || row < 0 || row >= grid.height) return outside;
-  const i = row * grid.width + col;
-  if (i >= state.cdi.length) return outside;
-  // 🔴 Not covered is not the same as covered-and-fine, and this is the
-  // only line that can tell them apart.
-  if (((state.domain[i >> 3] >> (i & 7)) & 1) === 0) return outside;
-  const value = state.cdi[i];
+  const value = lookupValue(state, lat, lon);
+  if (value === OUTSIDE) return { known: false, why: 'This indicator does not cover this location.' };
+  if (value === UNRECOGNISED) return { known: false, why: 'This indicator returned a value we do not recognise.' };
   const cls = state.meta.classes.find((c) => c.value === value);
   if (!cls) return { known: false, why: 'This indicator returned a value we do not recognise.' };
   return { known: true, value, label: cls.label, detail: cls.detail };
 }
+
+const OUTSIDE = -1;
+const UNRECOGNISED = -2;
+
+/**
+ * 🔴 THE ONE PLACE THAT APPLIES THE GRID, THE MASK AND THE CLASS LIST — as a
+ * number, with no object made. `readingAt` is this plus the words; the
+ * picture asks it once per cell (1.1 million times), and an object per call
+ * was 40 MB of garbage on the way to a 27 MB picture. Returns the class value,
+ * or `OUTSIDE` (-1: off the grid, or the mask says the indicator does not look
+ * here) or `UNRECOGNISED` (-2: a value the file describes no class for).
+ */
+function lookupValue(
+  state: Extract<DroughtState, { kind: 'current' }>,
+  lat: number,
+  lon: number,
+): number {
+  const { grid } = state.meta;
+  if (!isFiniteNumber(lat) || !isFiniteNumber(lon)) return OUTSIDE;
+  const col = Math.floor((lon - grid.lon0) / grid.pixel);
+  const row = Math.floor((grid.lat0 - lat) / grid.pixel);
+  if (col < 0 || col >= grid.width || row < 0 || row >= grid.height) return OUTSIDE;
+  const i = row * grid.width + col;
+  if (i >= state.cdi.length) return OUTSIDE;
+  // 🔴 Not covered is not the same as covered-and-fine, and this is the
+  // only line that can tell them apart.
+  if (((state.domain[i >> 3] >> (i & 7)) & 1) === 0) return OUTSIDE;
+  const value = state.cdi[i];
+  for (const c of state.meta.classes) if (c.value === value) return value;
+  return UNRECOGNISED;
+}
+
+/** The class value at a point, or -1 where there is no reading. `readingAt` without the words. */
+export const classValueAt = (
+  state: Extract<DroughtState, { kind: 'current' }>,
+  lat: number,
+  lon: number,
+): number => {
+  const v = lookupValue(state, lat, lon);
+  return v < 0 ? -1 : v;
+};
 
 /**
  * Turn the two committed files into what the page renders.
@@ -584,9 +616,9 @@ export function paintSmoothOverlay(
   for (let r = 0; r < grid.height; r++) {
     const lat = grid.lat0 - (r + 0.5) * grid.pixel;
     for (let c = 0; c < grid.width; c++) {
-      const reading = readingAt(state, lat, west + (c + 0.5) * grid.pixel);
-      if (reading.known && Object.prototype.hasOwnProperty.call(colours, reading.value)) {
-        cls[r * grid.width + c] = reading.value;
+      const value = classValueAt(state, lat, west + (c + 0.5) * grid.pixel);
+      if (value >= 0 && Object.prototype.hasOwnProperty.call(colours, value)) {
+        cls[r * grid.width + c] = value;
       }
     }
   }

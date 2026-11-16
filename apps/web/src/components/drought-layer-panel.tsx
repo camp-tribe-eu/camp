@@ -31,12 +31,26 @@ import { DroughtCredit } from './drought-panel';
 // means — "outside the area the indicator covers" — because "bare" and
 // "no drought" must not be the same thing to the reader.
 
-export function DroughtLayerPanel({ state }: { state: DroughtLayerState }) {
+export function DroughtLayerPanel({
+  state,
+  pictureReady = true,
+}: {
+  state: DroughtLayerState;
+  /**
+   * 🔴 CAMP-530. The picture is painted in a worker, so there is a moment when
+   * the data has arrived and the picture has not. The key to the colours must
+   * not stand beside a map that has no colours yet: until `pictureReady`, the
+   * panel says it is drawing. Defaults to true for the callers (and tests) that
+   * render the panel with no picture to wait for.
+   */
+  pictureReady?: boolean;
+}) {
   return (
     <div
       role="status"
       data-testid="drought-layer-note"
       data-state={state.kind}
+      data-drawn={state.kind === 'current' ? (pictureReady ? 'yes' : 'no') : undefined}
       data-tone={state.kind === 'current' ? 'quiet' : 'gap'}
       className={
         'mt-2 rounded border p-3 text-sm ' +
@@ -71,7 +85,11 @@ export function DroughtLayerPanel({ state }: { state: DroughtLayerState }) {
         </>
       )}
 
-      {state.kind === 'current' && (
+      {state.kind === 'current' && !pictureReady && (
+        <p>Drawing the drought layer…</p>
+      )}
+
+      {state.kind === 'current' && pictureReady && (
         <>
           <p className="font-semibold text-heading">
             Drought, ten-day period beginning{' '}
