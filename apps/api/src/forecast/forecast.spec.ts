@@ -437,7 +437,8 @@ describe('where the forecast code may reach', () => {
         .filter((l) => !/^\s*\/\//.test(l))
         .join('\n');
       expect(
-        `${f}: ${code.match(/[\w.-]*open-meteo\.com[\w./-]*/g) ?? []}`,
+        // Substring search over source tokens, not a URL check (CodeQL js/regex/missing-regexp-anchor).
+        `${f}: ${code.split(/[^\w./-]+/).filter((t) => t.includes('open-meteo.com'))}`,
       ).toBe(`${f}: `);
     }
   });

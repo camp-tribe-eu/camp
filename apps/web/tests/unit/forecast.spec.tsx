@@ -272,8 +272,9 @@ test.describe('the source of the data, in the code a browser runs', () => {
   test('nothing the browser runs names a data host: no amazonaws, no open-meteo API', () => {
     for (const [f, s] of files) {
       const c = code(s);
-      expect(`${f}: ${c.match(/amazonaws\.com/g) ?? []}`).toBe(`${f}: `);
-      expect(`${f}: ${c.match(/(?:api|customer-api|archive-api)\.open-meteo/g) ?? []}`).toBe(`${f}: `);
+      // Substring search over source text, not a URL check (CodeQL js/regex/missing-regexp-anchor).
+      const named = ['amazonaws.com', 'api.open-meteo', 'customer-api.open-meteo', 'archive-api.open-meteo'].filter((h) => c.includes(h));
+      expect(`${f}: ${named}`).toBe(`${f}: `);
     }
   });
 
