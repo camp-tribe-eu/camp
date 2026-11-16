@@ -42,6 +42,7 @@ const PHOTO_CSS = `
 .ct-photo{position:relative;display:block;overflow:hidden;width:100%;aspect-ratio:var(--ct-photo-ratio,21 / 9);border-radius:var(--r,16px);background-color:var(--color-img-placeholder-bg,color-mix(in srgb,var(--color-surface-2) 93%,#000))}
 .ct-photo__image{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;object-position:center}
 .ct-photo__glyph{position:absolute;top:50%;left:50%;width:min(28%,96px);height:auto;transform:translate(-50%,-50%);color:var(--color-ink-2);opacity:.45}
+@media(min-width:768px){.ct-photo--hero{max-height:440px}}
 @media(max-width:767px){.ct-photo--hero{aspect-ratio:16 / 9}}
 `;
 
