@@ -270,3 +270,104 @@ export function smoothRaster(
   }
   return out;
 }
+
+/**
+ * The last blur, on the finished picture: how wide, as weights along one axis.
+ * [1 4 6 4 1] / 16 is a radius of about one pixel of the ×2 grid (σ = 1 px).
+ */
+export const EDGE_BLUR: readonly number[] = [1 / 16, 4 / 16, 6 / 16, 4 / 16, 1 / 16];
+
+/**
+ * CAMP-530 — class codes to RGBA, with the edges between classes blurred.
+ *
+ * 🔴 BLURRED IN PREMULTIPLIED ALPHA, so a class beside bare ground fades to
+ * transparent in its OWN colour and not through grey. A pixel whose whole
+ * neighbourhood is one class (or all bare) is written as that class's exact
+ * colour — mixing happens only in the band at a boundary, `kernel.length`
+ * pixels wide. Done here, in plain arrays, rather than with `ctx.filter`:
+ * Safari's canvas has no `filter`, and a picture that is smooth in two
+ * browsers and blocky in the third is worse than one that is the same in all.
+ * Outside the picture counts as the pixel's own edge value.
+ */
+export function paintBlurred(
+  picked: Uint8Array,
+  width: number,
+  height: number,
+  palette: ReadonlyMap<number, readonly [number, number, number, number]>,
+  kernel: readonly number[] = EDGE_BLUR,
+): Uint8ClampedArray {
+  const reach = (kernel.length - 1) / 2;
+  const out = new Uint8ClampedArray(width * height * 4);
+  // The palette as a flat table by class code: a Map lookup per tap is the
+  // slow part of a 6.8-million-pixel picture.
+  const table = new Uint8Array(256 * 4);
+  const has = new Uint8Array(256);
+  for (const [k, v] of palette) {
+    if (k < 0 || k > 255) continue;
+    has[k] = 1;
+    table.set(v as ArrayLike<number>, k * 4);
+  }
+  // bad[i]: the class changes between pixel i and the one to its right or below.
+  const bad = new Uint8Array(width * height);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = y * width + x;
+      if ((x + 1 < width && picked[i] !== picked[i + 1]) || (y + 1 < height && picked[i] !== picked[i + width])) bad[i] = 1;
+    }
+  }
+  // near[i]: a change within `reach + 1` pixels in x and y. Two window passes.
+  const win = reach + 1;
+  const hor = new Uint8Array(width * height);
+  const near = new Uint8Array(width * height);
+  const count = new Int32Array(Math.max(width, height) + 1);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) count[x + 1] = count[x] + bad[y * width + x];
+    for (let x = 0; x < width; x++) {
+      const lo = Math.max(0, x - win);
+      const hi = Math.min(width, x + win + 1);
+      hor[y * width + x] = count[hi] - count[lo] > 0 ? 1 : 0;
+    }
+  }
+  for (let x = 0; x < width; x++) {
+    for (let y = 0; y < height; y++) count[y + 1] = count[y] + hor[y * width + x];
+    for (let y = 0; y < height; y++) {
+      const lo = Math.max(0, y - win);
+      const hi = Math.min(height, y + win + 1);
+      near[y * width + x] = count[hi] - count[lo] > 0 ? 1 : 0;
+    }
+  }
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = y * width + x;
+      if (!near[i]) {
+        const k = picked[i];
+        if (has[k]) out.set(table.subarray(k * 4, k * 4 + 4), i * 4);
+        continue;
+      }
+      let sa = 0;
+      let sr = 0;
+      let sg = 0;
+      let sb = 0;
+      for (let j = 0; j < kernel.length; j++) {
+        const yy = Math.min(height - 1, Math.max(0, y + j - reach));
+        for (let k = 0; k < kernel.length; k++) {
+          const xx = Math.min(width - 1, Math.max(0, x + k - reach));
+          const q = picked[yy * width + xx];
+          if (!has[q]) continue;
+          const w = kernel[j] * kernel[k] * table[q * 4 + 3];
+          sa += w;
+          sr += w * table[q * 4];
+          sg += w * table[q * 4 + 1];
+          sb += w * table[q * 4 + 2];
+        }
+      }
+      if (sa > 0) {
+        out[i * 4] = sr / sa;
+        out[i * 4 + 1] = sg / sa;
+        out[i * 4 + 2] = sb / sa;
+        out[i * 4 + 3] = sa;
+      }
+    }
+  }
+  return out;
+}

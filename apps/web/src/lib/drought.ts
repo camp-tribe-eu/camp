@@ -1,6 +1,6 @@
 import { CEMS_NOTICE, RESERVED_WORDS } from './cems';
 import { DROUGHT_COLOURS, effectiveOpacity, hexRgb } from './drought-colours';
-import { NONE, SMOOTH_FACTOR, dropLoneCells, smoothRaster } from './drought-smooth';
+import { EDGE_BLUR, NONE, SMOOTH_FACTOR, dropLoneCells, paintBlurred, smoothRaster } from './drought-smooth';
 
 // How each class is drawn lives in `./drought-colours` — a module with no
 // imports, so the palette guard can read it. Re-exported here: this is still
@@ -551,11 +551,11 @@ export function paintOverlay(
  * 🔴 FOR THE EYE AND FOR NOTHING ELSE. What a campsite is told still comes
  * from `readingAt` on the raw arrays; this picture is never read back.
  *
- * 🔴 EVERY PIXEL IS ONE CLASS'S OWN COLOUR OR BARE. The class of a pixel is
- * the winner of a vote (`drought-smooth.ts`), and the colour is looked up
- * from it, so nothing between two classes is ever mixed here. (The GPU's
- * `linear` resampling blends the one-pixel seam when it scales, which is
- * antialiasing and not a colour of the palette.)
+ * 🔴 INSIDE A CLASS THE COLOUR IS THE PALETTE'S, EXACTLY. The class of a pixel
+ * is the winner of a vote (`drought-smooth.ts`) and the colour is looked up
+ * from it; then the finished RGBA picture is blurred (`paintBlurred`, about a
+ * pixel of the ×2 grid), so colours are mixed ONLY in a band at a boundary
+ * between classes or at the edge of coverage.
  *
  * The class of each source cell is asked of `readingAt` at the cell's centre
  * — the mask is applied by the one function that applies it — and a value
@@ -565,6 +565,8 @@ export function paintSmoothOverlay(
   state: Extract<DroughtState, { kind: 'current' }>,
   colours: Readonly<Record<number, { hex: string; alpha: number }>> = DROUGHT_COLOURS,
   factor: number = SMOOTH_FACTOR,
+  /** The edge blur's weights; `[1]` is none, and leaves every pixel one class's own colour. */
+  blur: readonly number[] = EDGE_BLUR,
 ): DroughtOverlay {
   const { grid } = state.meta;
   const north = grid.lat0;
@@ -605,15 +607,7 @@ export function paintSmoothOverlay(
     const [r, g, b] = hexRgb(style.hex);
     rgba.set(Number(value), [r, g, b, style.alpha]);
   }
-  const data = new Uint8ClampedArray(outW * rows * 4);
-  for (let i = 0; i < picked.length; i++) {
-    const style = rgba.get(picked[i]);
-    if (!style) continue;
-    data[i * 4] = style[0];
-    data[i * 4 + 1] = style[1];
-    data[i * 4 + 2] = style[2];
-    data[i * 4 + 3] = style[3];
-  }
+  const data = paintBlurred(picked, outW, rows, rgba, blur);
   return {
     width: outW,
     height: rows,

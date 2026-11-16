@@ -478,22 +478,38 @@ test.describe("paintSmoothOverlay", () => {
       mask.push(1);
     }
   cells[6 * W + 3] = 5;
-  for (const [r, c] of [[3, 15], [3, 16], [4, 15], [4, 16]]) mask[r * W + c] = 0;
+  for (const [r, c] of [3, 4, 5, 6].flatMap((r) => [14, 15, 16, 17].map((c) => [r, c]))) mask[r * W + c] = 0;
   const T2 = { width: W, height: H, lon0: 10, lat0: 53, pixel: 1, cells, mask };
   const px = (o: { data: Uint8ClampedArray; width: number }, r: number, c: number) =>
     Array.from(o.data.slice((r * o.width + c) * 4, (r * o.width + c) * 4 + 4));
   const F = SMOOTH_FACTOR;
 
-  test("🔴 every pixel is a palette colour or bare: nothing between two classes, and the lone cell is gone", () => {
-    // Mutation: in `paintSmoothOverlay` call `dropLoneCells` on nothing (use
-    // `cls` for `tidy`) — the lone 5 is painted and this fails.
+  const PURE = new Set([WANT[1], WANT[3], WANT[5], BARE].map((v) => v.join(",")));
+  const isPure = (v: number[]) => PURE.has(v.join(","));
+
+  test("🔴 inside a class the colour is the palette's, exactly; mixed colours live only in a band at the edge, and the lone cell is gone", () => {
+    // Mutation: in `paintSmoothOverlay` use `cls` for `tidy` (skip
+    // `dropLoneCells`) — a class-5 pixel is drawn in the lone cell and the
+    // `fives` count in the next test fails; THIS test is the blur's: set
+    // `EDGE_BLUR` to [1] — no pixel is mixed, the band is empty and it fails.
     const o = paintSmoothOverlay(tinyState(T2));
-    const seen = new Set<string>();
+    const mixed: Array<[number, number]> = [];
     for (let r = 0; r < o.height; r++)
-      for (let c = 0; c < o.width; c++) seen.add(px(o, r, c).join(","));
-    expect([...seen].sort()).toEqual(
-      [WANT[1], WANT[3], BARE].map((v) => v.join(",")).sort(),
-    );
+      for (let c = 0; c < o.width; c++) if (!isPure(px(o, r, c))) mixed.push([r, c]);
+    expect(mixed.length, "the edges are blurred: some pixels are not a palette colour").toBeGreaterThan(50);
+    // Every mixed pixel has pure pixels of two different kinds within 6 px,
+    // so it IS at an edge; nothing is mixed in the middle of a class.
+    for (const [r, c] of mixed) {
+      const kinds = new Set<string>();
+      for (let dr = -6; dr <= 6; dr++)
+        for (let dc = -6; dc <= 6; dc++) {
+          const rr = r + dr, cc = c + dc;
+          if (rr < 0 || cc < 0 || rr >= o.height || cc >= o.width) continue;
+          const v = px(o, rr, cc);
+          if (isPure(v)) kinds.add(v.join(","));
+        }
+      expect(kinds.size, `pixel (${r},${c}) is mixed with no edge near`).toBeGreaterThanOrEqual(2);
+    }
     expect(o.width).toBe(W * F);
   });
 
@@ -519,7 +535,7 @@ test.describe("paintSmoothOverlay", () => {
           Math.abs(row - a) <= 2 && Math.abs(col - b) <= 2;
         const calm =
           row >= 2 && row <= H - 3 && col >= 2 && col <= W - 3 &&
-          Math.abs(col - 9.5) >= 2.5 && !near(6, 3) && !near(3, 15) && !near(3, 16) && !near(4, 15) && !near(4, 16);
+          Math.abs(col - 9.5) >= 2.5 && !near(6, 3) && !(row >= 1 && row <= 8 && col >= 12);
         if (!calm) continue;
         checked++;
         const want = expectedPixel(T2, o.height, r, col);
@@ -545,8 +561,13 @@ test.describe("paintSmoothOverlay", () => {
     const n = 7;
     const cs: number[] = new Array(n * n).fill(2);
     for (let i = 0; i < 9; i++) cs[(2 + Math.floor(i / 3)) * n + 2 + (i % 3)] = ring[i];
+    // Without the edge blur (`[1]`), so a pixel is a class's own colour and
+    // "a class-5 pixel" means exactly that.
     const o = paintSmoothOverlay(
       tinyState({ width: n, height: n, lon0: 10, lat0: 50, pixel: 1, cells: cs, mask: cs.map(() => 1) }),
+      undefined,
+      undefined,
+      [1],
     );
     let fives = 0;
     for (let r = 0; r < o.height; r++)
@@ -576,11 +597,16 @@ test.describe("paintSmoothOverlay", () => {
       ((yTop - mercY(T2.lat0 - 6)) / (yTop - yBottom)) * horizontal.height;
     const firstRow = Math.ceil(edge - 0.5);
     const col = 4 * F;
-    expect(px(horizontal, firstRow - 1, col)).toEqual(WANT[3]);
-    expect(px(horizontal, firstRow, col)).toEqual(WANT[1]);
+    // The edge is blurred, so the two pixels beside it are mixed; the one on
+    // the class-3 side is nearer class 3's red, the other nearer class 1's.
+    const near3 = (v: number[]) => Math.abs(v[0] - WANT[3][0]) < Math.abs(v[0] - WANT[1][0]);
+    expect(near3(px(horizontal, firstRow - 1, col))).toBe(true);
+    expect(near3(px(horizontal, firstRow, col))).toBe(false);
+    expect(px(horizontal, firstRow - 4, col)).toEqual(WANT[3]);
+    expect(px(horizontal, firstRow + 3, col)).toEqual(WANT[1]);
     const vertical = bands(false);
-    expect(px(vertical, 5 * F, 10 * F - 1)).toEqual(WANT[3]);
-    expect(px(vertical, 5 * F, 10 * F)).toEqual(WANT[1]);
+    expect(near3(px(vertical, 5 * F, 10 * F - 1))).toBe(true);
+    expect(near3(px(vertical, 5 * F, 10 * F))).toBe(false);
   });
 
   test("the masked patch is bare at its middle, and the lone cell's class is still what the data says", () => {
@@ -593,12 +619,12 @@ test.describe("paintSmoothOverlay", () => {
     const lat = T2.lat0 - 6.5;
     const lone = readingAt(state, lat, T2.lon0 + 3.5);
     expect(lone.known && lone.value).toBe(5);
-    const patch = readingAt(state, T2.lat0 - 3.9, T2.lon0 + 15.9);
+    const patch = readingAt(state, T2.lat0 - 4.9, T2.lon0 + 15.9);
     expect(patch.known).toBe(false);
-    // Middle of the 2 × 2 masked patch (rows 3-4, cols 15-16) in output pixels:
+    // Middle of the 2 × 2 masked patch (rows 3-6, cols 14-17) in output pixels:
     const yTop = mercY(T2.lat0);
     const yBottom = mercY(T2.lat0 - T2.height * T2.pixel);
-    const r = Math.round(((yTop - mercY(T2.lat0 - 4)) / (yTop - yBottom)) * o.height);
+    const r = Math.round(((yTop - mercY(T2.lat0 - 5)) / (yTop - yBottom)) * o.height);
     expect(px(o, r, 16 * F)).toEqual(BARE);
   });
 
@@ -611,12 +637,9 @@ test.describe("paintSmoothOverlay", () => {
     };
     const o = paintSmoothOverlay(tinyState(T2), swapped, 3);
     expect(o.width).toBe(W * 3);
-    const seen = new Set<string>();
-    for (let r = 0; r < o.height; r++)
-      for (let c = 0; c < o.width; c++) seen.add(px(o, r, c).join(","));
-    expect([...seen].sort()).toEqual(
-      ["17,34,51,200", "68,85,102,255", "0,0,0,0"].sort(),
-    );
+    // Pure pixels, away from every edge, carry the swapped table's colours.
+    expect(px(o, 6 * 3, 2 * 3)).toEqual([17, 34, 51, 200]);
+    expect(px(o, 10 * 3, 17 * 3)).toEqual([68, 85, 102, 255]);
   });
 
   test("the shipped grid: the picture holds the seven classes' colours and bare, and nothing else", () => {
@@ -631,15 +654,38 @@ test.describe("paintSmoothOverlay", () => {
     const o = paintSmoothOverlay(s);
     expect(o.width).toBe(1280 * F);
     expect(o.coordinates[0]).toEqual([-18.5, 71.5]);
-    const seen = new Set<number>();
-    const u = new Uint32Array(o.data.buffer, o.data.byteOffset, o.data.length / 4);
-    for (const v of u) seen.add(v);
-    const want = new Set<number>([0]);
+    // 🔴 Replaces "eight colours": the picture is blurred at its edges, so
+    // the colours are the seven classes' and bare INSIDE, and mixed only in a
+    // band. Every pixel is a palette colour (or bare) or sits within 6 px of
+    // a pixel of a different colour; and the band is a minority.
+    const wantSet = new Set<number>([0]);
     for (const k of present) {
       const [r, g, b, a] = WANT[k];
-      want.add(new Uint32Array(Uint8Array.of(r, g, b, a).buffer)[0]);
+      wantSet.add(new Uint32Array(Uint8Array.of(r, g, b, a).buffer)[0]);
     }
-    expect([...seen].sort()).toEqual([...want].sort());
+    const u = new Uint32Array(o.data.buffer, o.data.byteOffset, o.data.length / 4);
+    let mixed = 0;
+    let stray = 0;
+    for (let y = 0; y < o.height; y++)
+      for (let x = 0; x < o.width; x++) {
+        const v = u[y * o.width + x];
+        if (wantSet.has(v)) continue;
+        mixed++;
+        let edge = false;
+        for (let dy = -6; dy <= 6 && !edge; dy++)
+          for (let dx = -6; dx <= 6; dx++) {
+            const yy = y + dy, xx = x + dx;
+            if (yy < 0 || xx < 0 || yy >= o.height || xx >= o.width) continue;
+            const q = u[yy * o.width + xx];
+            if (wantSet.has(q) && q !== v) { edge = true; break; }
+          }
+        if (!edge) stray++;
+      }
+    // Only the middle of a feature narrower than the band (a one-cell strip)
+    // can have no pure pixel near it; that is a fraction of a percent.
+    expect(stray / mixed, "mixed pixels with no pure pixel within 6 px").toBeLessThan(0.005);
+    expect(mixed, "there is a blurred band").toBeGreaterThan(10_000);
+    expect(mixed / u.length, "the band is a minority of the picture").toBeLessThan(0.15);
   });
 
   test("the panel says the picture is smoothed and that a campsite's class is read from the data", () => {
