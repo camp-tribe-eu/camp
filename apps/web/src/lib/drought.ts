@@ -1,5 +1,6 @@
 import { CEMS_NOTICE, RESERVED_WORDS } from './cems';
 import { DROUGHT_COLOURS, effectiveOpacity, hexRgb } from './drought-colours';
+import { NONE, SMOOTH_FACTOR, dropLoneCells, smoothRaster } from './drought-smooth';
 
 // How each class is drawn lives in `./drought-colours` — a module with no
 // imports, so the palette guard can read it. Re-exported here: this is still
@@ -486,6 +487,11 @@ export interface DroughtOverlay {
  *
  * Nearest-neighbour on purpose: a 4.6 km cell is drawn as the block it is.
  * Smoothing it would invent a gradient Copernicus did not publish.
+ *
+ * 🔴 CAMP-530: this is the FAITHFUL picture — one block per cell — and it is
+ * no longer what the map shows. The map lays on `paintSmoothOverlay` below,
+ * which picks a class per pixel and never mixes. This one stays as the
+ * unsmoothed reference the tests measure against.
  */
 export function paintOverlay(
   state: Extract<DroughtState, { kind: 'current' }>,
@@ -528,6 +534,89 @@ export function paintOverlay(
   return {
     width: grid.width,
     height,
+    data,
+    coordinates: [
+      [west, north],
+      [east, north],
+      [east, south],
+      [west, south],
+    ],
+  };
+}
+
+/**
+ * CAMP-530 — the same picture, smoothed for showing: no lone cells, curved
+ * boundaries, `factor` output pixels per source cell on each axis.
+ *
+ * 🔴 FOR THE EYE AND FOR NOTHING ELSE. What a campsite is told still comes
+ * from `readingAt` on the raw arrays; this picture is never read back.
+ *
+ * 🔴 EVERY PIXEL IS ONE CLASS'S OWN COLOUR OR BARE. The class of a pixel is
+ * the winner of a vote (`drought-smooth.ts`), and the colour is looked up
+ * from it, so nothing between two classes is ever mixed here. (The GPU's
+ * `linear` resampling blends the one-pixel seam when it scales, which is
+ * antialiasing and not a colour of the palette.)
+ *
+ * The class of each source cell is asked of `readingAt` at the cell's centre
+ * — the mask is applied by the one function that applies it — and a value
+ * with no colour is bare, as in `paintOverlay`.
+ */
+export function paintSmoothOverlay(
+  state: Extract<DroughtState, { kind: 'current' }>,
+  colours: Readonly<Record<number, { hex: string; alpha: number }>> = DROUGHT_COLOURS,
+  factor: number = SMOOTH_FACTOR,
+): DroughtOverlay {
+  const { grid } = state.meta;
+  const north = grid.lat0;
+  const south = grid.lat0 - grid.height * grid.pixel;
+  const west = grid.lon0;
+  const east = grid.lon0 + grid.width * grid.pixel;
+  const yTop = mercatorY(north);
+  const yBottom = mercatorY(south);
+  const smallestCell =
+    (grid.pixel * Math.PI) / 180 / Math.cos((Math.min(Math.abs(south), Math.abs(north)) * Math.PI) / 180);
+  const rows = Math.max(1, Math.ceil((yTop - yBottom) / smallestCell)) * factor;
+  const outW = grid.width * factor;
+
+  const cls = new Uint8Array(grid.width * grid.height).fill(NONE);
+  for (let r = 0; r < grid.height; r++) {
+    const lat = grid.lat0 - (r + 0.5) * grid.pixel;
+    for (let c = 0; c < grid.width; c++) {
+      const reading = readingAt(state, lat, west + (c + 0.5) * grid.pixel);
+      if (reading.known && Object.prototype.hasOwnProperty.call(colours, reading.value)) {
+        cls[r * grid.width + c] = reading.value;
+      }
+    }
+  }
+  const { cls: tidy } = dropLoneCells(cls, grid.width, grid.height);
+
+  // Each output row's centre is one latitude in mercator space (see
+  // `paintOverlay`); its place in source-row units has a cell's centre at
+  // the integer.
+  const srcRow = new Float64Array(rows);
+  for (let R = 0; R < rows; R++) {
+    const lat = latOfMercatorY(yTop - ((R + 0.5) * (yTop - yBottom)) / rows);
+    srcRow[R] = (north - lat) / grid.pixel - 0.5;
+  }
+  const picked = smoothRaster(tidy, grid.width, grid.height, factor, srcRow);
+
+  const rgba = new Map<number, [number, number, number, number]>();
+  for (const [value, style] of Object.entries(colours)) {
+    const [r, g, b] = hexRgb(style.hex);
+    rgba.set(Number(value), [r, g, b, style.alpha]);
+  }
+  const data = new Uint8ClampedArray(outW * rows * 4);
+  for (let i = 0; i < picked.length; i++) {
+    const style = rgba.get(picked[i]);
+    if (!style) continue;
+    data[i * 4] = style[0];
+    data[i * 4 + 1] = style[1];
+    data[i * 4 + 2] = style[2];
+    data[i * 4 + 3] = style[3];
+  }
+  return {
+    width: outW,
+    height: rows,
     data,
     coordinates: [
       [west, north],

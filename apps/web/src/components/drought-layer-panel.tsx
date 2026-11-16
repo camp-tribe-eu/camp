@@ -112,6 +112,15 @@ export function DroughtLayerPanel({ state }: { state: DroughtLayerState }) {
               not coloured: outside the area the indicator covers
             </li>
           </ul>
+          {/* 🔴 CAMP-530. The picture is smoothed (lone squares absorbed,
+              edges between classes rounded); the class a campsite shows is
+              read from the Copernicus data under its own point, never from
+              the picture. Said where the key is, because a reader looking at
+              a rounded edge would otherwise take it for the source's own. */}
+          <p className="mt-2" data-testid="drought-smoothing-note">
+            The colours are smoothed for display. The class shown for a campsite
+            is read from the Copernicus data at its own location.
+          </p>
           <DroughtCredit meta={state.meta} />
         </>
       )}

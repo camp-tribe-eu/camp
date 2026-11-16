@@ -86,7 +86,7 @@ import {
 import {
   DROUGHT_RASTER_OPACITY,
   DROUGHT_URL,
-  paintOverlay,
+  paintSmoothOverlay,
   readDroughtPayload,
   type DroughtLayerState,
   type DroughtOverlay,
@@ -365,6 +365,10 @@ interface DroughtImage {
 /**
  * CAMP-200: paint the grid onto a canvas and hand MapLibre the canvas.
  *
+ * 🔴 CAMP-530: the picture is `paintSmoothOverlay`'s — smoothed for the eye.
+ * Nothing reads it back: a campsite's class comes from `readingAt` on the
+ * raw arrays (the page and the popup), never from these pixels.
+ *
  * 🔴 Built from the SAME state the campsite page's panel reads — every
  * pixel is asked of `readingAt`, the function that applies the coverage
  * mask — and once per arrival of the data, not once per switch.
@@ -381,7 +385,7 @@ interface DroughtImage {
 function buildDroughtImage(
   state: Extract<DroughtState, { kind: "current" }>,
 ): DroughtImage | null {
-  const overlay = paintOverlay(state);
+  const overlay = paintSmoothOverlay(state);
   const canvas = document.createElement("canvas");
   canvas.width = overlay.width;
   canvas.height = overlay.height;
@@ -442,6 +446,11 @@ function attachDrought(
           // красиво і плавно». `linear` інтерполює між центрами клітинок;
           // у самому центрі колір той самий, що в легенді, тож контракт
           // палітри (check-map-palette.mjs) стоїть на центрах, а не на краях.
+          // 🔴 CAMP-530: `linear` ЛИШАЄТЬСЯ, але тепер він робить інше. Межі
+          // класів згладжено в самій картинці (`paintSmoothOverlay`: ×2, кожен
+          // піксель одного класу), тож GPU розмиває лише шов в один піксель —
+          // антиаліасинг, а не сходинки клітинок. Піксельні тести CAMP-319 і
+          // «у правильному місці» проходять без зміни допусків.
           "raster-resampling": "linear",
           "raster-fade-duration": 0,
         },
