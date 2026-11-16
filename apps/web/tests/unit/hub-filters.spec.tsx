@@ -294,10 +294,10 @@ test('chips carry the API\'s counts and link to the toggled state', async () => 
 test('sort is a dropdown of plain links in the toolbar, the current one not a link', async () => {
   const html = await render({ types: 'free', sort: 'facilities' });
   const hrefs = hrefsIn(html);
-  // CAMP-452: the options live in a `<details>` in the sticky toolbar —
-  // opened without a script, like the FAQ — and the trigger names the
-  // current order.
-  const trigger = /<summary class="ct-sort__trigger"[^>]*>([\s\S]*?)<\/summary>/.exec(html)?.[1] ?? '';
+  // CAMP-452: the options live in a `<details>` — opened without a
+  // script, like the FAQ — and the trigger names the current order.
+  // CAMP-441: the details now sit in the bottom panel, not a sticky bar.
+  const trigger = /<summary class="ct-sort__trigger[^"]*"[^>]*>([\s\S]*?)<\/summary>/.exec(html)?.[1] ?? '';
   expect(visibleText(trigger)).toBe('Sort by Most recorded facilities');
   const options = sortOptions(html);
   expect(hrefsIn(options)).toEqual([
@@ -457,16 +457,19 @@ test('🔴 one query, two consumers: the cards AND the map legend follow the sam
   // "Loading the map of Testland." here while the cards stay filtered.
 });
 
-test('🔴 the toolbar is sticky, in the served CSS, and stands between the map and the cards', async () => {
+test('🔴 the panel is fixed at the BOTTOM, in the served CSS; the status row stands between the map and the cards', async () => {
   const html = await render({ types: 'paid' });
   const css = servedCss(html);
-  expect(css, 'the toolbar stylesheet is not in the served HTML').toContain('.ct-toolbar{');
-  const rule = /\.ct-toolbar\{([^}]*)\}/.exec(css)?.[1] ?? '';
-  expect(rule).toContain('position:sticky');
-  // The theme's offset for a sticky block under the sticky header:
-  // `top:calc(var(--header-height-sticky) + 24px)`; our header writes its
-  // own height into `--ct-header-h` (site-header-frame.tsx), 63px without JS.
-  expect(rule).toContain('top:calc(var(--ct-header-h,63px) + 24px)');
+  expect(css, 'the panel stylesheet is not in the served HTML').toContain('.ct-panel{');
+  const rule = /\.ct-panel\{([^}]*)\}/.exec(css)?.[1] ?? '';
+  // CAMP-441: the theme's collection panel — fixed, 4px from the bottom,
+  // above the cookie banner (`--consent-h`), never at the top where the
+  // header island (CAMP-448) could cover it.
+  expect(rule).toContain('position:fixed');
+  expect(rule).toMatch(/bottom:calc\(var\(--consent-h,0px\) \+ 4px\)/);
+  expect(rule).not.toMatch(/(^|;)top:/);
+  // The status row is in the flow: not sticky any more.
+  expect(/\.ct-toolbar\{([^}]*)\}/.exec(css)?.[1] ?? '').not.toContain('sticky');
 
   // Order in the document: map legend → toolbar → filter panel → cards.
   const main = html.slice(html.indexOf('<main'));
@@ -476,7 +479,7 @@ test('🔴 the toolbar is sticky, in the served CSS, and stands between the map 
     return i;
   };
   const legend = at('data-testid="region-map-legend"');
-  const toolbar = at('data-testid="region-toolbar"');
+  const toolbar = at('data-testid="region-status"');
   const panel = at('aria-label="Filter campsites"');
   const cards = at('<ul class="ct-cards');
   expect(legend).toBeLessThan(toolbar);
@@ -526,7 +529,8 @@ test('🔴 every chip is drawn as a checkbox BEFORE the click: a 24px box, and t
 
 test('active filters are pills in the toolbar, each a link to the state without it', async () => {
   const html = await render({ types: 'paid', amenities: 'shower' });
-  const bar = /<nav aria-label="Sort and current filters"[\s\S]*?<\/nav>/.exec(html)?.[0] ?? '';
+  const bar = /<nav aria-label="Current filters"[\s\S]*?<\/nav>/.exec(html)?.[0] ?? '';
+  const panel = /<nav aria-label="Filter, sort and view"[\s\S]*?<\/nav>/.exec(html)?.[0] ?? '';
   const pills = [...bar.matchAll(/<a\b[^>]*class="ct-pill[^"]*"[^>]*>([\s\S]*?)<\/a>/g)].map((m) => ({
     href: decodeEntities(/\bhref="([^"]+)"/.exec(m[0])?.[1] ?? ''),
     rel: /\brel="([^"]+)"/.exec(m[0])?.[1],
@@ -536,9 +540,9 @@ test('active filters are pills in the toolbar, each a link to the state without 
     { href: `${BASE}/filter?amenities=shower`, rel: 'nofollow', text: 'Paid' },
     { href: `${BASE}/filter?types=paid`, rel: 'nofollow', text: 'Showers' },
   ]);
-  expect(visibleText(bar)).toContain('Filters (2)');
+  expect(visibleText(panel)).toContain('Filters (2)');
   // And the plain hub has no pills and no count.
-  const plain = /<nav aria-label="Sort and current filters"[\s\S]*?<\/nav>/.exec(await render({}))?.[0] ?? '';
+  const plain = /<nav aria-label="Current filters"[\s\S]*?<\/nav>/.exec(await render({}))?.[0] ?? '';
   expect(plain).not.toContain('ct-pill');
   expect(visibleText(plain)).toContain('Every site in the region');
 });

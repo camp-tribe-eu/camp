@@ -434,7 +434,14 @@ export async function listRegion(
   const limitAt = 2 + where.params.length + order.params.length;
   const items = (await db.query(
     `SELECT s.slug, ${mergedNameSql('s')} AS name,
-            s.country, s.region, s.type, s.amenities
+            s.country, s.region, s.type, s.amenities,
+            -- CAMP-441: the card's picture is drawn from these. The outline
+            -- is cut to 5 decimals (about a metre) — a card thumbnail is
+            -- 160 units wide and the full 15 digits would be 3x the bytes
+            -- for nothing a reader can see. NULL where OSM holds a point.
+            ST_Y(s.location::geometry) AS lat,
+            ST_X(s.location::geometry) AS lon,
+            ST_AsGeoJSON(s.outline, 5) AS outline
        FROM camping_spots s
       WHERE ${REGION_WHERE}
         AND ${where.expr}
@@ -448,18 +455,69 @@ export async function listRegion(
       perPage,
       (page - 1) * perPage,
     ],
-  )) as SpotCard[];
+  )) as Record<string, unknown>[];
 
   return {
     region,
     total,
     matched,
     unknownExcluded,
-    items,
+    items: items.map(toListingCard),
     facets: { types, amenities, styles },
     dropOne,
     sort,
   };
+}
+
+/**
+ * A row of the listing query → the card the page gets.
+ *
+ * 🔴 `lat`/`lon` are numbers or absent, never NaN; `outline` is a parsed
+ * Polygon/MultiPolygon or `null`. A row whose outline is not GeoJSON is a
+ * card without an outline — one bad geometry costs one thumbnail, not the
+ * page (the page falls back to the region's cloud of points).
+ */
+export function toListingCard(row: Record<string, unknown>): SpotCard {
+  const lat = Number(row.lat);
+  const lon = Number(row.lon);
+  const card: SpotCard = {
+    slug: row.slug as string,
+    name: (row.name as string | null) ?? null,
+    country: row.country as string,
+    region: (row.region as string | null) ?? null,
+    type: row.type as string,
+    amenities: row.amenities as SpotCard['amenities'],
+    outline: parseOutline(row.outline),
+  };
+  if (
+    row.lat != null &&
+    row.lon != null &&
+    Number.isFinite(lat) &&
+    Number.isFinite(lon)
+  ) {
+    card.lat = lat;
+    card.lon = lon;
+  }
+  return card;
+}
+
+function parseOutline(value: unknown): SpotCard['outline'] {
+  if (typeof value !== 'string' || value === '') return null;
+  try {
+    const g: unknown = JSON.parse(value);
+    if (
+      typeof g === 'object' &&
+      g !== null &&
+      ((g as { type?: unknown }).type === 'Polygon' ||
+        (g as { type?: unknown }).type === 'MultiPolygon') &&
+      Array.isArray((g as { coordinates?: unknown }).coordinates)
+    ) {
+      return g as SpotCard['outline'];
+    }
+  } catch {
+    /* not GeoJSON: no outline */
+  }
+  return null;
 }
 
 export { NO_FILTERS };

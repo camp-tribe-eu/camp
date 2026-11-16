@@ -24,9 +24,17 @@ import {
   type StyleLabels,
 } from '@/lib/hub-filters';
 import type { StyleChip } from '@/lib/travel-styles';
-import { ButtonLink } from '@/components/button';
+import { BackToTop, DensityPicker, ListingPanel, PanelLink } from '@/components/listing-panel';
 
 /**
+ * 🔴 CAMP-441 (16.11.2026): ЦЕЙ ОПИС НИЖЧЕ — ІСТОРІЯ CAMP-452, І В ОДНОМУ
+ * ПУНКТІ ВІН ЗАСТАРІВ. Смуга більше НЕ липка вгорі: сортування, «Filters»,
+ * густина сітки й «вгору» живуть у нижній панелі теми (listing-panel.tsx,
+ * власник: 441/50–53), а в потоці над картками лишились лише активні
+ * фільтри-пігулки й лічильник. Причина — звірка 15.11: острів шапки
+ * накривав липку смугу вгорі; внизу екрана шапка її накрити не може.
+ * Чекбокс-чіпи, посилання `<a href>` і «нічого без скрипту» не змінились.
+ *
  * Керування переліком кемпінгів регіону — CAMP-452.
  *
  * Власник про власну ж пропозицію: «якщо ми зліва тут обираємо, то не
@@ -145,28 +153,16 @@ import { ButtonLink } from '@/components/button';
 
 // Не експортується навмисно: тест має читати відданий HTML, а не цю константу.
 const TOOLBAR_CSS = `
-.ct-toolbar{position:sticky;top:calc(var(--ct-header-h,63px) + 24px);z-index:var(--layer-sticky-btn,7);margin-top:24px}
-.ct-toolbar__row{position:relative;display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;padding:8px}
-.ct-toolbar__row::before{content:"";position:absolute;inset:0;z-index:-1;border-radius:12px;border:1px solid var(--color-line-2);background-color:color-mix(in srgb,var(--color-surface) var(--glass-tint,90%),transparent);backdrop-filter:blur(8px) saturate(180%)}
-@supports not (backdrop-filter:blur(1px)){.ct-toolbar__row::before{background-color:var(--color-surface)}}
+.ct-toolbar{margin-top:24px}
+.ct-toolbar__row{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;padding:8px 12px;border:1px solid var(--color-line-2);border-radius:12px;background-color:var(--color-surface-2)}
 .ct-toolbar__controls{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.ct-toolbar__controls:empty{display:none}
 .ct-toolbar__count{margin:0;font-size:.875rem;line-height:1.5;color:var(--color-ink-2)}
 .ct-toolbar__count a{color:var(--color-line-blue);text-decoration:underline}
-.ct-sort{position:relative}
-.ct-sort__trigger{display:flex;gap:12px;justify-content:space-between;align-items:center;min-width:108px;min-height:48px;padding:0 8px;cursor:pointer;list-style:none;line-height:1.5;font-weight:600;color:var(--color-heading)}
-.ct-sort__trigger::-webkit-details-marker{display:none}
-.ct-sort__trigger::marker{content:""}
-.ct-sort__trigger:focus-visible{outline:2px solid var(--color-heading);outline-offset:2px;border-radius:12px}
-.ct-sort__label{display:flex;align-items:center;gap:8px;line-height:1.12;font-weight:400;opacity:.6}
-.ct-sort__icon{min-width:20px;width:20px;height:20px;transition:transform .4s}
-.ct-sort[open] .ct-sort__icon{transform:rotate(180deg)}
-.ct-sort__options{position:absolute;z-index:2;top:calc(100% + 2px);left:0;min-width:240px;display:flex;flex-direction:column;gap:4px;padding:8px;background-color:var(--color-surface);color:var(--color-heading);border:1px solid var(--color-line-2);border-radius:var(--r,16px);box-shadow:0 4px 20px 0 rgba(0,0,0,.08)}
-.ct-sort__option{display:block;padding:12px 16px;border-radius:calc(var(--r,16px) / 2);font-weight:600;line-height:1.18;text-decoration:none;color:inherit;word-break:break-word}
-.ct-sort__option[aria-current="true"]{background-color:var(--color-accent-surface)}
 .ct-toolbar__selected{display:flex;flex-wrap:wrap;gap:14px 8px}
 .ct-pill{position:relative;display:flex;justify-content:center;align-items:center;padding:8px 12px;background-color:var(--color-surface-2);font-size:.875rem;font-weight:500;line-height:1.28;text-decoration:none;color:var(--color-heading);border:1px solid transparent;border-radius:50px;word-break:break-word;transition:border-color .4s,box-shadow .4s}
 .ct-pill svg{min-width:12px;width:12px;height:12px;margin-inline-start:8px}
-.ct-filters{margin-top:12px;scroll-margin-top:calc(var(--ct-header-h,63px) + 24px + 64px + 12px);padding:16px;border:1px solid var(--color-line-2);border-radius:var(--r,16px);background-color:var(--color-surface-2)}
+.ct-filters{margin-top:12px;scroll-margin-top:calc(var(--ct-header-h,63px) + 24px);padding:16px;border:1px solid var(--color-line-2);border-radius:var(--r,16px);background-color:var(--color-surface-2)}
 .ct-filters__group + .ct-filters__group{margin-top:16px}
 .ct-filters__label{display:flex;align-items:center;gap:12px;margin:0 0 8px;font-size:.875rem;font-weight:500;line-height:1.333;color:var(--color-ink-2)}
 .ct-chips{display:flex;flex-wrap:wrap;gap:8px}
@@ -193,8 +189,16 @@ function ToolbarStyle() {
 }
 
 /**
- * Липка смуга над картками: «Filters» → панель, сортування, активні
- * фільтри з хрестиком, лічильник збігів із «clear filters».
+ * CAMP-441: що було однією липкою смугою над картками, тепер дві частини.
+ *
+ *   «стан» — у потоці, над картками: активні фільтри-пігулки й лічильник
+ *            збігів із «clear filters». Не липне: нічого липкого вгорі
+ *            немає, тож острів шапки (CAMP-448) нічого не накриває;
+ *   панель — тема тримає «Filters / Sort by / сітка / вгору» внизу екрана
+ *            (listing-panel.tsx), і власник просив саме так (441/50–53).
+ *
+ * Сортування й фільтри ті самі, що були: посилання з `lib/hub-filters.ts`,
+ * `<details>` без скрипту. Змінилось лише місце, де вони стоять.
  */
 export function RegionToolbar({
   base,
@@ -216,56 +220,11 @@ export function RegionToolbar({
   const filtering = isFiltering(q);
 
   return (
-    <nav aria-label="Sort and current filters" className="ct-toolbar" data-testid="region-toolbar">
+    <>
+    <nav aria-label="Current filters" className="ct-toolbar" data-testid="region-status">
       <ToolbarStyle />
       <div className="ct-toolbar__row">
         <div className="ct-toolbar__controls">
-          {/* Кнопка теми «Filters (N)» — тут посилання на панель значень. */}
-          <ButtonLink href="#filters" variant="primary" size="sm">
-            Filters{active.length > 0 && ` (${active.length})`}
-          </ButtonLink>
-
-          <details className="ct-sort">
-            <summary className="ct-sort__trigger" data-testid="region-sort">
-              <span className="ct-sort__label">Sort by</span>{' '}
-              <b>{SORT_LABEL[q.sort]}</b>
-              <svg
-                className="ct-sort__icon"
-                viewBox="0 0 20 20"
-                fill="none"
-                aria-hidden="true"
-                focusable="false"
-              >
-                <path d="M4 7.5l6 6 6-6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </summary>
-            <div className="ct-sort__options" data-testid="region-sort-options">
-              {/* A space between options: the flex column ignores it,
-                  a text reading (and a screen reader) gets a word break. */}
-              {REGION_SORTS.map((s, i) => (
-                <span key={s} className="contents">
-                  {i > 0 && ' '}
-                  {s === q.sort ? (
-                    <b aria-current="true" className="ct-sort__option">
-                      {SORT_LABEL[s]}
-                    </b>
-                  ) : (
-                    <Link
-                      href={hubHref(base, withSort(q, s))}
-                      // relFor, not a bare "nofollow": with only a sort set,
-                      // "Name" IS the static region page — and the one link
-                      // back to it from here that a crawler may follow.
-                      rel={relFor(hubHref(base, withSort(q, s)))}
-                      className="ct-sort__option"
-                    >
-                      {SORT_LABEL[s]}
-                    </Link>
-                  )}
-                </span>
-              ))}
-            </div>
-          </details>
-
           {active.length > 0 && (
             <div className="ct-toolbar__selected" aria-label="Applied filters">
               {active.map((f) => {
@@ -330,6 +289,61 @@ export function RegionToolbar({
         )}
       </div>
     </nav>
+    <ListingPanel label="Filter, sort and view" testId="region-toolbar">
+      {/* Кнопка теми «Filters (N)» — тут посилання на панель значень. */}
+      <PanelLink href="#filters">
+        Filters{active.length > 0 && ` (${active.length})`}
+      </PanelLink>
+
+      <details className="ct-sort">
+        <summary className="ct-sort__trigger touch-target" data-testid="region-sort">
+          <svg className="ct-sort__sorticon" viewBox="0 0 20 20" fill="none" aria-hidden="true" focusable="false">
+            <path d="M6 4v12M6 16l-2.5-2.5M6 16l2.5-2.5M14 16V4M14 4l-2.5 2.5M14 4l2.5 2.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span className="ct-sort__text">
+            <span className="ct-sort__label">Sort by</span> <b>{SORT_LABEL[q.sort]}</b>
+          </span>
+          <svg
+            className="ct-sort__icon"
+            viewBox="0 0 20 20"
+            fill="none"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <path d="M4 7.5l6 6 6-6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </summary>
+        <div className="ct-sort__options" data-testid="region-sort-options">
+          {/* A space between options: the flex column ignores it,
+              a text reading (and a screen reader) gets a word break. */}
+          {REGION_SORTS.map((s, i) => (
+            <span key={s} className="contents">
+              {i > 0 && ' '}
+              {s === q.sort ? (
+                <b aria-current="true" className="ct-sort__option">
+                  {SORT_LABEL[s]}
+                </b>
+              ) : (
+                <Link
+                  href={hubHref(base, withSort(q, s))}
+                  // relFor, not a bare "nofollow": with only a sort set,
+                  // "Name" IS the static region page — and the one link
+                  // back to it from here that a crawler may follow.
+                  rel={relFor(hubHref(base, withSort(q, s)))}
+                  className="ct-sort__option"
+                >
+                  {SORT_LABEL[s]}
+                </Link>
+              )}
+            </span>
+          ))}
+        </div>
+      </details>
+
+      <DensityPicker />
+      <BackToTop />
+    </ListingPanel>
+    </>
   );
 }
 
@@ -419,6 +433,14 @@ export function RegionFilterPanel({
           {q.styles.length > 0 && <p className="ct-filters__note">{styles.mapNote}</p>}
         </div>
       )}
+      {/* CAMP-441 (50): the owner asked for a note that the data can differ
+          from the place. It is also where a card's missing facilities are
+          explained once, instead of on every card. */}
+      <p className="ct-filters__note" data-testid="filters-data-note">
+        Facilities come from OpenStreetMap contributors. A facility that is
+        not listed on a card is not recorded, which is not the same as not
+        there — what you find on site can differ.
+      </p>
     </nav>
   );
 }
