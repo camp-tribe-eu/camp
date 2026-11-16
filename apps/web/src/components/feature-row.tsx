@@ -77,6 +77,7 @@ const FEATURE_CSS = `
 @media(hover:hover),(pointer:fine){.ct-feat__link:hover .ct-feat__title{text-decoration:underline}}
 @media(min-width:768px){
 .ct-feat{flex-direction:row;gap:12px}
+.ct-feat--stack{flex-direction:column}
 .ct-feat__item{flex:1 1 0;padding:32px;justify-content:center}
 .ct-feat__item--link{padding:0}
 .ct-feat__link{padding:32px;justify-content:center}
@@ -90,6 +91,7 @@ export default function FeatureRow({
   ordered = false,
   titleAs: TitleTag = 'span',
   iconSide = 'top',
+  stacked = false,
 }: {
   items: readonly FeatureItem[];
   testId?: string;
@@ -111,10 +113,17 @@ export default function FeatureRow({
    * названий, а не виведений із даних — щоб забути було важче.
    */
   iconSide?: 'top' | 'left';
+  /**
+   * 🔴 Картки одна під одною на ВСІХ ширинах (CAMP-464). Рядок від 768px
+   * — це розкладка секції на всю ширину; у вузькій колонці поруч із
+   * формою чи карткою три картки в рядок стиснулись би до слів по три
+   * літери.
+   */
+  stacked?: boolean;
 }) {
   if (items.length === 0) return null;
   const List = ordered ? 'ol' : 'ul';
-  const listClass = `ct-feat${iconSide === 'left' ? ' ct-feat--icon-left' : ''}`;
+  const listClass = `ct-feat${iconSide === 'left' ? ' ct-feat--icon-left' : ''}${stacked ? ' ct-feat--stack' : ''}`;
   return (
     <>
       <style href="ct-feat" precedence="ct-components">
@@ -140,9 +149,18 @@ export default function FeatureRow({
               className={`ct-feat__item${f.href ? ' ct-feat__item--link' : ''}`}
             >
               {f.href ? (
-                <Link className="ct-feat__link" href={f.href}>
-                  {inside}
-                </Link>
+                // 🔴 `next/link` лише для наших сторінок. `mailto:` через
+                // нього — це клієнтський перехід на схему, якої роутер не
+                // знає; той самий висновок уже записано в `CtaButton`.
+                f.href.startsWith('/') ? (
+                  <Link className="ct-feat__link" href={f.href}>
+                    {inside}
+                  </Link>
+                ) : (
+                  <a className="ct-feat__link" href={f.href}>
+                    {inside}
+                  </a>
+                )
               ) : (
                 inside
               )}

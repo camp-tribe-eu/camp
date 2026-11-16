@@ -85,7 +85,7 @@ export const THRESHOLDS: Threshold[] = [
     decides: [
       'The Danish Great Belt crossing prices by length: its published tariff has one rate for a car of 3–6 m and a higher one for a car over 6 m, with height entering the categories above that. A great many motorhomes sit on the wrong side of the step.',
       'Ferry fares across the Union are quoted per metre band, and a rack you added is billed the same as bodywork.',
-      'Whether a pitch fits. We hold no pitch dimensions for any campsite in our database, so this is the one number on this list nothing on this site can check for you. Ring the site.',
+      'Whether a pitch fits. Pitch dimensions are not part of our campsite records, so this is the one figure on this list that nothing on this site can check for you. Ring the campsite.',
     ],
     source: {
       name: 'Sund & Bælt — Great Belt tariffs by vehicle length',

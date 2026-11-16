@@ -53,6 +53,9 @@ import { websiteHref } from '@/lib/events';
 import { Block } from '@/components/layout';
 import { TrustLegend } from '@/components/trust';
 import { TRUST_PAGE, amenityTrust, trustLegend } from '@/lib/trust';
+import SpotTabs from '@/components/spot-tabs';
+import { spotTabs } from '@/lib/spot-tabs';
+import { absence } from '@/lib/webcams';
 
 // CAMP-34 — the campsite page.
 //
@@ -188,29 +191,31 @@ function hasContact(spot: Spot): boolean {
 }
 
 /**
- * CAMP-51 — вхід у «claim your listing», і лише там, де він працює.
+ * CAMP-51, CAMP-505 — «Це мій кемпінг», і лише там, де самоверифікація
+ * може спрацювати.
  *
- * 🔴 ПОКАЗУЄМО ЛИШЕ ЗА НАЯВНОСТІ ПОШТИ В OSM. Без неї заявка впирається
- * у «нема куди слати» вже після натискання, тобто ми ведемо людину в
- * глухий кут і там пояснюємо. Заміряно 03.11.2026: пошта є в 11 628
- * кемпінгів із 63 159 — тобто посилання побачить менш ніж кожен п'ятий,
- * і це чесне число, а не недоробка.
+ * 🔴 ПОКАЗУЄМО ЛИШЕ ТАМ, ДЕ Є ЩО ПОРІВНЯТИ: сайт кемпінгу або пошта в
+ * контактах. Без жодного з двох домен порівняти нема з чим, і людину
+ * вели б у форму, яка заздалегідь не має шансу. Це не обіцянка, що
+ * домен збіжиться: сайт може стояти на Facebook, а пошта бути на Gmail,
+ * і тоді форма скаже це прямо й назве, куди писати.
  *
- * Нічого нового про кемпінг це не видає: адресу сторінка вже показує в
- * блоці «Getting in touch», бо вона публічна в OSM.
+ * Нічого нового про кемпінг це не видає: і сайт, і пошту сторінка вже
+ * показує в блоці «Getting in touch».
  *
  * 🔴 Звичайне посилання, не острівець. Сторінки кемпінгів будуються один
  * раз на всі 63 тисячі; форма живе за /account/claim, за сесією.
  */
 function ClaimListing({ spot }: { spot: Spot }) {
-  if (!spot.contact?.email) return null;
+  const contact = spot.contact ?? {};
+  if (!spot.website && !contact.website && !contact.email) return null;
   return (
     <p className="mt-6 text-sm text-ink-2">
       Is this your campsite?{' '}
       <Link className="underline" href={`/account/claim?spot=${spot.slug}`}>
-        Claim the listing
+        This is my campsite
       </Link>{' '}
-      — we send a code to the email address already in its OpenStreetMap tags.
+      — confirm with an email address on the campsite’s own website domain.
     </p>
   );
 }
@@ -232,7 +237,7 @@ function Contact({ spot }: { spot: Spot }) {
     return null;
   }
   return (
-    <Section title="Getting in touch">
+    <Section title="Getting in touch" card>
       <Block as="dl" measure="narrow" className="mt-1 grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-[auto_1fr]">
         {site && (
           <>
@@ -350,27 +355,37 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
     { name: name ?? SPOT_TYPE_LABEL[spot.type], path },
   ];
 
-  // 🔴 ДВІ КОЛОНКИ ЛИШЕ ТОДІ, КОЛИ В ЛІВІЙ ЩОСЬ Є.
-  //
-  // Рецензія заміряла ціну першої редакції: у фікстурі CI опис має ОДИН
-  // рядок із 73, а `spots[0]` — ні опису, ні контактів. Тобто на
-  // типовій сторінці ліва колонка була порожня, і читач бачив ~426 px
-  // пустки поруч із мапою. Тест при цьому «доводив розкладку»,
-  // порівнюючи ширину двох доріжок, одна з яких ні про що.
-  //
-  // Коли показувати нічого — мапа займає всю ширину, і це не деградація,
-  // а правильний вигляд сторінки, про яку ми знаємо лише де вона.
-  const hasAside = Boolean(spot.description) || hasContact(spot);
+
   // Поки джерела фото немає (CAMP-342, CAMP-233, CAMP-232), це завжди
   // порожньо — але умова стоїть в одному місці, а не в двох.
   const photos: Photo[] = [];
   const hasPhotos = photos.length > 0;
+  const mapLabel = name ?? `${SPOT_TYPE_LABEL[spot.type]} near ${spot.region}`;
+
+  // 🔴 ОДИН ГОДИННИК НА ВСЮ СТОРІНКУ. Кожен `new Date()` у JSX давав
+  // свою мілісекунду; камери й повітря судять свіжість за тим самим
+  // моментом збірки.
+  const renderedAt = new Date().toISOString();
+
+  // 🔴 CAMP-453: ТАБ ІСНУЄ ЛИШЕ ТАМ, ДЕ Є ЩО ПОКАЗАТИ.
+  //
+  // Камери — коли хоч одна може бути показана (`absence` == null).
+  // «Немає камер у радіусі» і «усі застарілі» — це ВІДПОВІДІ про
+  // покриття, а не вміст для таба; вони йдуть окремим реченням у блоці
+  // умов нижче, на виду (їх не ховаємо за кліком — див. нижче).
+  //
+  // Тривоги — коли відомі зони цього кемпінгу (`null` — «не знаємо», і
+  // панель мовчить, тож таба теж немає).
+  //
+  // Погода — джерела прогнозу в коді немає (CAMP-477), тож не передаємо.
+  const cameraState = absence(spot.webcams, new Date(renderedAt));
+  const hasWebcamTab = cameraState === null;
+  const hasAlertsTab = Array.isArray(spot.warningAreas);
+  const tabs = spotTabs({ webcams: hasWebcamTab, alerts: hasAlertsTab });
+  const site = spot.website ?? spot.contact?.website ?? null;
 
   return (
-    <main
-      data-persona-zone
-      className="mx-auto max-w-wrap px-4 py-8 xl:px-6"
-    >
+    <main className="mx-auto max-w-wrap px-4 py-8 xl:px-6">
       {/* CAMP-37. Separate blocks rather than one @graph: Google reads
           them all, and a breakage in one does not take the others down
           with it.
@@ -385,469 +400,369 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
 
       <Breadcrumbs spot={spot} params={params} />
 
-      <header className="mt-4">
-        <p className="text-xs font-semibold uppercase tracking-widest text-ink-2">
-          {SPOT_TYPE_LABEL[spot.type]}
-        </p>
-        <h1 className="mt-2 text-3xl leading-tight md:text-[42px]">
-          {/* An unnamed site still needs a heading a person can read and a
-              search engine can rank. "Campsite" alone is neither, and it
-              would also disagree with the <title>. */}
-          {name ?? `${SPOT_TYPE_LABEL[spot.type]} near ${spot.region}`}
-        </h1>
-        <p className="mt-2 text-ink-2">
-          {[spot.region, spot.country.toUpperCase()].filter(Boolean).join(', ')}
-          {/* 🔴 The official national classification, where a source
-              publishes one — France does, OpenStreetMap does not carry
-              it at all. Said as what it is: somebody else's rating, not
-              ours. We have no opinion about any campsite and say so on
-              the disclaimer page. */}
-          {/* 🔴 The same reading as the graph, not a looser one. This
-              checked only `!== null`, so a payload without the field
-              printed "undefined-star official classification" while the
-              JSON-LD correctly carried nothing. Found in review. */}
-          {officialStars(spot) !== undefined && (
-            <>
-              {' · '}
-              <span data-testid="official-stars">
-                {officialStars(spot)}-star official classification
-              </span>
-            </>
-          )}
-        </p>
-        {!name && (
-          // 26% of campsites in OSM carry no name at all (measured on 448
-          // Slovenian sites). Dropping them would remove a quarter of the
-          // map; inventing a name would be worse.
-          <Block as="p" measure="read" className="mt-3 text-sm text-ink-2">
-            This site has no name in OpenStreetMap. The location is real — the
-            name simply has not been recorded by anyone yet.
-          </Block>
-        )}
-        {/* 🔴 CAMP-199: what WE measured about this place, in words.
+      {/* 🔴 CAMP-453 — СТОРІНКА ТОВАРУ ТЕМИ (PDP), А НЕ СТЕК СЕКЦІЙ.
+          Еталон — Fuse: ліворуч вузька колонка білих карток на всю
+          висоту, праворуч одне стікі-медіа, яке лишається на екрані,
+          поки читач гортає картки (знімок `f-product-1440-t00`; 480 px
+          з 1416, відступ 12 px, радіус 16 px — `docs/design-system-from-theme.md`).
 
-            Of 61 422 publishable campsite pages, 28 808 — 47% — carry no
-            known amenity, no description and no stars. Nothing but a
-            name. The duplicate-page guard found their pages
-            indistinguishable from their neighbours', and it was right.
-            (A measurement, not a figure for today: taken 04.10.2026,
-            recorded with its method in `lib/setting.ts`. 🔴 CAMP-308:
-            this sentence is a comment and is NOT rendered — only
-            `setting` below reaches the reader, and it prints no total.)
+          🔴 ТРИ ДІТИ СІТКИ Й ПОРЯДОК У DOM: заголовок → медіа → решта
+          карток. На телефоні це й є порядок, який бачить око (мапа йде
+          одразу під назвою, а не через три екрани карток), і порядок,
+          яким ходить клавіатура — без `order`, який їх розводив би. На
+          десктопі заголовок і решта стоять в одній колонці (`col-start-1`,
+          рядки 1 і 2), а медіа займає обидва рядки правої (`row-span-2`).
 
-            What they do have is this paragraph's subject: how far the
-            water is and what kind, the nearest town, the nearest shop,
-            sometimes the height and the shape of the land. We compute
-            all of it and nobody else publishes it.
-
-            It is NOT `data-boilerplate`: it varies with the campsite,
-            which is the whole point.
-
-            🔴 AND THE NUMBERS THAT STOOD HERE WERE MEASURED ON AN ARRAY
-            I TYPED. "Twelve real Zadarska sites … 4.2% at the median,
-            26.8% at the worst, and no pair is near the 80% line" was a
-            third author-chosen corpus, and the last clause was simply
-            false. On the seed the build actually uses — 30 Zadarska
-            rows, 435 pairs — it is 4.1% at the median, 17.6% at p90,
-            and ONE pair at 100%: autocamp-pisak and autokemp-marin,
-            four campsites on one beach outside Obrovac sharing a town,
-            a shop and a railway stop.
-
-            The live figures live in `lib/setting.ts` and are enforced by
-            `tests/unit/setting.spec.ts` against that seed. They are not
-            repeated here, because two copies of a measurement drift and
-            this copy is how the stale one survived its own retraction. */}
-        {setting && (
-          <Block as="p" measure="read" className="mt-4 text-ink-1" data-testid="setting">
-            {setting}
-          </Block>
-        )}
-        {/* 🔴 CAMP-FACTS. The mockup's line is "from €/night · type ·
-            season · elevation"; three of the four do not exist in our
-            data (docs/region-insight-survey.md §1). This one is built
-            from what THIS campsite has, prints nothing for what it has
-            not, and is absent altogether under two facts — the rules
-            and the numbers are in `lib/spot-facts.ts`. */}
-        <SpotFactsLine facts={facts} />
-      </header>
-
-      {spot.missingSince && <MissingNotice since={spot.missingSince} />}
-
-      {/* 🔴 CAMP-344 — ДВІ КОЛОНКИ, І МЕДІА ШИРШЕ ЗА ОПИС.
-          
-          Так каже Figma (`Shopify Theme #7`, вузол 1079:16220): ліва
-          колонка ≈375 px, права ≈1275 px. Тобто медіа — домінанта
-          сторінки, а опис вузька бічна колонка. До цієї картки сторінка
-          була одноколонковим стеком без жодного `col-span`.
-          
-          Пропорція тут 1 : 1.6, а не 1 : 3.4 як у макеті: у нас ліва
-          колонка несе не артикул і колір, а цитату опису й контакти —
-          текст, який на 375 px перетворюється на колодязь із двох слів
-          у рядку. Число підігнано під наш вміст, і це свідоме
-          розходження, а не недогляд.
-          
-          🔴 На телефоні медіа йде ПЕРШИМ (`order-first`), але картка
-          вимагає, щоб воно не займало перший екран цілком — тому мапа
-          має `min-h-[260px]`, а не висоту екрана. На 812 px це ~32%,
-          і під нею видно початок тексту. */}
+          🔴 СТІКІ ЖИВЕ ВСЕРЕДИНІ ЕЛЕМЕНТА, ЩО РОЗТЯГНУТИЙ НА ОБИДВА
+          РЯДКИ, а не на самому грід-елементі з `items-start`: такий
+          елемент рівно по висоті власного вмісту, і стікі нікуди
+          рухатись. Мутація «прибрати `sticky`» червонить e2e. */}
       <div
         data-testid="campsite-hero"
-        data-columns={hasAside ? 'two' : 'one'}
-        className={
-          'mt-6 grid items-start gap-6' +
-          (hasAside ? ' lg:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)]' : '')
-        }
+        className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,480px)_minmax(0,1fr)]"
       >
-        <div className="min-w-0 empty:hidden">
+        <header
+          data-testid="campsite-title"
+          className="min-w-0 rounded-card bg-surface p-5 shadow-card lg:col-start-1 lg:row-start-1"
+        >
+          <p className="text-xs font-semibold uppercase tracking-widest text-ink-2">
+            {SPOT_TYPE_LABEL[spot.type]}
+          </p>
+          <h1 className="mt-2 text-3xl leading-tight">
+            {/* An unnamed site still needs a heading a person can read and a
+                search engine can rank. "Campsite" alone is neither, and it
+                would also disagree with the <title>. */}
+            {name ?? `${SPOT_TYPE_LABEL[spot.type]} near ${spot.region}`}
+          </h1>
+          <p className="mt-2 text-ink-2">
+            {[spot.region, spot.country.toUpperCase()].filter(Boolean).join(', ')}
+            {/* 🔴 The official national classification, where a source
+                publishes one — France does, OpenStreetMap does not carry
+                it at all. Said as what it is: somebody else's rating, not
+                ours.
 
-      {/* 🔴 The operator's own description, as a quotation and in their
-          own language.
-          
-          Not paraphrased, not translated, and not presented as ours. It
-          is promotional text written by a tourist office, and passing it
-          off as a neutral description would be exactly the kind of
-          invention this site is built not to do. `lang` is set so a
-          screen reader pronounces it correctly and a translating crawler
-          knows what it is looking at. */}
-      {spot.description && (
-        <figure data-testid="source-description" className="mt-6">
-          <Block
-            as="blockquote"
-            measure="read"
-            lang={spot.descriptionLang ?? undefined}
-            cite={
-              spot.sources?.find((s) => s.fields.includes('description'))?.ref
-            }
-            className="border-l-2 border-line-2 pl-4 text-ink-2"
+                🔴 The same reading as the graph, not a looser one. This
+                checked only `!== null`, so a payload without the field
+                printed "undefined-star official classification" while the
+                JSON-LD correctly carried nothing. Found in review. */}
+            {officialStars(spot) !== undefined && (
+              <>
+                {' · '}
+                <span data-testid="official-stars">
+                  {officialStars(spot)}-star official classification
+                </span>
+              </>
+            )}
+          </p>
+          {!name && (
+            // 26% of campsites in OSM carry no name at all (measured on 448
+            // Slovenian sites). Dropping them would remove a quarter of the
+            // map; inventing a name would be worse.
+            <Block as="p" measure="read" className="mt-3 text-sm text-ink-2">
+              This site has no name in OpenStreetMap. The location is real — the
+              name simply has not been recorded by anyone yet.
+            </Block>
+          )}
+          {/* 🔴 CAMP-199: what WE measured about this place, in words —
+              how far the water is, the nearest town and shop. It varies
+              with the campsite (NOT `data-boilerplate`), and it is the
+              part of the page nobody else publishes. The measured
+              figures behind it live in `lib/setting.ts` and are enforced
+              by `tests/unit/setting.spec.ts`; they are not repeated here,
+              because two copies of a measurement drift. */}
+          {setting && (
+            <Block as="p" measure="read" className="mt-4 text-ink-1" data-testid="setting">
+              {setting}
+            </Block>
+          )}
+          {/* 🔴 CAMP-FACTS: built from what THIS campsite has, prints
+              nothing for what it has not, absent under two facts — rules
+              in `lib/spot-facts.ts`. */}
+          <SpotFactsLine facts={facts} />
+          {spot.missingSince && <MissingNotice since={spot.missingSince} />}
+        </header>
+
+        {/* МЕДІА. Пріоритет — рішення власника 18.10.2026: фото власника,
+            інакше фото користувачів, інакше мапа (`photos` поки порожній:
+            CAMP-233/232/342 ще не зроблені). Таби: мапа / камери /
+            тривоги (погода — після CAMP-477). */}
+        <div className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1">
+          <div
+            data-testid="campsite-sticky"
+            className="rounded-card bg-surface p-3 shadow-card lg:sticky lg:top-20 lg:p-4"
           >
-            {spot.description}
-          </Block>
-          <Block as="figcaption" measure="read" className="mt-2 text-xs text-ink-2">
-            Written by the campsite or its local tourist office, quoted as
-            published — see where this comes from, below.
-          </Block>
-        </figure>
-      )}
-
-      {/* 🔴 CAMP-141: how to reach the place.
-          
-          This section did not exist, and neither did the data behind it.
-          Measured 27.09.2026: OpenStreetMap carries a website for 61.6%
-          of the campsites in an extract and a phone for 39.8%, and we
-          imported none of it — a reader could find a campsite here and
-          have no way to contact it.
-          
-          Shown only where something exists. A heading with nothing under
-          it tells a reader we lost their data; no heading tells them we
-          never had it, which is the truth. */}
-      <Contact spot={spot} />
+            <SpotTabs
+              label="Map, webcams and alerts for this campsite"
+              tabs={tabs}
+              panels={{
+                map: (
+                  <CampsiteMedia
+                    photos={photos}
+                    lat={spot.lat}
+                    lon={spot.lon}
+                    type={spot.type}
+                    label={mapLabel}
+                    outline={spot.outline ?? null}
+                    disturbance={disturbance?.markers ?? []}
+                  />
+                ),
+                webcams: hasWebcamTab ? (
+                  <WebcamNote webcams={spot.webcams} renderedAt={renderedAt} />
+                ) : undefined,
+                alerts: hasAlertsTab ? (
+                  // 🔴 CAMP-287 крок 4: єдина панель, що приходить У БРАУЗЕР,
+                  // а не в збірку (бюджет свіжості — десять хвилин, клаузула
+                  // 5.6 ліцензії MeteoAlarm; доведено в CAMP-302).
+                  <WarningsForSpot country={spot.country} codes={spot.warningAreas ?? null} />
+                ) : undefined,
+              }}
+            />
+          </div>
         </div>
 
-        {/* 🔴 МЕДІАСЛОТ. Пріоритет — рішення власника 18.10.2026: фото
-            власника, інакше фото користувачів, інакше мапа. `photos`
-            поки завжди порожній: канал власника (CAMP-233/232) і реєстр
-            прав (CAMP-342) ще не зроблені, тож на живих сторінках
-            працює третій рівень. Порядок перших двох доведено тестом
-            `choosePhoto`, а не обіцянкою. */}
-        {/* 🔴 БЕЗ `order-first`. Він міняв лише ВИДИМИЙ порядок, а в
-            DOM медіа лишалось після опису — тож на телефоні картинка
-            стояла зверху, а таб із кнопок мапи стрибав назад до тексту
-            над нею. Тепер порядок один і той самий для ока й для
-            клавіатури: де опис є, він іде першим; де його немає, ліва
-            колонка зникає (`empty:hidden`) і мапа й так одразу під
-            заголовком. */}
-        <div className="min-w-0">
-          <CampsiteMedia
-            photos={photos}
-            lat={spot.lat}
-            lon={spot.lon}
-            type={spot.type}
-            label={name ?? `${SPOT_TYPE_LABEL[spot.type]} near ${spot.region}`}
-            outline={spot.outline ?? null}
-            disturbance={disturbance?.markers ?? []}
-          />
+        {/* 🔴 КОЛОНКА КАРТОК — І ЦЕ ЗОНА ПЕРСОНИ (CAMP-501). Вибір
+            «власник кемпера / орендар» піднімає в ній свій блок (служби
+            чи «як дістатися»); заголовок стоїть окремо вище й не
+            рухається. Колонка завжди flex, тож `order` з CSS діє й без
+            вибору (там усі 0).
+
+            🔴 `[&>*]:mt-0!`: компоненти всередині мають власні `mt-6/8`
+            із часів стека секцій. Відстань тепер задає `gap-3`, а
+            подвійний відступ — це дірки між картками. */}
+        <div
+          data-persona-zone
+          data-testid="campsite-cards"
+          className="flex min-w-0 flex-col gap-3 lg:col-start-1 lg:row-start-2 [&>*]:mt-0!"
+        >
+          {/* 🔴 ЗРУЧНОСТІ — ПЕРШИМ ПІСЛЯ ЗАГОЛОВКА (рішення власника,
+              441/64: «опції кемпінгу нагорі, загальне внизу»). Три стани
+              лишаються трьома: «не записано» — не «немає», і на цьому
+              стоять наші умови й кожен фільтр. Порядок ключів — із
+              `AMENITY_KEYS`, санітарні поруч навмисно. */}
+          <Section title="Facilities" card>
+            {known === 0 ? (
+              <Block as="p" measure="read" className="text-sm text-ink-2">
+                Nothing has been recorded about this site&rsquo;s facilities. That
+                is a gap in the data, not a statement that it has none.
+              </Block>
+            ) : null}
+            <div className="mt-1">
+              <AmenityList
+                testId="spot-amenities"
+                keys={AMENITY_KEYS}
+                labels={AMENITY_LABEL}
+                values={spot.amenities}
+                trust={amenitiesTrust}
+              />
+            </div>
+            {/* 🔴 CAMP-256: when a mapper last touched the entry these
+                facilities come from. Always rendered — "Not known" is an
+                answer. Reads `osmRecordEditedAt` and, where there is none,
+                the `updatedAt` of a source the registry marks `edited` —
+                and NOTHING ELSE (`lastSeenAt` is the day our importer
+                found the place, this week for almost every campsite).
+                `record-edited.spec.ts` renders this page with those dates
+                years apart and reads what it says. */}
+            <RecordEdited osmEditedAt={spot.osmRecordEditedAt} sources={spot.sources} />
+          </Section>
+
+          {/* CAMP-147: ціна — і лише там, де вона є (57 236 із 58 436
+              сторінок не мають жодної датованої ціни). Компонент не
+              малює нічого без неї: порожній заголовок «What it costs» —
+              обіцянка, якої сторінка не тримає. */}
+          <TariffTable tariffs={spot.tariffs} />
+
+          {/* 🔴 CAMP-255. ALWAYS rendered — it says "not known" and what to
+              check where we have no answer. "May I sleep here" is asked
+              before "is there a shower". */}
+          <OvernightStay overnight={spot.overnight} />
+
+          {/* 🔴 CAMP-503: пальне, зарядка, вода, злив, газ — на території
+              й поруч; UNLIKE the sections around it this draws NOTHING
+              when no point lies in range, and nothing when the CMS words
+              are missing. Слова — з CMS, не з JSX. CAMP-501: власник
+              кемпера питає насамперед про злив, газ, струм. CAMP-502:
+              «можливий дискомфорт» стоїть у ТІЙ САМІЙ обгортці, одразу
+              після служб. `empty:hidden`: обидва блоки можуть не
+              намалюватись, і порожня біла картка — це дефект. */}
+          <div
+            data-persona-first="owner"
+            data-testid="campsite-services-card"
+            className="rounded-card bg-surface p-5 shadow-card empty:hidden [&>section+section]:mt-6!"
+          >
+            <CampServices
+              view={servicesView(
+                spot.campServices,
+                spot.hookup,
+                servicesPage?.sections ?? null,
+              )}
+            />
+            <CampDisturbance view={disturbance} />
+          </div>
+
+          {/* Кнопки дій (Fuse: темна широка основна, дві світлі під нею). */}
+          <div data-testid="spot-actions" className="rounded-card bg-surface p-5 shadow-card">
+            <div className="flex flex-col gap-2">
+              {site && (
+                <ButtonLink
+                  href={websiteHref(spot.slug, site)}
+                  variant="primary"
+                  target="_blank"
+                  rel="nofollow ugc noopener"
+                >
+                  Visit website
+                </ButtonLink>
+              )}
+              <div className="grid grid-cols-2 gap-2">
+                <ButtonLink href="/map" variant="secondary">
+                  Open on map
+                </ButtonLink>
+                <ButtonLink href="/plan" variant="secondary">
+                  Plan a trip
+                </ButtonLink>
+              </div>
+            </div>
+          </div>
+
+          {/* 🔴 CAMP-141: how to reach the place. Shown only where
+              something exists: a heading with nothing under it tells a
+              reader we lost their data. */}
+          <Contact spot={spot} />
+
+          <Section title="Getting there" personaFirst="renter" card>
+            <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
+              {spot.context.station && (
+                <>
+                  {/* 🔴 CAMP-325: a STOP, not a station. The field is
+                      `railway=station` AND `railway=halt`; the words come
+                      from `lib/railway-stop.ts`, the same ones the markup
+                      and the prose paragraph use. */}
+                  <dt className="text-ink-2">{`Nearest ${RAILWAY_STOP}`}</dt>
+                  <dd>
+                    {spot.context.station.name ?? RAILWAY_STOP_TITLE}
+                    {', '}
+                    <span className="tabular-nums">
+                      {formatDistance(spot.context.station.m)}
+                    </span>
+                  </dd>
+                </>
+              )}
+              {spot.context.town && (
+                <>
+                  <dt className="text-ink-2">Nearest town</dt>
+                  <dd>
+                    {spot.context.town.name ?? 'Town'}
+                    {', '}
+                    <span className="tabular-nums">
+                      {formatDistance(spot.context.town.m)}
+                    </span>
+                  </dd>
+                </>
+              )}
+              {/* 🔴 Pitches, in the unit OSM actually records — not
+                  schema.org's `maximumAttendeeCapacity`, which counts
+                  PEOPLE. */}
+              {spot.contact?.capacity !== undefined && (
+                <>
+                  <dt className="text-ink-2">Pitches</dt>
+                  <dd>{spot.contact.capacity}</dd>
+                </>
+              )}
+              <dt className="text-ink-2">Coordinates</dt>
+              <dd className="tabular-nums">
+                {spot.lat.toFixed(5)}, {spot.lon.toFixed(5)}
+              </dd>
+            </dl>
+            <p className="mt-4 text-xs text-ink-2">
+              Distances are straight-line, measured from the centre of the site —
+              the road will always be longer.
+            </p>
+          </Section>
+
+          {/* 🔴 CAMP-56 item 4: the warning where it counts — in the flow,
+              visible at the moment somebody decides to drive here; a
+              footer link is legally weaker. */}
+          <TravelNotice />
+
+          {/* 🔴 The operator's own description, as a quotation and in
+              their own language. Not paraphrased, not translated, and
+              not presented as ours: it is promotional text, and passing
+              it off as a neutral description would be exactly the
+              invention this site is built not to do. `lang` is set so a
+              screen reader pronounces it correctly. */}
+          {spot.description && (
+            <figure
+              data-testid="source-description"
+              className="rounded-card bg-surface p-5 shadow-card"
+            >
+              <Block
+                as="blockquote"
+                measure="read"
+                lang={spot.descriptionLang ?? undefined}
+                cite={spot.sources?.find((s) => s.fields.includes('description'))?.ref}
+                className="border-l-2 border-line-2 pl-4 text-ink-2"
+              >
+                {spot.description}
+              </Block>
+              <Block as="figcaption" measure="read" className="mt-2 text-xs text-ink-2">
+                Written by the campsite or its local tourist office, quoted as
+                published — see where this comes from, below.
+              </Block>
+            </figure>
+          )}
+
+          {/* 🔴 УМОВНО, А НЕ ЗАВЖДИ: коли приїде CAMP-233, сторінка з
+              фотографією показувала б під нею прохання надіслати
+              фотографію. Власник (441/62): «перенести в інфо-частину
+              вниз» — тут вона, у кінці колонки, а не на всю ширину під
+              мапою. */}
+          {!hasPhotos && <NoPhotos />}
+
+          {/* «Report a problem» — the first step of the arbitration the
+              owner asked for. A client island on a static page: renders
+              closed into the build and talks to the API only from the
+              reader's browser (report-problem.spec.tsx walks the import
+              graph). Always rendered, photos or not. */}
+          <ReportProblem slug={spot.slug} />
+
+          {/* CAMP-504: перегляд картки й клік на телефон. Нічого не малює. */}
+          <SpotEvents slug={spot.slug} />
+
+          <ClaimListing spot={spot} />
         </div>
       </div>
-
-      {/* 🔴 УМОВНО, А НЕ ЗАВЖДИ. Сьогодні фото немає в жодного
-          кемпінгу, тож видно це завжди — і саме тому помилку легко не
-          помітити. Коли приїде CAMP-233, сторінка з фотографією
-          показувала б під нею прохання надіслати фотографію, а
-          `campsite.spec.ts` («у main жодного img, крім вебкаму»)
-          почервонів би вже не через це. */}
-      {!hasPhotos && <NoPhotos />}
-
-      {/* «Report a problem» — the first step of the arbitration the owner
-          asked for. A client island on a static page: it renders closed into
-          the build and talks to the API only from the reader's browser, so
-          the page stays prerendered (report-problem.spec.tsx walks the
-          import graph). Always rendered, photos or not: a wrong pin is
-          wrong whether or not there is a picture above it. */}
-      <ReportProblem slug={spot.slug} />
-
-      {/* CAMP-504: перегляд картки й клік на телефон. Нічого не малює. */}
-      <SpotEvents slug={spot.slug} />
-
-      <ClaimListing spot={spot} />
 
       <Around spot={spot} />
 
-      {/* 🔴 CAMP-255. ALWAYS rendered — it says "not known" and what to
-          check where we have no answer, rather than vanishing there.
-          Above the facilities, because "may I sleep here" is asked before
-          "is there a shower", and above the travel notice, which it does
-          not replace: that one is the general warning, this one is the
-          answer to the specific question. */}
-      <OvernightStay overnight={spot.overnight} />
+      {/* 🔴 CAMP-453: ВТОРИННИЙ БЛОК — умови навколо. Вода для купання,
+          якість повітря, посуха: усе це відповіді про довкілля, а не про
+          сам кемпінг, тому вони нижче за зручності, ціну й служби.
 
-      {/* 🔴 УМОВИ — ВИЩЕ ЗА ЗАГАЛЬНІ ТЕКСТИ (CAMP-453, пункт 2).
-          Власник: «Не вивів ні погоду, ні тривоги, ні камери, а це наші
-          фічі!» Дані були на сторінці — але на третій тисячі пікселів,
-          під координатами, тарифами й описом під'їзду. Тепер вони
-          стоять одразу після «чи можна тут ночувати»: це питання того
-          самого роду — що буде зі мною, якщо я сюди приїду, — і
-          відповідати на нього треба раніше, ніж на «чи є душ».
+          🔴 УСІ — БЕЗУМОВНІ, як і були. Кожен компонент сам вирішує, що
+          сказати, і одна з відповідей — «жодної купальної води в межах
+          2 км» (42 953 кемпінги з 61 558). Вони не ховаються за табом:
+          таб ховає такі відповіді за кліком, а e2e на них вимагає
+          видимості. Тож вони стоять відкритими, в одному ряду.
 
-          🔴 НІЧОГО НЕ СХОВАНО В ТАБИ. Картка пропонує таби, але кожна з
-          цих панелей несе ВЛАСНЕ твердження про відсутність: «жодної
-          купальної води в межах 2 км» — це відповідь, а не порожнеча, і
-          так на 42 953 кемпінгах із 61 558. Таб ховає такі відповіді за
-          кліком, а e2e на них (26 тверджень) вимагає видимості. Порядок
-          дає те саме, що й таби, і нічого не коштує. */}
-      {/* 🔴 CAMP-168: the official bathing water classification.
+          🔴 CAMP-164: `renderedAt` — годинник першого рендеру (збірка на
+          сервері); браузер підміняє його своїм при монтуванні, і показник
+          старший за чотири години стає «no fresh data» на сторінці, яку
+          ніхто не перезбирав. CAMP-163: посуха береться ТУТ, у збірці,
+          з гріда 1 280 × 889, що в браузер не потрапляє; друкується
+          навіть «no drought» — це вимір, а не порожнеча.
 
-          Directly under the price list and above the weather, because
-          it belongs with the surroundings block further up — the
-          campsite's distance to water is already printed there, and this
-          is the official classification of that water, for a stated
-          season.
-
-          🔴 UNCONDITIONAL, unlike TariffTable above. The component
-          decides what to say, and one of the three things it can say is
-          that no designated bathing water lies within 2 km — which is
-          the case on 42 953 of 61 558 campsites. Rendering nothing there
-          would let an absence read as reassurance, and would make a
-          campsite whose bathing water failed to import indistinguishable
-          from one that genuinely has none. */}
-      <BathingWaterNote bathingWater={spot.bathingWater} />
-
-      {/* 🔴 CAMP-503: fuel, EV charging, water, dump, gas — on site and
-          nearby. UNLIKE the sections around it this draws NOTHING when no
-          point lies in range (the card's decision), and nothing when the
-          CMS words are missing. Words come from the CMS page, not JSX. */}
-      {/* CAMP-501: власник кемпера питає насамперед про злив, газ, струм.
-          CAMP-502: «можливий дискомфорт» стоїть у ТІЙ САМІЙ обгортці, одразу
-          після служб, тож у обох режимах іде за ними: піднімається разом. */}
-      <div data-persona-first="owner">
-        <CampServices
-          view={servicesView(
-            spot.campServices,
-            spot.hookup,
-            servicesPage?.sections ?? null,
-          )}
-        />
-        <CampDisturbance view={disturbance} />
+          Камери: коли таба немає, відповідь «немає камер у радіусі» /
+          «усі мовчать понад добу» стоїть тут, відкрито (`WebcamNote`
+          сам вирішує; для «каталог не імпортовано» не малює нічого). */}
+      <div
+        data-testid="spot-conditions"
+        className="mt-8 grid items-start gap-3 md:grid-cols-2 xl:grid-cols-3 [&>*]:mt-0!"
+      >
+        <BathingWaterNote bathingWater={spot.bathingWater} />
+        <AirQualityNote airQuality={spot.airQuality} renderedAt={renderedAt} />
+        <DroughtPanel state={droughtAtBuild()} lat={spot.lat} lon={spot.lon} />
+        {!hasWebcamTab && <WebcamNote webcams={spot.webcams} renderedAt={renderedAt} />}
       </div>
-
-      {/* 🔴 CAMP-164: what the EEA's air quality index says here.
-
-          Between the bathing water and the weather, because it is the
-          same kind of statement — an official index, dated, about the
-          surroundings — and sits where a reader deciding whether to
-          make camp is already looking at conditions.
-
-          🔴 UNCONDITIONAL, like the bathing water. The component decides
-          what to say, and one of the things it says is "no fresh data":
-          one station in five is silent in any given hour, and a section
-          that vanished for those would read as clean air.
-
-          🔴 `renderedAt` is the clock of the first render — the build,
-          on the server; the browser replaces it with its own on mount,
-          and a reading that has aged past four hours turns into "no
-          fresh data" on a page nobody has rebuilt. */}
-      <AirQualityNote
-        airQuality={spot.airQuality}
-        renderedAt={new Date().toISOString()}
-      />
-
-      {/* 🔴 CAMP-163: what the Copernicus drought indicator measured here.
-
-          Beside the weather, because it is the slow half of the same
-          question — the forecast says what the sky will do this week,
-          this says what the ground has been doing for a month.
-
-          The reading is sampled HERE, at build time, out of a 1 280 × 889
-          grid that never reaches the browser. And it is printed even when
-          the answer is "no drought": that is a measurement about this
-          campsite in this ten-day period, and leaving the space blank
-          would turn it into "nobody knows". */}
-      <DroughtPanel state={droughtAtBuild()} lat={spot.lat} lon={spot.lon} />
-
-      {/* 🔴 CAMP-287 крок 4: офіційні попередження про небезпеку.
-          Стоїть ПІСЛЯ посухи й перед камерами навмисно — посуха це
-          десятиденне вікно, попередження — години, і найгостріше за
-          часом має бути ближче до того, що читач перевіряє перед
-          виїздом.
-
-          🔴 Єдина панель на цій сторінці, яка приходить У БРАУЗЕР, а
-          не в збірку. Її бюджет свіжості — десять хвилин (клаузула 5.6
-          ліцензії MeteoAlarm), а сторінки збираються вночі: запечене
-          попередження показувало б «No fresh data» завжди. Доведено в
-          CAMP-302. */}
-      <WarningsForSpot country={spot.country} codes={spot.warningAreas ?? null} />
-
-      {/* 🔴 CAMP-190: what a camera near here is looking at.
-
-          Beside the drought and the weather because it answers the same
-          question from the other end — those say what the ground and
-          the sky have been doing, this shows it.
-
-          Measured (CAMP-189): 88% of campsites have a camera within
-          25 km, median 8, and the median frame is 8 minutes old. The
-          other 12% get a sentence, not a blank space.
-
-          🔴 AND TODAY IT IS NONE OF THEM, because the catalogue has not
-          been imported — `scripts/windy/fetch-webcams.mjs` has not run
-          against the real database, so the table is empty and this
-          renders nothing at all. That is deliberate: `[]` and "we have
-          not looked" are different facts, and the sentence above is a
-          claim about COVERAGE which we have not earned yet. The
-          paragraph describes the shipped behaviour once the import has
-          run; until then the honest page has no webcam section. */}
-      <WebcamNote webcams={spot.webcams} renderedAt={new Date().toISOString()} />
-
-      <Section title="Facilities">
-        {known === 0 ? (
-          <Block as="p" measure="read" className="text-sm text-ink-2">
-            Nothing has been recorded about this site&rsquo;s facilities. That
-            is a gap in the data, not a statement that it has none.
-          </Block>
-        ) : null}
-        {/* 🔴 ЗНАЧКИ ЗАМІСТЬ СІТКИ YES / NO / NOT RECORDED (CAMP-453,
-            знімок 441/66). Три стани лишаються трьома — «не записано» це
-            не «немає», і на цьому стоять наші ж умови й кожен фільтр,
-            що друкує, скільки кемпінгів він відкинув за браком даних.
-            Порядок ключів не чіпаємо: він названий у `AMENITY_KEYS` і
-            ставить санітарні поруч навмисно. */}
-        <div className="mt-1">
-          <AmenityList
-            testId="spot-amenities"
-            keys={AMENITY_KEYS}
-            labels={AMENITY_LABEL}
-            values={spot.amenities}
-            trust={amenitiesTrust}
-          />
-        </div>
-        {/* 🔴 CAMP-256: when a mapper last touched the entry these
-            facilities come from, under the list they describe. Always
-            rendered — "Not known" is an answer, and a line that appears
-            only on the pages that have a date would make the rest look
-            like pages that never thought of the question.
-
-            🔴 It reads `osmRecordEditedAt` and, where there is none, the
-            `updatedAt` of a source the registry marks `edited` (DATAtourisme
-            dates its own records) — and NOTHING ELSE. The page also holds
-            `lastSeenAt` and the OpenStreetMap entry's `updatedAt`, which are
-            the day our importer last found this place, this week for almost
-            every campsite; a line that printed either under these words would
-            say every place had just been edited. `record-edited.spec.ts`
-            renders this page with those dates years apart and reads what it
-            says. */}
-        <RecordEdited osmEditedAt={spot.osmRecordEditedAt} sources={spot.sources} />
-      </Section>
-
-      <Section title="Getting there" personaFirst="renter">
-        <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
-          {spot.context.station && (
-            <>
-              {/* 🔴 CAMP-325: a STOP, not a station. The field is
-                  `railway=station` AND `railway=halt` (a platform with
-                  no staff and no ticket office), 32.1% of them on the
-                  measured corpus, and the page used to say "station"
-                  over JSON-LD that said "railway stop". The words come
-                  from `lib/railway-stop.ts`, the same ones the markup
-                  and the prose paragraph use. */}
-              <dt className="text-ink-2">{`Nearest ${RAILWAY_STOP}`}</dt>
-              <dd>
-                {spot.context.station.name ?? RAILWAY_STOP_TITLE}
-                {', '}
-                <span className="tabular-nums">
-                  {formatDistance(spot.context.station.m)}
-                </span>
-              </dd>
-            </>
-          )}
-          {spot.context.town && (
-            <>
-              <dt className="text-ink-2">Nearest town</dt>
-              <dd>
-                {spot.context.town.name ?? 'Town'}
-                {', '}
-                <span className="tabular-nums">
-                  {formatDistance(spot.context.town.m)}
-                </span>
-              </dd>
-            </>
-          )}
-          {/* 🔴 Pitches, in the unit OSM actually records.
-              
-              This used to be published as schema.org's
-              `maximumAttendeeCapacity`, which counts PEOPLE — twenty
-              pitches announced as twenty guests, understating a site
-              three- to fourfold. It is stated here instead, in its own
-              unit, where a reader can read it and no machine is told
-              something untrue. (On a camper stop OSM counts vehicle
-              places rather than tents; closer, still not identical, and
-              that is why the label says pitches and not guests.) */}
-          {spot.contact?.capacity !== undefined && (
-            <>
-              <dt className="text-ink-2">Pitches</dt>
-              <dd>{spot.contact.capacity}</dd>
-            </>
-          )}
-          <dt className="text-ink-2">Coordinates</dt>
-          <dd className="tabular-nums">
-            {spot.lat.toFixed(5)}, {spot.lon.toFixed(5)}
-          </dd>
-        </dl>
-        <p className="mt-4 text-xs text-ink-2">
-          Distances are straight-line, measured from the centre of the site —
-          the road will always be longer.
-        </p>
-      </Section>
-
-      {/* 🔴 CAMP-56 item 4: the warning where it counts. It sits above
-          the fold-ish, in the flow of the page, because the card is
-          explicit that a footer link is legally weaker and the notice
-          has to be visible at the moment somebody decides to drive
-          here. */}
-      <TravelNotice className="mt-6" />
-
-      {/* 🔴 CAMP-147: the price list, and only where there is one.
-
-          Below the travel notice, because that notice is legally
-          required to stay visible, and above the neighbours, because
-          "what does it cost" is the second question after "where is it".
-
-          The component renders nothing at all when the source publishes
-          no datable price — 57 236 of the 58 436 published pages. An
-          empty "Prices" heading on every one of those would be a promise
-          the page does not keep. */}
-      <TariffTable
-        tariffs={spot.tariffs}
-      />
-
-
-      {/* 🔴 CAMP-463: ТУТ БУЛА СЕКЦІЯ «Weather on site» З ОДНИМ РЯДКОМ
-          «Forecast is not connected yet». Власник назвав її окремо
-          (знімок 441/70): заголовок, під яким написано, чого ми ще не
-          вміємо, — це внутрішня кухня, винесена читачеві.
-
-          Прогнозу в нас немає, тож секції немає. Це те саме правило, що
-          вже діє поруч: `WebcamNote` мовчить, коли камер нема, а
-          `route-figures.tsx` друкує тире, а не «coming soon», бо «це
-          обіцянка з датою, якої ми не знаємо». Коли прогноз зʼявиться,
-          зʼявиться й секція — разом із даними, а не замість них. */}
 
       {data.nearby.length > 0 && (
         <Section title="Campsites nearby">
@@ -859,31 +774,15 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
         </Section>
       )}
 
-      {/* 🔴 One attribution block, not two.
-          
-          There used to be a separate line reading "Last checked against
-          OpenStreetMap on …" under every campsite. CAMP-101 added 478
-          French campsites that are not in OpenStreetMap at all, and that
-          line appeared on every one of them — a plain false statement
-          about where our information came from, repeated 478 times.
-          
-          The per-source block says the same thing accurately, for each
-          source, with the phrasing each licence needs. */}
+      {/* 🔴 One attribution block, not two. The per-source block says
+          where our information came from, accurately, for each source,
+          with the phrasing each licence needs. */}
       {faq.length > 0 && (
         <Section title="Questions we can answer">
-          {/* 🔴 Visible, and identical to the JSON-LD above.
-              
-              Not decoration and not an SEO trick: Google's FAQ policy
-              requires the answer to be on the page, and the honest reason
-              is the same one — we do not tell machines anything we are
-              unwilling to tell a reader. Every answer here is a number we
-              measured or a field somebody recorded, which is why a site
-              with no computed surroundings gets no section at all rather
-              than a page of empty questions. */}
-          {/* 🔴 CAMP-449: акордеон, а не заголовки з абзацами. Власник
-              показав саме це місце (знімок 441/72). Вміст НЕ змінився —
-              ті самі питання й ті самі відповіді, що й у JSON-LD вище;
-              змінилась лише оболонка, і вона нативна (`<details>`), тож
+          {/* 🔴 Visible, and identical to the JSON-LD: Google's FAQ policy
+              requires the answer on the page, and the honest reason is
+              the same — we do not tell machines anything we are
+              unwilling to tell a reader. CAMP-449: акордеон (`<details>`),
               відповіді лишаються у відданому HTML і без JS. */}
           <Faq
             items={faq.map((f) => ({ key: f.q, question: f.q, answer: f.a }))}
@@ -1247,15 +1146,21 @@ function Section({
   title,
   children,
   personaFirst,
+  card = false,
 }: {
   title: string;
   children: React.ReactNode;
   /** CAMP-501: кому цей блок підіймається першим (див. globals.css). */
   personaFirst?: 'owner' | 'renter';
+  /** CAMP-453: біла картка колонки PDP замість секції на тлі сторінки. */
+  card?: boolean;
 }) {
   return (
-    <section className="mt-8" data-persona-first={personaFirst}>
-      <h2 className="text-xl md:text-[25px]">{title}</h2>
+    <section
+      className={card ? 'rounded-card bg-surface p-5 shadow-card' : 'mt-8'}
+      data-persona-first={personaFirst}
+    >
+      <h2 className={card ? 'text-xl' : 'text-xl md:text-[25px]'}>{title}</h2>
       <div className="mt-3">{children}</div>
     </section>
   );

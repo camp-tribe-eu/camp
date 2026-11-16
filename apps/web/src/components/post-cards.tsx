@@ -32,7 +32,7 @@ import Link from "next/link";
  * 🔴 ДЕ СВІДОМО НЕ КОПІЮЄМО ТЕМУ — названо:
  *   - коло, що наїжджає на фото під курсором (`::after` зі `scale(3.5)`),
  *     не беремо: воно нічого не каже, а на дотику його не існує;
- *   - теги поверх фото не беремо, бо тегів у наших постів немає;
+ *   - теги поверх фото БЕРЕМО (CAMP-464): у постів зʼявилось поле тегів;
  *   - обрізання заголовка двома рядками (`-webkit-line-clamp`) беремо:
  *     це не приховування змісту, а вирівнювання карток у ряду, і повний
  *     заголовок читач бачить на самій сторінці поста.
@@ -52,12 +52,17 @@ export interface PostCard {
   /** Підпис-пігулка: дата, час читання — те, що сторінка вже знає. */
   meta?: string;
   image?: { src: string; alt?: string };
+  /** Теги допису: мітки поверх фото, як `article-card__tags` у теми. */
+  tags?: readonly string[];
 }
 
 // Не експортується навмисно: тест має читати відданий HTML, а не цю константу.
 const POST_CSS = `
 .ct-posts{display:grid;gap:24px;margin:0;padding:0;list-style:none}
 .ct-post{display:flex;flex-direction:column;gap:12px}
+.ct-post__figure{position:relative}
+.ct-post__tags{position:absolute;top:10px;left:10px;right:10px;display:flex;flex-wrap:wrap;gap:4px;margin:0;padding:0;list-style:none}
+.ct-post__tag{padding:2px 8px;border-radius:6px;background-color:var(--color-heading);color:var(--color-surface);font-size:11px;font-weight:600;line-height:1.5;letter-spacing:.03em;text-transform:uppercase}
 .ct-post__media{position:relative;display:block;width:100%;padding-top:82%;overflow:hidden;border-radius:var(--r,16px);background-color:var(--color-surface-2)}
 .ct-post__image{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;object-position:center}
 .ct-post__image--placeholder{object-fit:contain;padding:18%}
@@ -101,6 +106,7 @@ export default function PostCards({
       >
         {items.map((p) => (
           <li key={p.key} className="ct-post">
+            <div className="ct-post__figure">
             <Link href={p.href} className="ct-post__media" tabIndex={-1} aria-hidden="true">
               {/* eslint-disable-next-line @next/next/no-img-element -- `images.unoptimized: true` у next.config. */}
               <img
@@ -111,6 +117,19 @@ export default function PostCards({
                 data-testid={p.image ? undefined : "post-placeholder"}
               />
             </Link>
+            {/* 🔴 ТЕГИ ПОЗА ПОСИЛАННЯМ-КАРТИНКОЮ: воно під `aria-hidden`, і
+                мітки всередині нього читач екрана не почув би. Поверх фото
+                їх ставить CSS, а в дереві вони стоять поруч, не всередині. */}
+            {p.tags && p.tags.length > 0 && (
+              <ul className="ct-post__tags" aria-label="Tags" data-testid="post-tags">
+                {p.tags.map((t) => (
+                  <li key={t} className="ct-post__tag">
+                    {t}
+                  </li>
+                ))}
+              </ul>
+            )}
+            </div>
             {/* 🔴 ЗОБРАЖЕННЯ НЕ ДУБЛЮЄ ПОСИЛАННЯ ДЛЯ ЧИТАЧА ЕКРАНА.
                 Воно клікабельне для миші, але `aria-hidden` і поза
                 фокусом: інакше диктор оголошував би два однакові

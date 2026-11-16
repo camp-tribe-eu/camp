@@ -80,7 +80,15 @@ export default function Faq({
           </span>
         </summary>
         <div className="ct-faq__inner">
-          <p className="text-sm">{f.answer}</p>
+          {/* 🔴 CAMP-461: ТЕКСТ — В АБЗАЦІ, ВУЗОЛ — У `div`. Відповідь була
+              лише рядком; таблиця порогів оренди (`<table>`) у `<p>` — це
+              невалідна розмітка й помилка гідратації React. Рядок рендериться
+              як і раніше, тож жодна наявна сторінка не змінюється. */}
+          {typeof f.answer === "string" ? (
+            <p className="text-sm">{f.answer}</p>
+          ) : (
+            <div className="text-sm">{f.answer}</div>
+          )}
         </div>
       </details>
     ))}

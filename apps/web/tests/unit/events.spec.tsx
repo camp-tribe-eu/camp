@@ -84,16 +84,21 @@ test.describe('картка кемпінгу, як її віддано', () => {
   test('🔴 посилання на сайт веде через /out/<slug> і не несе чужого URL', async () => {
     const html = await pageHtml(API);
     const site = anchors(html).filter((a) => a.includes('nofollow ugc'));
-    expect(site.length).toBe(1);
-    expect(site[0]).toContain(`href="${API}/out/camping-events-test"`);
-    expect(site[0]).not.toContain('camping-events.example');
-    expect(site[0]).not.toMatch(/[?&](url|to|next)=/);
+    // CAMP-453: два входи на той самий сайт — рядок у контактах і кнопка
+    // «Visit website» у картці дій. Обидва мусять іти через /out/<slug>.
+    expect(site.length).toBe(2);
+    for (const a of site) {
+      expect(a).toContain(`href="${API}/out/camping-events-test"`);
+      expect(a).not.toContain('camping-events.example');
+      expect(a).not.toMatch(/[?&](url|to|next)=/);
+    }
   });
 
   test('без налаштованого API посилання пряме (нічого не ламається)', async () => {
     const html = await pageHtml(undefined);
     const site = anchors(html).filter((a) => a.includes('nofollow ugc'));
-    expect(site[0]).toContain(`href="${SITE}"`);
+    expect(site.length).toBe(2);
+    for (const a of site) expect(a).toContain(`href="${SITE}"`);
   });
 
   test('🔴 телефон несе data-ct-event="phone_click" і лишається tel:', async () => {

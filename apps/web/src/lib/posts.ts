@@ -1,4 +1,5 @@
 import { apiFetch } from "./api";
+import { isInternalHref } from "./rich-text";
 import {
   PAGE_REVALIDATE_SECONDS,
   PAGE_TAG,
@@ -49,6 +50,43 @@ export interface PostSummary {
   summary: string | null;
   publishedAt: string | null;
   authorName: string | null;
+  /** Обкладинка: шлях від кореня нашого сайту. `null` — лого-заглушка. */
+  coverUrl: string | null;
+  coverAlt: string | null;
+  /** Теги допису; порожній масив — тегів немає. */
+  tags: string[];
+}
+
+/**
+ * Один рядок переліку, приведений до форми, яку обіцяє тип.
+ *
+ * 🔴 ОДИН ЗІПСОВАНИЙ ЗАПИС КОШТУЄ ОДНОГО ЗАПИСУ (CAMP-464). Поля обкладинки
+ * й тегів редагує людина в Directus. `postList()` живить каталог, КОЖНУ
+ * сторінку допису й карту сайту, тож виняток тут поклав би весь блог через
+ * одну криву адресу картинки. Погана обкладинка → цей допис без обкладинки
+ * (лого-заглушка, як було); погані теги → цей допис без тегів. Решта
+ * переліку не знає про нього.
+ *
+ * 🔴 ОБКЛАДИНКА — ЛИШЕ ШЛЯХ ВІД КОРЕНЯ. CSP тримає `img-src 'self'`: чужа
+ * адреса не завантажилась би, і читач бачив би порожню сіру плитку замість
+ * чесної заглушки. `isInternalHref` — те саме правило, що для всіх адрес з
+ * CMS (`lib/rich-text.ts`), а не друге, своє.
+ */
+export function normalizePost(raw: PostSummary): PostSummary {
+  const cover =
+    typeof raw.coverUrl === "string" && isInternalHref(raw.coverUrl.trim())
+      ? raw.coverUrl.trim()
+      : null;
+  const tags = Array.isArray(raw.tags)
+    ? raw.tags.filter((t): t is string => typeof t === "string" && t.trim() !== "")
+    : [];
+  return {
+    ...raw,
+    coverUrl: cover,
+    // Опис без картинки — сирота: не віддаємо його, щоб не вигадувати alt.
+    coverAlt: cover && typeof raw.coverAlt === "string" ? raw.coverAlt : null,
+    tags,
+  };
 }
 
 /**
@@ -76,7 +114,7 @@ export async function postList(): Promise<PostSummary[]> {
         `${body.posts === null ? "null" : typeof body.posts}.`,
     );
   }
-  return body.posts as PostSummary[];
+  return (body.posts as PostSummary[]).map(normalizePost);
 }
 
 /**
