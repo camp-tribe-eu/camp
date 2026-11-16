@@ -441,7 +441,13 @@ describe('where the forecast code may reach', () => {
         // js/regex/missing-regexp-anchor, js/incomplete-url-substring-sanitization).
         `${f}: ${code
           .split(/[^\w./:-]+/)
-          .filter((t) => t.split('/').some((h) => h === 'open-meteo.com' || h.endsWith('.open-meteo.com')))}`,
+          .filter((t) =>
+            t
+              .split('/')
+              .some(
+                (h) => h === 'open-meteo.com' || h.endsWith('.open-meteo.com'),
+              ),
+          )}`,
       ).toBe(`${f}: `);
     }
   });
