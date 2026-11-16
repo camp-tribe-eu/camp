@@ -1,0 +1,104 @@
+{
+ "vendee": [
+  {
+   "date": "2026-11-16",
+   "tMax": 16,
+   "tMin": 13,
+   "precipMm": 19.9,
+   "condition": "heavy-rain"
+  },
+  {
+   "date": "2026-11-17",
+   "tMax": 16,
+   "tMin": 14,
+   "precipMm": 22.2,
+   "condition": "heavy-rain"
+  },
+  {
+   "date": "2026-11-18",
+   "tMax": 15,
+   "tMin": 12,
+   "precipMm": 13.4,
+   "condition": "heavy-rain"
+  },
+  {
+   "date": "2026-11-19",
+   "tMax": 13,
+   "tMin": 11,
+   "precipMm": 10.5,
+   "condition": "heavy-rain"
+  },
+  {
+   "date": "2026-11-20",
+   "tMax": 14,
+   "tMin": 10,
+   "precipMm": 7.6,
+   "condition": "rain"
+  },
+  {
+   "date": "2026-11-21",
+   "tMax": 12,
+   "tMin": 7,
+   "precipMm": 1.5,
+   "condition": "rain"
+  },
+  {
+   "date": "2026-11-22",
+   "tMax": 14,
+   "tMin": 11,
+   "precipMm": 11.0,
+   "condition": "heavy-rain"
+  }
+ ],
+ "finland": [
+  {
+   "date": "2026-11-16",
+   "tMax": 6,
+   "tMin": 4,
+   "precipMm": 7.8,
+   "condition": "rain"
+  },
+  {
+   "date": "2026-11-17",
+   "tMax": 5,
+   "tMin": 2,
+   "precipMm": 21.3,
+   "condition": "heavy-rain"
+  },
+  {
+   "date": "2026-11-18",
+   "tMax": 5,
+   "tMin": 2,
+   "precipMm": 3.9,
+   "condition": "rain"
+  },
+  {
+   "date": "2026-11-19",
+   "tMax": 3,
+   "tMin": 1,
+   "precipMm": 6.4,
+   "condition": "rain"
+  },
+  {
+   "date": "2026-11-20",
+   "tMax": 2,
+   "tMin": 0,
+   "precipMm": 0.2,
+   "condition": "cloudy"
+  },
+  {
+   "date": "2026-11-21",
+   "tMax": 0,
+   "tMin": -2,
+   "precipMm": 1.0,
+   "condition": "snow"
+  },
+  {
+   "date": "2026-11-22",
+   "tMax": 1,
+   "tMin": 0,
+   "precipMm": 2.6,
+   "condition": "snow"
+  }
+ ]
+}

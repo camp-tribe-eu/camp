@@ -30,6 +30,7 @@ import { HealthModule } from './health/health.module';
 import { OpsModule } from './ops/ops.module';
 import { WarningsModule } from './warnings/warnings.module';
 import { WebcamsModule } from './webcams/webcams.module';
+import { ForecastModule } from './forecast/forecast.module';
 import { ProblemReportsModule } from './reports/problem-reports.module';
 import { ProblemReport } from './entities/problem-report.entity';
 import { ClientError } from './entities/client-error.entity';
@@ -138,6 +139,8 @@ export const REASONS = loadMeasuredReasons();
     TripsModule,
     WarningsModule,
     WebcamsModule,
+    // CAMP-477: сім днів прогнозу з відкритого відра, через наш сервер.
+    ForecastModule,
     // «Report a problem» — `POST /problem-reports`, open, in its own throttle
     // bucket; rows are read in Directus by a moderator, never by a GET.
     ProblemReportsModule,

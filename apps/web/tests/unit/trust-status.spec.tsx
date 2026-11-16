@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import CampsitePage from '@/app/camping/[country]/[region]/[slug]/page';
 import { TRUST_LABEL, TRUST_STATUSES, trustOf } from '@/lib/trust';
-import { renderAsyncComponent } from './render-component';
+import { ForecastPanel } from '@/components/forecast-panel';
+import { renderAsyncComponent, renderComponent } from './render-component';
 import { visibleText } from './rendered-text';
 import { CLIENT_ISLANDS } from './client-islands';
 import {
@@ -369,7 +370,7 @@ test('міграція сіє речення для кожного з восьм
  * origin in their own sentences. A block added to the page and to neither
  * list fails here, so "no status" is always somebody's written decision.
  */
-const COVERED = ['SpotFactsLine', 'AmenityList', 'TrustLegend'];
+const COVERED = ['SpotFactsLine', 'AmenityList', 'TrustLegend', 'ForecastNote'];
 
 const NOT_YET = [
   'Around',
@@ -394,6 +395,25 @@ const NO_FIGURES = [
   'Link', 'MissingNotice', 'NearbyCard', 'NoPhotos', 'ReportProblem',
   'ScaleTrack', 'Section', 'SourceNote', 'SpotTabs', 'TravelNotice',
 ];
+
+// CAMP-477: ForecastNote is in COVERED, so it must print a trust word, and the
+// word must be DERIVED from the origin: handing the panel another origin has to
+// change the word. A panel that printed a literal "Imported" would not.
+test('🔴 прогноз несе слово довіри, виведене з походження, а не набране', async () => {
+  const days = Array.from({ length: 5 }, (_, i) => ({
+    date: `2026-11-${16 + i}`, tMax: 10, tMin: 5, precipMm: 0, condition: 'clear' as const,
+  }));
+  const forecast = { days, runAt: null };
+  const own = await renderComponent(ForecastPanel, { forecast });
+  expect(own).toContain(`data-trust-status="${trustOf({ kind: 'derived', sourceId: null })}"`);
+  expect(visibleText(own)).toContain(TRUST_LABEL.imported);
+  const none = await renderComponent(ForecastPanel, { forecast, origin: { kind: 'none' } });
+  expect(none).toContain('data-trust-status="unknown"');
+  expect(visibleText(none)).toContain(TRUST_LABEL.unknown);
+  expect(visibleText(none)).not.toContain(TRUST_LABEL.imported);
+  const owner = await renderComponent(ForecastPanel, { forecast, origin: { kind: 'owner' } });
+  expect(owner).toContain('data-trust-status="owner-confirmed"');
+});
 
 test('🔴 кожен блок сторінки кемпінгу або має статус, або названий серед тих, що ще ні', () => {
   const src = readFileSync(
