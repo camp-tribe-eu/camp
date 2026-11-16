@@ -1,13 +1,21 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ButtonLink } from "@/components/button";
+import FeatureRow from "@/components/feature-row";
+import { LayeredBanner } from "@/components/layered-banner";
+import { Block } from "@/components/layout";
+import { RentalProviderCards, RentalStories } from "@/components/rental-blocks";
 import RentalCountryData from "@/components/rental-country-data";
 import RentalDisclosure from "@/components/rental-disclosure";
 import RentalOfferSlot from "@/components/rental-offer-slot";
-import { listProviders } from "@/lib/rental-providers";
+import { getCountryBanner } from "@/lib/country-banner";
+import { listCamperTypes, listProviders } from "@/lib/rental-providers";
 import { abs, breadcrumbList, jsonLdProps } from "@/lib/jsonld";
 import { alternatesFor } from "@/lib/i18n";
 import { countryFuel, euros, longDate, FUEL } from "@/lib/fuel";
+import { pageContent } from "@/lib/page-content";
+import { claimSlots, withButton } from "@/lib/slots";
 import {
   count,
   inProse,
@@ -16,30 +24,28 @@ import {
   rentalCountry,
   rentalOffers,
 } from "@/lib/rental";
-import { Block } from "@/components/layout";
 
-// CAMP-4 / CAMP-54 — one page per member state, and only where it earns
-// one.
+// CAMP-4 / CAMP-54 / CAMP-461 — the country template of the rental section.
 //
-// 🔴 TWELVE PAGES, NOT TWO HUNDRED AND FIFTY.
+// 🔴 ЦЕ ШАБЛОН ДЛЯ ВСІХ ДВАНАДЦЯТИ КРАЇН (CAMP-444/1–6), І ВІН ЗМІНИВСЯ З
+// «ІНФОРМАЦІЙНОЇ СТОРІНКИ» НА СТОРІНКУ З ЗАКЛИКОМ. Власник: «сумна, просто
+// інформаційна… банер нагорі, красиві секції, заманити на цінніші сторінки:
+// блоги, маршрути, оренда». Тепер: банер країни, вибір компанії одразу під
+// ним, три факти зі значками, власні заміри, паливо, і два рядки «фото +
+// текст», що ведуть на маршрути й блог.
 //
-// The card asked for 200–300 city pages. That is scaled content abuse by
-// Google's own March 2024 definition the moment the pages differ only by
-// a place name, and the penalty is applied to the domain rather than to
-// the section — on a domain with no age and no trust, and a plan that is
-// entirely organic. CAMP-130 refused 951 templated guides for the same
-// reason and this follows it.
-//
-// The list lives in src/data/rental/countries.ts and every entry passes a
-// gate enforced by tests/unit/rental.spec.ts: three facts about this
-// country that are not true of its neighbour, each with a named authority
-// behind it, and one measured statement from our own database that is
-// true of no other page. A country that could not meet both does not have
-// a page. Twelve could.
-//
-// 🔴 Nothing here is a price, a vehicle, a company or an availability.
-// See lib/affiliate.ts — the commercial slot renders an explained empty
-// state until CAMP-98 produces an account.
+// 🔴 МЕЖА МІЖ CMS І КОДОМ — та сама, що на хабі. Текст, спільний для всіх
+// країн (заклик, «Before you book», рядки «фото + текст»), лежить у CMS у
+// рядку `camper-rental-country`; текст ОДНІЄЇ країни — у її власному рядку
+// (`/rental/countries/:code`). Речення, що рахують (кількість компаній,
+// записів, ціна пального), лишаються з генератором. Підстановки на кшталт
+// `{{country}}` у спільному тексті не використані навмисно: `applyValues`
+// кидає на невідомому ключі, а шаблон без назви країни читається добре.
+
+const SLOTS = {
+  one: ["cta", "before"],
+  many: /^story:\d+$/,
+} as const;
 
 interface Params {
   country: string;
@@ -66,6 +72,13 @@ export async function generateMetadata({
   };
 }
 
+const RULE_ICON = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+    <path d="M12 3 4.5 6v5.5c0 4.4 3.1 8 7.5 9.5 4.4-1.5 7.5-5.1 7.5-9.5V6L12 3Z" strokeLinejoin="round" />
+    <path d="m8.8 12.2 2.3 2.3 4.2-4.6" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
 export default async function RentalCountryPage({
   params,
 }: {
@@ -88,17 +101,37 @@ export default async function RentalCountryPage({
   // «показувати звужене посилання чи ні» мусить бути вже у відданому
   // HTML. Інакше читач побачить обіцянку, яка розвалиться після
   // монтування.
-  const providers = await listProviders();
+  const [providers, types, template, countryPhoto] = await Promise.all([
+    listProviders(),
+    listCamperTypes(),
+    pageContent("camper-rental-country"),
+    getCountryBanner(c.code),
+  ]);
+  if (!template) throw new Error("camper-rental-country: the page is missing from the CMS");
+  const slots = claimSlots(template.sections, SLOTS, "camper-rental-country");
+  const cta = withButton(slots.one.cta, "camper-rental-country");
+  const before = slots.one.before;
+
   const providerCount = providers.length;
   // 🔴 ХТО ТУТ ВИДАЄ МАШИНИ, А НЕ ХТО ТУТ ЗАРЕЄСТРОВАНИЙ. За пропискою
   // двадцять три з двадцяти семи країн давали б нуль; за місцем роботи
   // покрито двадцять, і Нідерланди мають сім компаній замість жодної.
-  const rentHere = providers.filter((p) =>
-    p.countries.includes(c.code.toUpperCase()),
-  ).length;
+  const here = providers
+    .filter((p) => p.countries.includes(c.code.toUpperCase()))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const rentHere = here.length;
+
+  // Кнопка веде туди, де є що показати: у звужений каталог, якщо тут хтось
+  // видає машини, і в повний — якщо ні (порожній звужений каталог був би
+  // обіцянкою без вмісту).
+  const catalogue = cta.ctaHref;
+  const compareHref =
+    rentHere > 0
+      ? `${catalogue}${catalogue.includes("?") ? "&" : "?"}country=${c.code.toUpperCase()}`
+      : catalogue;
 
   return (
-    <main className="mx-auto max-w-wrap px-4 py-10 xl:px-6">
+    <main className="mx-auto max-w-wrap px-4 pb-12 pt-4 xl:px-6">
       <script
         {...jsonLdProps(
           breadcrumbList([
@@ -127,48 +160,107 @@ export default async function RentalCountryPage({
         / {c.name}
       </nav>
 
-      <h1 className="mt-2 text-3xl leading-tight md:text-[42px]">
-        Renting a camper in {inProse(c)}
-      </h1>
+      {/* 1. БАНЕР КРАЇНИ НЕСЕ `h1`. Фон — інший, ніж на хабі (`eu-dawn`);
+          власне фото країни, якщо власник його поставив у CMS (CAMP-469),
+          стає переднім планом. Кнопка — той самий перший заклик, що й під
+          банером. */}
+      <LayeredBanner
+        className="mt-3"
+        headingLevel={1}
+        background={{ src: "/banners/eu-dawn.webp" }}
+        foreground={countryPhoto ?? undefined}
+        tickerText={c.name.toUpperCase()}
+        heading={`Renting a camper in ${inProse(c)}`}
+        description={c.angle}
+        cta={{ href: "#choose", label: cta.ctaLabel }}
+        minHeight="min(56svh, 460px)"
+        textSize={{ desktop: "120px", mobile: "48px" }}
+      />
 
-      <Block as="p" measure="read" className="mt-4 text-ink-2">{c.intro}</Block>
+      <Block as="p" measure="read" className="mx-auto mt-10 text-ink-2 md:text-center">
+        {c.intro}
+      </Block>
 
       <RentalDisclosure offers={offers.length} />
 
+      {/* 2. ВИБІР КОМПАНІЇ — одразу під банером: це те, по що прийшов
+          читач (CAMP-444/4, 443/37). Кнопка — первинна, одна. */}
+      <section
+        id="choose"
+        aria-labelledby="choose-heading"
+        className="mt-12 scroll-mt-20"
+        data-testid="rental-country-companies"
+      >
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div>
+            <h2 id="choose-heading" className="text-2xl text-heading">
+              {cta.heading}
+            </h2>
+            <Block as="p" measure="read" className="mt-2 text-ink-2">
+              {cta.body}{" "}
+              {rentHere > 0
+                ? `${rentHere} of the ${providerCount} companies we list hand over vehicles in ${inProse(c)}.`
+                : `We list ${providerCount} rental companies across the EU.`}
+            </Block>
+          </div>
+          <ButtonLink
+            href={compareHref}
+            variant="primary"
+            data-testid="country-compare-cta"
+          >
+            {cta.ctaLabel}
+          </ButtonLink>
+        </div>
+        <div className="mt-6">
+          <RentalProviderCards
+            providers={here.slice(0, 3)}
+            types={types}
+            columns={3}
+            testId="country-provider-cards"
+          />
+        </div>
+      </section>
+
+      {/* 3. ПРАВИЛА КРАЇНИ — три факти зі значками, кожен із джерелом.
+          Раніше: три картки на всю ширину з абзацом у лівій третині. */}
       <section aria-labelledby="rules-heading" className="mt-12">
         <h2 id="rules-heading" className="text-2xl text-heading">
           Three things that are true here and not next door
         </h2>
-        <ul className="mt-6 space-y-6">
-          {c.facts.map((fact) => (
-            <li
-              key={fact.title}
-              className="rounded-card border border-line-2 bg-surface p-5"
-            >
-              <h3 className="text-lg text-heading">
-                {fact.title}
-              </h3>
-              <Block as="p" measure="read" className="mt-2 text-ink-2">{fact.body}</Block>
-              <p className="mt-3 text-sm text-ink-2">
-                Source:{" "}
-                {fact.source.url.startsWith("/") ? (
-                  <Link className="underline" href={fact.source.url}>
-                    {fact.source.name}
-                  </Link>
-                ) : (
-                  <a
-                    className="underline"
-                    href={fact.source.url}
-                    rel="noopener noreferrer"
-                    target="_blank"
-                  >
-                    {fact.source.name}
-                  </a>
-                )}
-              </p>
-            </li>
-          ))}
-        </ul>
+        <div className="mt-6">
+          <FeatureRow
+            testId="country-facts"
+            iconSide="left"
+            titleAs="h3"
+            items={c.facts.map((fact) => ({
+              key: fact.title,
+              icon: RULE_ICON,
+              title: fact.title,
+              text: (
+                <>
+                  <span className="font-normal">{fact.body}</span>
+                  <span className="mt-3 block text-sm font-normal">
+                    Source:{" "}
+                    {fact.source.url.startsWith("/") ? (
+                      <Link className="underline" href={fact.source.url}>
+                        {fact.source.name}
+                      </Link>
+                    ) : (
+                      <a
+                        className="underline"
+                        href={fact.source.url}
+                        rel="noopener noreferrer"
+                        target="_blank"
+                      >
+                        {fact.source.name}
+                      </a>
+                    )}
+                  </span>
+                </>
+              ),
+            }))}
+          />
+        </div>
       </section>
 
       <RentalCountryData country={c} />
@@ -193,68 +285,18 @@ export default async function RentalCountryPage({
             as published by the European Commission
             {fuel.petrol !== null && <> — petrol {euros(fuel.petrol, 3)}</>}. A
             rental camper is heavier and thirstier than the car you are used to,
-            and fuel will be the largest variable line in the budget.{" "}
-            <Link
-              className="underline"
+            and fuel will be the largest variable line in the budget.
+          </Block>
+          <p className="mt-4">
+            <ButtonLink
               href={`/tools/camper-trip-cost/${c.code}`}
+              variant="secondary"
             >
               Price a trip in {inProse(c)}
-            </Link>
-            .
-          </Block>
+            </ButtonLink>
+          </p>
         </section>
       )}
-
-      {/* 🔴 CAMP-427: ПОСИЛАННЯ ЛИШЕ ТУДИ, ДЕ Є ЩО ПОКАЗАТИ.
-          У каталозі десять компаній і лише ЧОТИРИ країни прописки
-          (DE 6, FR 2, PT 1, FI 1). Перша редакція цього блоку вела з
-          кожної з 27 сторінок у звужений каталог — тобто 23 сторінки
-          обіцяли б список і віддавали «0 із 10» без пояснення.
-          Тому лічимо на збірці й пишемо те, що є.
-
-          🔴 І формулювання чесне: ми знаємо, де компанія ЗАРЕЄСТРОВАНА,
-          а не в яких країнах вона видає машини. Сказати «хто здає в
-          Іспанії» означало б пообіцяти знання, якого в моделі ще немає. */}
-      <section
-        aria-labelledby="providers-heading"
-        className="mt-12 border-t border-line-2 pt-8"
-      >
-        <h2
-          id="providers-heading"
-          className="text-xl text-heading"
-        >
-          Rental companies
-        </h2>
-        <Block as="p" measure="read" className="mt-3 text-ink-2">
-          {rentHere > 0 ? (
-            <>
-              <Link
-                className="underline"
-                href={`/camper-rental/providers?country=${c.code.toUpperCase()}`}
-              >
-                {rentHere === 1
-                  ? "One company we have read hands over vehicles"
-                  : `${rentHere} of the companies we have read hand over vehicles`}{" "}
-                in {inProse(c)}
-              </Link>
-              . Each is listed with where it is registered, how many depots it
-              states, what it includes in the price and what it charges extra
-              for — with the source and the date beside every figure.
-            </>
-          ) : (
-            <>
-              None of the companies we have read so far hands over vehicles in{" "}
-              {inProse(c)}. That is a gap in our list, not a statement about the
-              market: we have read {providerCount} companies, and more are being
-              added country by country.{" "}
-              <Link className="underline" href="/camper-rental/providers">
-                All {providerCount} companies
-              </Link>{" "}
-              are listed with their services and fleet.
-            </>
-          )}
-        </Block>
-      </section>
 
       <RentalOfferSlot offers={offers} where={inProse(c)} />
 
@@ -263,12 +305,12 @@ export default async function RentalCountryPage({
         className="mt-12 border-t border-line-2 pt-8"
       >
         <h2 id="next-heading" className="text-xl text-heading">
-          Before you book
+          {before.heading}
         </h2>
         <Block as="p" measure="read" className="mt-3 text-ink-2">
           The questions that decide what a hire actually costs are the same in
           every member state, and none of them is on the price page:{" "}
-          <Link className="underline" href="/camper-rental">
+          <Link className="underline" href="/camper-rental#faq-heading">
             the excess, the mileage cap, the one-way fee and the plated mass
           </Link>
           . For {inProse(c)} specifically, our{" "}
@@ -278,6 +320,11 @@ export default async function RentalCountryPage({
           are the other half of the plan.
         </Block>
       </section>
+
+      <RentalStories
+        sections={slots.many}
+        where="camper-rental-country"
+      />
     </main>
   );
 }

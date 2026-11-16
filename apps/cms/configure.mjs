@@ -484,12 +484,17 @@ const FIELD_META = {
     noindex: { interface: 'boolean', note: 'Заборонити пошуковикам індексувати цю сторінку.' },
     sort: { interface: 'input', note: 'Порядок у переліках.' },
     author_name: { interface: 'input', note: 'Підпис під дописом. Порожньо — підпису немає.' },
+    // 🔴 CAMP-464. Мітки на картці допису й на його сторінці.
+    tags: {
+      interface: 'tags',
+      note: 'Теги допису: до чотирьох, кожен до 24 символів. Порожньо — тегів немає.',
+    },
     // 🔴 CAMP-469. Лише для сторінок типу «camping-country»; в інших
     // типів це поле ні на що не впливає.
     banner_image_url: {
       interface: 'input',
       note:
-        'Власне фото країни для банера (тип camping-country). Завантаж файл у «File Library», відкрий його й встав сюди ' +
+        'Власне фото країни для банера (тип camping-country) або обкладинка допису блогу (тип post; тоді лише шлях від кореня сайту, напр. /banners/lake.webp). Завантаж файл у «File Library», відкрий його й встав сюди ' +
         'адресу файла (закінчується на /assets/…) або його id. Можна й шлях від кореня сайту, напр. /banners/slovenia.jpg. ' +
         'Лише JPEG, PNG, WebP, AVIF або GIF до 4 МБ; SVG не приймається. Порожньо — банер без фото, як зараз. ' +
         '🔴 Лише ВАШЕ фото місця: сток і згенеровані картинки не можна.',
@@ -516,6 +521,11 @@ const FIELD_META = {
           { text: 'Банер (hero)', value: 'hero' },
           { text: 'Кроки (steps)', value: 'steps' },
           { text: 'Країни з паливом (fuel-countries)', value: 'fuel-countries' },
+          // CAMP-464: секції каталогу для «Про нас» і «Контактів».
+          { text: 'Текст + фото (image-with-text)', value: 'image-with-text' },
+          { text: 'Картки зі значками (features)', value: 'features' },
+          { text: 'Питання й відповіді (faq)', value: 'faq' },
+          { text: 'Картка з кнопкою (card)', value: 'card' },
           // CAMP-488. Три типи головної. Слайд — ОДИН рядок на слайд (заголовок,
           // текст, кнопка, картинка — звичайні поля); слайдів може бути скільки
           // завгодно. Тексти слайда й рядка «текст + фото» — звичайний текст.
@@ -532,7 +542,14 @@ const FIELD_META = {
       note: '🔴 Поки адреса картинки рядком, не вибір файла: підбірник вимагає зміни схеми (CAMP-480).',
     },
     cta_href: { interface: 'input', note: 'Куди веде кнопка. Відносний шлях, напр. /guides.' },
-    variant: { interface: 'input', note: 'Різновид оформлення секції. Порожньо — звичайний.' },
+    variant: {
+      interface: 'input',
+      note:
+        'Різновид оформлення секції. Порожньо — звичайний. ' +
+        'Для «Текст + фото»: image-right ставить фото праворуч. ' +
+        'Для «Картки зі значками»: stack — картки одна під одною. ' +
+        'Для тексту: lead — великий заголовок вступу.',
+    },
     slot: { interface: 'input', note: 'Де секція стоїть на сторінці. Порожньо — за типом.' },
   },
   page_section_translations: {
@@ -541,7 +558,13 @@ const FIELD_META = {
     body: { interface: 'input-rich-text-md', note: 'Основний текст. Markdown.' },
     image_alt: { interface: 'input', note: '🔴 Опис картинки для тих, хто її не бачить. Не підпис.' },
     cta_label: { interface: 'input', note: 'Напис на кнопці.' },
-    items: { interface: 'input-code', note: '🔴 JSON. Форму задає тип секції; помилка тут прибирає секцію.' },
+    items: {
+      interface: 'input-code',
+      note:
+        '🔴 JSON. Форму задає тип секції; помилка тут прибирає секцію. ' +
+        'Картки зі значками: [{"title","text","icon"(mail, shield, database, clock, alert, info),"href"(наша сторінка або mailto:)}]. ' +
+        'Питання й відповіді: [{"term":"питання","text":"відповідь"}].',
+    },
   },
   site_settings_translations: {
     tagline: { interface: 'input', note: 'Опис сайту за замовчуванням: вкладка браузера й видача пошуку.' },

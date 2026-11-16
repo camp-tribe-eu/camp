@@ -1,4 +1,5 @@
 import { expect, test, type Page } from './api-request';
+import { openSettings } from './open-map';
 import {
   ACCESSIBILITY_KEYS,
   GENERAL_AMENITY_KEYS,
@@ -373,6 +374,7 @@ test.describe('/map filters', () => {
     page,
   }) => {
     await page.goto('/map');
+    await openSettings(page);
     await skipWithoutWebGL(page);
     await expect(page.getByTestId('map-filters')).toBeVisible();
 
@@ -411,6 +413,7 @@ test.describe('/map filters', () => {
     ] as const) {
       await page.setViewportSize({ width: w, height: h });
       await page.goto('/map');
+      await openSettings(page);
       await skipWithoutWebGL(page);
 
       // 🔴 Завжди від верху сторінки. Клік по «Reject» сам прокручує
@@ -466,6 +469,7 @@ test.describe('/map filters', () => {
     page,
   }) => {
     await page.goto('/map');
+    await openSettings(page);
     await skipWithoutWebGL(page);
     const caveat = page.getByTestId('overnight-caveat');
     await expect(
@@ -487,6 +491,7 @@ test.describe('/map filters', () => {
     page,
   }) => {
     await page.goto('/map');
+    await openSettings(page);
     await skipWithoutWebGL(page);
     for (const group of ['type', 'amenity', 'access']) {
       await expect(
@@ -504,6 +509,7 @@ test.describe('/map filters', () => {
     page,
   }) => {
     await page.goto('/map');
+    await openSettings(page);
     await skipWithoutWebGL(page);
     await loaded(page);
 
@@ -556,6 +562,7 @@ test.describe('/map filters', () => {
   // "None" must not empty the facilities either.
   test('Accessibility None leaves the facilities alone', async ({ page }) => {
     await page.goto('/map');
+    await openSettings(page);
     await skipWithoutWebGL(page);
     await page.getByTestId('filter-amenity-all').click();
     await page.getByTestId('filter-access-all').click();
@@ -583,6 +590,7 @@ test.describe('/map filters', () => {
     page,
   }) => {
     await page.goto('/map');
+    await openSettings(page);
     await skipWithoutWebGL(page);
     await page.getByTestId('filter-amenity-toilets').click();
     await page.getByTestId('filter-include-unknown').locator('input').check();
@@ -609,6 +617,7 @@ test.describe('/map filters', () => {
     page,
   }) => {
     await page.goto('/map');
+    await openSettings(page);
     await skipWithoutWebGL(page);
     await page.getByTestId('filter-amenity-toilets').click();
     await page.getByTestId('filter-amenity-wheelchair').click();
@@ -628,6 +637,7 @@ test.describe('/map filters', () => {
     page,
   }) => {
     await page.goto('/map');
+    await openSettings(page);
     await skipWithoutWebGL(page);
     await page.getByTestId('filter-amenity-toilets').click();
     await page.getByTestId('filter-include-unknown').locator('input').check();
@@ -655,6 +665,7 @@ test.describe('/map filters', () => {
     page,
   }) => {
     await page.goto('/map');
+    await openSettings(page);
     await skipWithoutWebGL(page);
     // Nothing is ticked on arrival, so "None" has nothing to do.
     await expect(page.getByTestId('filter-amenity-none')).toBeDisabled();
@@ -696,6 +707,7 @@ test.describe('/map filters', () => {
 
   test('the bulk controls are reachable by keyboard', async ({ page }) => {
     await page.goto('/map');
+    await openSettings(page);
     await skipWithoutWebGL(page);
     const all = page.getByTestId('filter-type-all');
     await all.focus();
@@ -713,6 +725,7 @@ test.describe('/map filters', () => {
     page,
   }) => {
     await page.goto('/map');
+    await openSettings(page);
     await skipWithoutWebGL(page);
     // CAMP-25 asks for a separate category. A reader who needs it should
     // not have to read eight other tick-boxes to find it.
@@ -723,6 +736,7 @@ test.describe('/map filters', () => {
 
   test('ticking a facility narrows what the map draws', async ({ page }) => {
     await page.goto('/map');
+    await openSettings(page);
     await skipWithoutWebGL(page);
     await loaded(page);
 
@@ -739,6 +753,7 @@ test.describe('/map filters', () => {
     page,
   }) => {
     await page.goto('/map');
+    await openSettings(page);
     await skipWithoutWebGL(page);
     await loaded(page);
 
@@ -788,6 +803,7 @@ test.describe('/map filters', () => {
   }) => {
     await recordCamera(page);
     await page.goto('/map');
+    await openSettings(page);
     await skipWithoutWebGL(page);
     await loaded(page);
     const opening = await publishedView(page);
@@ -870,6 +886,7 @@ test.describe('/map filters', () => {
   }) => {
     await recordCamera(page);
     await page.goto('/map');
+    await openSettings(page);
     await skipWithoutWebGL(page);
     await loaded(page);
 
@@ -985,6 +1002,7 @@ test.describe('/map filters', () => {
 
     await recordCamera(page);
     await page.goto('/map');
+    await openSettings(page);
     await skipWithoutWebGL(page);
 
     await loaded(page);
@@ -1013,6 +1031,7 @@ test.describe('/map filters', () => {
   }) => {
     await recordCamera(page);
     await page.goto('/map');
+    await openSettings(page);
     await skipWithoutWebGL(page);
     await loaded(page);
     const detail = await publishedView(page);
@@ -1156,6 +1175,7 @@ test.describe('/map filters', () => {
     page,
   }) => {
     await page.goto('/map');
+    await openSettings(page);
     await skipWithoutWebGL(page);
     await loaded(page);
 
@@ -1182,6 +1202,7 @@ test.describe('/map filters', () => {
     page,
   }) => {
     await page.goto('/map');
+    await openSettings(page);
     await skipWithoutWebGL(page);
     await loaded(page);
 
@@ -1231,6 +1252,7 @@ test.describe('/map filters', () => {
     page,
   }) => {
     await page.goto('/map');
+    await openSettings(page);
     await skipWithoutWebGL(page);
     await loaded(page);
 
@@ -1273,6 +1295,7 @@ test.describe('/map filters', () => {
 
   test('clearing puts every campsite back', async ({ page }) => {
     await page.goto('/map');
+    await openSettings(page);
     await skipWithoutWebGL(page);
     await loaded(page);
 
@@ -1314,6 +1337,7 @@ test.describe('/map filters', () => {
       'amenities=toilets&unknown=1',
     ]) {
       await page.goto(`/map?${query}`);
+      await openSettings(page);
       await skipWithoutWebGL(page);
       // Markers only exist below DETAIL_ZOOM. Without this the map is
       // drawing regions and there is nothing to compare.
@@ -1410,6 +1434,7 @@ test.describe('/map filters', () => {
     page,
   }) => {
     await page.goto('/map');
+    await openSettings(page);
     await skipWithoutWebGL(page);
 
     const count = page.getByTestId('filter-count');
@@ -1494,6 +1519,7 @@ test.describe('/map filters', () => {
   }) => {
     await recordCamera(page);
     await page.goto('/map');
+    await openSettings(page);
     await skipWithoutWebGL(page);
     await zoomToDetail(page);
 

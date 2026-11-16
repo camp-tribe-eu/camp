@@ -33,6 +33,15 @@ const ROOT = join(__dirname, "..", "..");
 
 /** Файли, текст яких читає відвідувач каталогу оренди. */
 const READER_FACING = [
+  // 🔴 CAMP-461: сторінки й блоки, які малюють оренду (хаб, країна, картки,
+  // віджет). Вони складаються зі слотів CMS, і саме тут українському тексту
+  // легше за все просочитись у розмітку: повідомлення про помилки слотів
+  // стоять у цих самих файлах.
+  "src/app/camper-rental/page.tsx",
+  "src/app/camper-rental/[country]/page.tsx",
+  "src/components/rental-blocks.tsx",
+  "src/components/rental-picker.tsx",
+  "src/components/media-card.tsx",
   "src/app/camper-rental/providers/page.tsx",
   "src/app/camper-rental/providers/[slug]/page.tsx",
   "src/components/provider-catalogue.tsx",

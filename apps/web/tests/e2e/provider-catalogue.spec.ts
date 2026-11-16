@@ -50,9 +50,11 @@ test.describe("каталог компаній: фільтр звужує, а н
   }) => {
     await page.goto("/camper-rental/providers");
     const first = page.getByTestId("provider-row").first();
-    const name = (await first.getByRole("link").first().textContent())?.trim();
+    // 🔴 CAMP-461: назва — заголовок єдиної картки; посилання — кнопка
+    // «View NAME». Читаємо заголовок і переходимо кнопкою, що його називає.
+    const name = (await first.locator(".ct-mc__title").textContent())?.trim();
     expect(name).toBeTruthy();
-    await first.getByRole("link").first().click();
+    await first.getByRole("link", { name: new RegExp(`^View ${name}`) }).click();
 
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(name!);
     // Пункт 3 картки: сингл несе контакти й опис, а не лише назву.

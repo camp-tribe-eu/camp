@@ -736,15 +736,19 @@ test.describe('structured data (CAMP-37)', () => {
  * окремо лишиться на місці, і жоден інший тест не помітить.
  */
 test.describe('🔴 CAMP-453 — порядок блоків на сторінці кемпінгу', () => {
-  test('умови стоять вище за зручності й за «як дістатися»', async ({
+  test('зручності стоять вище за умови довкілля й за «як дістатися» — і в першому екрані', async ({
     page,
     request,
   }, testInfo) => {
-    // 🔴 КРАЇНА НЕ НАЗИВАЄТЬСЯ В ТЕСТІ. Перша редакція питала
-    // `/spots/fr/regions` — і впала на CI: у фікстурі CI Франції немає
-    // зовсім, бо це маленький набір даних. Той самий урок, що вже
-    // записаний у `hubs.spec.ts`: «тест, який називає країну, — це тест
-    // про ту країну». Беремо першу країну з кемпінгами, хай яка вона.
+    // 🔴 ПРЕМІСА ЦЬОГО ТЕСТУ ЗМІНИЛАСЬ. Перша редакція (CAMP-453, пункт 2)
+    // вимагала навпаки: умови довкілля — ВИЩЕ за Facilities, бо власник
+    // тоді сказав «не вивів погоду й тривоги». Друге рішення власника
+    // (441/64: «опції кемпінгу нагорі, загальне внизу») поставило
+    // зручності в колонку карток на першому екрані, а повітря, посуху й
+    // воду для купання — у вторинний блок під нею. Тест міняє знак, а не
+    // слабшає: тепер він вимагає зворотного порядку, і так само рахує
+    // умови, що справді є на цій сторінці.
+    await page.setViewportSize({ width: 1440, height: 900 });
     const countries: { country: string }[] = await (
       await request.get(`${API_BASE}/spots/countries`)
     ).json();
@@ -786,10 +790,9 @@ test.describe('🔴 CAMP-453 — порядок блоків на сторінц
     const gettingThere = at('Getting there');
     expect(facilities, 'немає секції Facilities').not.toBeNull();
     expect(gettingThere, 'немає секції Getting there').not.toBeNull();
+    expect(facilities!, `Facilities на ${facilities} px — поза першим екраном 900`).toBeLessThan(900);
 
-    // 🔴 ЗНАМЕННИК: беремо ті умови, що справді є на ЦЬОМУ кемпінгу.
-    // Вимагати всі чотири означало б тестувати дані, а не порядок.
-    const conditions = ['Bathing water', 'Air quality', 'Drought', 'weather warnings']
+    const conditions = ['Bathing water', 'Air quality', 'Drought']
       .map((n) => ({ n, y: at(n) }))
       .filter((c): c is { n: string; y: number } => c.y !== null);
     const summary = `умов на сторінці ${conditions.length}: ${conditions
@@ -799,11 +802,8 @@ test.describe('🔴 CAMP-453 — порядок блоків на сторінц
     expect(conditions.length, `жодної умови не знайдено — ${summary}`).toBeGreaterThan(0);
 
     for (const c of conditions) {
-      expect(c.y, `«${c.n}» нижче за Facilities — ${summary}`).toBeLessThan(
+      expect(c.y, `«${c.n}» вище за Facilities — ${summary}`).toBeGreaterThan(
         facilities!,
-      );
-      expect(c.y, `«${c.n}» нижче за «Getting there» — ${summary}`).toBeLessThan(
-        gettingThere!,
       );
     }
   });

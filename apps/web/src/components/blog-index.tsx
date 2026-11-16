@@ -13,6 +13,10 @@ import { Block } from '@/components/layout';
 
 export const BLOG_PATH = '/blog';
 export const BLOG_TITLE = 'Blog';
+// 🔴 ОПИС ДЕКЛАРУЄ ТЕ, ЩО В ДОПИСАХ, А НЕ ПРОЕКТ (CAMP-464). Попередній
+// рядок («what we are building… what we got wrong») власник назвав
+// «дурними обертами» і внутрішньою кухнею (ревю 445/9): читач блогу шукає
+// відповідь про кемпінг, а не звіт про те, що в нас не вийшло.
 export const BLOG_DESCRIPTION =
   'Notes on camping and motorhoming in Europe, and what the data says.';
 
@@ -67,10 +71,13 @@ export default function BlogIndexView({
 
       <Breadcrumbs crumbs={crumbs} />
 
-      <h1 className="mt-4 text-3xl leading-tight md:text-[42px]">
+      {/* 🔴 ЗАГОЛОВОК ПО ЦЕНТРУ ВЕЛИКИМ (CAMP-464) — як «Summer Adventures»
+          на сторінці блогу демо-стору: сторінка відкривається назвою, а не
+          рядком над картками. Опис під ним — та сама центрована колонка. */}
+      <h1 className="mt-4 text-center text-4xl leading-tight md:text-[56px]">
         {BLOG_TITLE}
       </h1>
-      <Block as="p" measure="read" className="mt-4 text-ink-2">{BLOG_DESCRIPTION}</Block>
+      <Block as="p" measure="narrow" className="mt-4 text-center text-ink-2">{BLOG_DESCRIPTION}</Block>
 
       {posts.length === 0 ? (
         // 🔴 Порожньо сказано словами, а не порожнім списком: читач має
@@ -93,11 +100,16 @@ export default function BlogIndexView({
           <PostCards
             testId="blog-posts"
             titleAs="h2"
+            columns={3}
             items={posts.map((p) => ({
               key: p.slug,
               href: `${BLOG_PATH}/${p.slug}`,
               title: p.title,
               excerpt: p.summary ?? undefined,
+              image: p.coverUrl
+                ? { src: p.coverUrl, alt: p.coverAlt ?? '' }
+                : undefined,
+              tags: p.tags,
               meta: p.publishedAt
                 ? `${postDate(p.publishedAt)}${p.authorName ? ` · ${p.authorName}` : ''}`
                 : undefined,

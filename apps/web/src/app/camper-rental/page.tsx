@@ -1,13 +1,29 @@
 import type { Metadata } from "next";
-import { pageContent } from '@/lib/page-content';
-import Link from "next/link";
+import Faq, { type FaqItem } from "@/components/faq";
+import { Flag } from "@/components/flag";
+import { LayeredBanner } from "@/components/layered-banner";
+import MediaCards from "@/components/media-card";
+import { termsOf } from "@/components/page-sections";
 import RentalChecklist from "@/components/rental-checklist";
 import RentalDisclosure from "@/components/rental-disclosure";
 import RentalOfferSlot from "@/components/rental-offer-slot";
+import RentalPicker from "@/components/rental-picker";
+import {
+  CompactBannerStyle,
+  MassLine,
+  RentalProviderCards,
+  RentalStories,
+} from "@/components/rental-blocks";
 import { RentalShapes, RentalThresholds } from "@/components/rental-thresholds";
+import { ButtonLink } from "@/components/button";
+import { Block } from "@/components/layout";
 import { abs, collectionGraph, jsonLdProps } from "@/lib/jsonld";
 import { alternatesFor } from "@/lib/i18n";
 import { longDate } from "@/lib/fuel";
+import { pageContent } from "@/lib/page-content";
+import { claimSlots, withButton } from "@/lib/slots";
+import { pickerChoices } from "@/lib/rental-picker";
+import { listCamperTypes, listProviders } from "@/lib/rental-providers";
 import { SHAPES, THRESHOLDS } from "@/data/rental/thresholds";
 import {
   count,
@@ -16,50 +32,57 @@ import {
   publishableCountries,
   rentalOffers,
 } from "@/lib/rental";
-import { Block } from "@/components/layout";
 
-// CAMP-4 / CAMP-54 — the camper rental landing page.
+// CAMP-4 / CAMP-54 / CAMP-461 — the camper rental landing page.
 //
-// 🔴 WHAT THIS PAGE IS FOR, GIVEN THAT WE CANNOT SELL ANYTHING YET.
+// 🔴 WHAT THIS PAGE IS FOR. A reader who lands here wants one thing first:
+// to choose a company to rent from. So the first screen is a banner and a
+// picker that lead to the company catalogue, the companies come straight
+// after, and the rest — the licence line, the contract questions — is
+// reference, which is what an accordion is for.
 //
-// Camper rental is the project's primary monetisation route and we have
-// no affiliate accounts (CAMP-98), no partner, no inventory and no
-// prices. The temptation in that position is to publish a page that
-// looks like a marketplace and is furnished with invented numbers. This
-// is the other thing: a page that answers the questions a first-time
-// renter in the Union actually has, from sources that can be named, and
-// that leaves the commercial slot visibly empty until there is something
-// honest to put in it.
+// 🔴 CAMP-461: ПЕРША РЕДАКЦІЯ ЦІЄЇ СТОРІНКИ БУЛА ДОКУМЕНТОМ. Власник
+// (CAMP-443/28–37): «Я не розумію що це за сторінка… головна річ — вибрати,
+// в кого орендувати, а все інше можна вниз у FAQ». 7 493 px тексту, перехід
+// до компаній — рядок на шостому екрані. Тепер: банер, віджет, компанії,
+// чергування «фото + текст», країни з прапорами, FAQ.
 //
-// The content is deliberately the part nobody publishes in one piece —
-// the licence line at 3 500 kg and everything else that changes at the
-// same number, the dimensions that decide your toll class, the questions
-// that decide the bill. That is also the part that does not go stale and
-// does not need a partner's cooperation to write.
+// 🔴 ТЕКСТ — У CMS, МАКЕТ — ТУТ. Кожен слот сторінки `camper-rental`
+// (`banner`, `picker`, `providers`, `mass-line`, `countries`, `story:N`,
+// `faq`, `intro`) читається за іменем, а `claimSlots` падає на слоті, якого
+// сторінка не знає: секція, додана в адмінці й не намальована, не зникає
+// мовчки. Те, що РАХУЄ згенероване (число країн, число записів, дата заміру,
+// два питання з числами порогів), лишається з генератором.
+
+const SLOTS = {
+  one: [
+    "intro",
+    "banner",
+    "picker",
+    "providers",
+    "mass-line",
+    "countries",
+    "faq",
+  ],
+  many: /^story:\d+$/,
+} as const;
 
 /**
- * The five questions the mockup asks.
+ * The two FAQ answers that quote numbers.
  *
- * 🔴 WHY THE MARKUP IS HERE AT ALL, since it will not earn a star.
- * Google withdrew FAQ rich results for almost every site in 2023, and
- * `08-rental.html` says so in as many words. This is not for the snippet
- * — it is for the readers who are actually our traffic: crawlers and
- * assistants, which quote a structured answer and cannot quote a
- * paragraph they had to infer. Anyone tempted to delete this block
- * because "the stars never came" should read this sentence first.
+ * 🔴 THE NUMBERS ARE READ FROM THE DATA, NOT TYPED HERE, and review is the
+ * reason. The first version copied "3 500 kg" and the caravan sentence as
+ * prose. Changing `thresholds.ts` to 4 250 kg then left the page showing
+ * 4 250 in the threshold table and 3 500 in the FAQ — with 815 unit tests
+ * green, because nothing tied the two together. A wrong number inside
+ * FAQPage markup is the one mistake here that gets quoted back at scale
+ * rather than seen once.
  *
- * 🔴 THE NUMBERS ARE READ FROM THE DATA, NOT TYPED HERE, and review is
- * the reason. The first version copied "3 500 kg" and the caravan
- * sentence as prose. Changing `thresholds.ts` to 4 250 kg then left the
- * page showing 4 250 in the threshold table and 3 500 in the FAQ — with
- * 815 unit tests green, because nothing tied the two together. A wrong
- * number inside FAQPage markup is the one mistake here that gets quoted
- * back at scale rather than seen once.
- *
- * The caravan answer is `why` verbatim from SHAPES rather than a
- * paraphrase of it, for the same reason.
+ * The caravan answer is `why` verbatim from SHAPES rather than a paraphrase
+ * of it, for the same reason. The other FAQ answers carry no number from
+ * the data, so they live in the CMS.
  */
-function faq() {
+function dataQuestions(): Array<{ q: string; a: string }> {
   const mass = THRESHOLDS.find((t) => t.id === "mass");
   const caravan = SHAPES.find((s) => s.id === "caravan");
   // 🔴 Loudly, not silently. An answer built from `undefined` would read
@@ -76,68 +99,90 @@ function faq() {
       q: "What if it is a caravan rather than a motorhome?",
       a: `Then the licence question is about the combination, not about either vehicle. ${caravan.why}`,
     },
-    {
-      q: "Why are there no prices on this page?",
-      // 🔴 No legal citation here, and that is deliberate. The first
-      // version said a stale price is "misleading under the Unfair
-      // Commercial Practices Directive" — but the two places this
-      // repository cites that directive are both about Article 7(2),
-      // a misleading OMISSION as to commercial intent. Stretching the
-      // same directive to cover price is a different article, and I did
-      // not name it. An unsourced legal claim inside FAQPage markup is
-      // exactly what an assistant repeats without the hedge. The
-      // practical reason is true on its own and needs no citation.
-      a: "Because we hold none. We link to the companies that rent campers rather than mirroring their prices: a number copied here is stale the week after, and a figure that is wrong is worse than a figure that is absent. The same reasoning is why our trip cost calculator prices fuel from the European Commission bulletin, dated, and asks you for the campsite fee.",
-    },
-    // 🔴 CAMP-463: ТУТ БУЛО ПИТАННЯ «How does CampTribe make money from
-    // this?» із відповіддю про те, що партнерських посилань немає,
-    // заявки подані й без відповіді, а сторінка нічого не заробляє.
-    //
-    // Право ЄС вимагає розкривати комерційний звʼязок ТАМ, ДЕ ВІН Є
-    // (UCPD, ст. 7(2) і Omnibus): оголошувати його ВІДСУТНІСТЬ не
-    // зобовʼязує ніщо. Тобто цей абзац не виконував обовʼязку — він
-    // розповідав читачеві про стан наших перемовин.
-    //
-    // Коли посилання зʼявляться, розкриття повернеться — біля самого
-    // посилання, як і було сказано, а не в підвалі. Див. CAMP-462.
-    {
-      q: "What most often costs more than expected at the counter?",
-      // 🔴 "usually with an administration fee", not "with": the hire
-      // checklist hedges it and so does this. And no claimed ordering —
-      // the first version said "in roughly that order", which the
-      // checklist does not establish and nothing here measures.
-      a: "Four things. The insurance excess, which the headline damage waiver rarely takes to zero and which commonly excludes the roof, the awning, the tyres and the underside. One-way fees, quoted after the rest of the booking is agreed. A mileage cap that looked generous for one country and is not for a loop through four. And camera-enforced charges — Italian limited traffic zones, the Dublin M50, Swedish congestion tax — which reach the rental company as registered keeper and are passed on, usually with an administration fee.",
-    },
   ];
 }
 
 export const metadata: Metadata = {
   title: "Renting a camper in the EU",
   description:
-    "What a camper hire in the European Union actually commits you to: the 3.5 tonne licence line, toll classes set by height, payload, cross-border rules and the questions that decide the bill. No prices, because we hold none.",
+    "Choose a camper rental company in the EU and know what the hire commits you to: the 3.5 tonne licence line, toll classes set by height, payload, cross-border rules and the questions that decide the bill.",
   alternates: alternatesFor("/camper-rental"),
 };
 
 export default async function CamperRentalHub() {
-  const [countries, page] = await Promise.all([
+  const [countries, page, providers, types] = await Promise.all([
     publishableCountries(),
-    pageContent('camper-rental').catch(() => null),
+    pageContent("camper-rental"),
+    listProviders(),
+    listCamperTypes(),
   ]);
-  const intro = page?.sections.find((s) => s.slot === 'intro')?.body ?? null;
+  // 🔴 Страницю без її тексту не малюємо навпіл: макет тримається на
+  // слотах, і порожній хаб оренди гірший за відмову збірки.
+  if (!page) throw new Error("camper-rental: the page is missing from the CMS");
+  const slots = claimSlots(page.sections, SLOTS, "camper-rental");
+
+  const banner = withButton(slots.one.banner, "camper-rental");
+  const picker = withButton(slots.one.picker, "camper-rental");
+  const providersBlock = withButton(slots.one.providers, "camper-rental");
+  const massLine = slots.one["mass-line"];
+  const countriesBlock = slots.one.countries;
+  const faqSection = slots.one.faq;
+  const intro = slots.one.intro.body;
+  const stories = slots.many;
+
   const offers = rentalOffers("hub");
-  const questions = faq();
+
+  // 🔴 Перелік у віджеті — лише з того, що є в каталозі, без Кіпру і без
+  // типів, яких жодна компанія не назвала: див. `lib/rental-picker.ts`.
+  const choices = pickerChoices(providers, types);
+
+  // Нейтральний порядок — за назвою; порядок за заявленим парком читався б
+  // як рейтинг, якого ми не складали.
+  const teaser = [...providers]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .slice(0, 4);
+
+  // FAQ: питання з числами з даних, питання з CMS, і довідка-вузли.
+  const textual = [
+    ...dataQuestions().map((d) => ({ key: d.q, question: d.q, answer: d.a })),
+    ...termsOf(faqSection.items, "camper-rental: faq").map((t) => ({
+      key: t.term,
+      question: t.term,
+      answer: t.text,
+    })),
+  ];
+  const faqItems: FaqItem[] = [
+    ...textual,
+    {
+      key: "numbers",
+      question: "Which four numbers on the contract decide the trip?",
+      answer: <RentalThresholds />,
+    },
+    {
+      key: "shapes",
+      question: "What shapes of camper will I be offered?",
+      answer: <RentalShapes />,
+    },
+    {
+      key: "checklist",
+      question: "Which eight questions should I ask before I sign?",
+      answer: <RentalChecklist />,
+    },
+  ];
 
   return (
-    <main className="mx-auto max-w-wrap px-4 py-10 xl:px-6">
+    <main className="mx-auto max-w-wrap px-4 pb-12 pt-4 xl:px-6">
       <script
         {...jsonLdProps({
           "@context": "https://schema.org",
           "@type": "FAQPage",
           "@id": `${abs("/camper-rental")}#faq`,
-          mainEntity: questions.map((f) => ({
+          // 🔴 Лише текстові відповіді: розмітка читається машиною, а
+          // таблиця порогів у ній — не відповідь, а вузол.
+          mainEntity: textual.map((f) => ({
             "@type": "Question",
-            name: f.q,
-            acceptedAnswer: { "@type": "Answer", text: f.a },
+            name: f.question,
+            acceptedAnswer: { "@type": "Answer", text: f.answer },
           })),
         })}
       />
@@ -156,214 +201,166 @@ export default async function CamperRentalHub() {
         )}
       />
 
-      <h1 className="text-3xl leading-tight md:text-[42px]">
-        Renting a camper in the EU
-      </h1>
+      {/* 1. БАНЕР НЕСЕ `h1` (CAMP-461). Власник: «нагорі точно проситься
+          банер той багатошаровий наш». Заголовок усередині банера, а не
+          продубльований під ним — два `h1` це зламаний обрис. Кнопка
+          банера веде до вибору компанії: це перший заклик сторінки. */}
+      <CompactBannerStyle />
+      <LayeredBanner
+        className="ct-rental-banner"
+        headingLevel={1}
+        background={{ src: "/banners/camper.webp" }}
+        tickerText={banner.subheading ?? banner.heading.toUpperCase()}
+        heading={banner.heading}
+        description={banner.body}
+        cta={{ href: banner.ctaHref, label: banner.ctaLabel }}
+        minHeight="min(52svh, 420px)"
+        textSize={{ desktop: "160px", mobile: "56px" }}
+      />
 
-      {/* 🔴 ВСТУП ІЗ CMS (CAMP-478) — власник правит його сам.
-          `.catch(() => null)` навмисно: збій CMS прибирає ОДИН абзац, а
-          не сторінку, бо все нижче будується з даних і живе без нього.
-          Абзац нижче лишився в коді, бо рахує наші записи — речення, що
-          рахує згенероване, мусить жити з генератором. */}
+      {/* 2. ВІДЖЕТ. Не обіцяє пошуку дат: див. components/rental-picker.tsx. */}
+      <div className="mt-4">
+        <RentalPicker
+          heading={picker.heading}
+          hint={picker.body}
+          submitLabel={picker.ctaLabel}
+          action={picker.ctaHref}
+          countries={choices.countries}
+          types={choices.types}
+        />
+      </div>
+
       {intro && (
-        <Block as="p" measure="read" className="mt-4 text-ink-2">
+        <Block as="p" measure="read" className="mx-auto mt-10 text-ink-2 md:text-center">
           {intro}
         </Block>
       )}
 
-      {/* 🔴 CAMP-463: ПЕРШЕ, ЩО БАЧИТЬ ЧИТАЧ, — ЩО СТОРІНКА Є, А НЕ ЧОГО НА
-          НІЙ НЕМАЄ. Тут стояло жирним «There are no prices and no
-          vehicles here.» і далі «We hold no rental inventory and do not
-          invent one». Це відповідь на питання, якого читач ще не
-          ставив, і зізнання про нас. «Цін немає» лишилось там, де його
-          шукають: у відповіді на «Why are there no prices» нижче й біля
-          каталогу компаній. */}
-      <Block as="p" measure="read" className="mt-4 text-ink-2">
-        Every number on these pages is either a count of our own{" "}
-        {count(MEASURED.total.spots)} campsite records — measured on{" "}
-        <time dateTime={MEASURED.measuredAt}>
-          {longDate(MEASURED.measuredAt)}
-        </time>{" "}
-        — or a limit somebody with the authority to set it wrote down, cited
-        where it appears.
-      </Block>
-
-      {/* 🔴 In the template from day one, above the content it qualifies,
-          and truthful about the fact that it currently qualifies nothing.
-          See components/rental-disclosure.tsx. */}
+      {/* 🔴 Розкриття звʼязку стоїть ТАМ, ДЕ ВІН Є (CAMP-463; UCPD ст. 7(2)):
+          над вмістом, який воно стосується, і лише коли є що розкривати. */}
       <RentalDisclosure offers={offers.length} />
 
+      {/* 3. КОМПАНІЇ — одразу після віджета, а не на шостому екрані
+          (CAMP-427 вимагав, щоб на каталог вело ВИДИМЕ посилання; CAMP-461 —
+          щоб воно було кнопкою). */}
       <section
-        aria-labelledby="mass-line-heading"
-        className="mt-12 rounded-card border border-line-blue bg-accent-surface p-6"
+        aria-labelledby="providers-heading"
+        className="mt-12"
+        data-testid="rental-providers-block"
       >
-        <h2 id="mass-line-heading" className="text-2xl text-heading">
-          Almost everything changes at 3 500 kg
-        </h2>
-        <Block as="p" measure="read" className="mt-3 text-ink-2">
-          If you read one thing on this page, read this. A single number — the
-          maximum authorised mass stamped on the vehicle — decides four separate
-          things at once, and they are administered by four different sets of
-          people who will not warn you about each other. We went and read each
-          of them.
-        </Block>
-        <Block as="ul" measure="read" className="mt-4 list-disc space-y-3 pl-5 text-ink-2">
-          <li>
-            <strong className="text-ink">Your licence.</strong> Category B
-            covers motor vehicles up to 3 500 kg. Above that you need C1, which
-            is a separate medical and a separate test — not something a rental
-            desk can arrange on the morning of the hire.
-          </li>
-          <li>
-            <strong className="text-ink">Your tolls.</strong> ASFINAG sells the
-            Austrian vignette to &ldquo;cars, motorbikes and camper vans up to
-            3.5 tons&rdquo;; DARS sells the Slovenian e-vignette for vehicles up
-            to 3 500 kilograms. Above that neither exists and the vehicle
-            belongs in the distance-based systems built for lorries, with an
-            on-board unit obtained in advance. Even the newest Dutch toll, on a
-            four-kilometre link outside Rotterdam, draws its tariff at the same
-            line and names campers in it.
-          </li>
-          <li>
-            <strong className="text-ink">Your winter equipment.</strong> Sweden
-            asks vehicles up to 3.5 t for winter tyres from 1 December to 31
-            March when conditions demand, and heavier ones from 10 November to
-            10 April whatever the weather. Austria and Slovenia draw the same
-            line for what has to be fitted where.
-          </li>
-          <li>
-            <strong className="text-ink">Your payload.</strong> The mass in
-            running order of a motor caravan already counts a 75 kg driver and a
-            nearly full fuel tank. What is left between that and 3 500 kg is
-            everything else you intend to carry — and fresh water weighs a
-            kilogram a litre, so a full tank can be a third of it.
-          </li>
-        </Block>
-        <Block as="p" measure="read" className="mt-4 text-sm leading-6 text-ink-2">
-          Sources:{" "}
-          <a
-            className="underline"
-            href="https://eur-lex.europa.eu/eli/dir/2006/126/oj"
-            rel="noopener noreferrer"
-            target="_blank"
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div>
+            <h2 id="providers-heading" className="text-2xl text-heading">
+              {providersBlock.heading}
+            </h2>
+            {providersBlock.body && (
+              <Block as="p" measure="read" className="mt-2 text-ink-2">
+                {providersBlock.body}
+              </Block>
+            )}
+          </div>
+          <ButtonLink
+            href={providersBlock.ctaHref}
+            variant="primary"
+            data-testid="providers-cta"
           >
-            Directive 2006/126/EC on driving licences, Article 4(4)
-          </a>{" "}
-          and{" "}
-          <a
-            className="underline"
-            href="https://eur-lex.europa.eu/eli/reg/2012/1230/oj"
-            rel="noopener noreferrer"
-            target="_blank"
-          >
-            Regulation (EU) No 1230/2012 on masses and dimensions
-          </a>
-          . Both links are the European Legislation Identifier for the act
-          itself, from which EUR-Lex offers the current consolidated text. A
-          member state may transpose the detail differently, and its own
-          transport authority is the last word.
-        </Block>
+            {providersBlock.ctaLabel}
+            {providers.length > 0 ? ` (${providers.length})` : ""}
+          </ButtonLink>
+        </div>
+        <div className="mt-6">
+          <RentalProviderCards
+            providers={teaser}
+            types={types}
+            columns={2}
+            testId="rental-provider-cards"
+          />
+        </div>
       </section>
 
-      <RentalThresholds />
-      <RentalShapes />
-      <RentalChecklist />
+      <RentalOfferSlot offers={offers} where="Europe" />
 
+      {/* 4. «УСЕ МІНЯЄТЬСЯ НА 3 500 КГ» — чотири коротких картки зі значками
+          замість шести абзаців; довгий текст — у питанні акордеона нижче. */}
+      <section
+        aria-labelledby="mass-line-heading"
+        className="mt-12"
+        data-testid="rental-mass-line"
+      >
+        <h2 id="mass-line-heading" className="text-2xl text-heading">
+          {massLine.heading}
+        </h2>
+        {massLine.body && (
+          <Block as="p" measure="read" className="mt-2 text-ink-2">
+            {massLine.body}
+          </Block>
+        )}
+        <div className="mt-6">
+          <MassLine section={massLine} where="camper-rental: mass-line" />
+        </div>
+      </section>
+
+      <RentalStories
+        sections={stories.slice(0, 1)}
+        where="camper-rental"
+      />
+
+      {/* 5. КРАЇНИ — картки в єдиному форматі: прапор зліва, назва, текст,
+          кнопка (CAMP-443/2, 443/35). Рівно одне посилання на країну: цей
+          перелік — і єдиний вхід на сторінки країн, і те, що перелічує
+          розмітка `CollectionPage`. */}
       <section
         aria-labelledby="countries-heading"
         className="mt-12"
         data-testid="rental-country-index"
       >
         <h2 id="countries-heading" className="text-2xl text-heading">
-          Twelve member states, in detail
+          {countriesBlock.heading}
         </h2>
-        <Block as="p" measure="read" className="mt-3 text-ink-2">
-          {/* 🔴 CAMP-463: the page says what is true of each country, not
-              why the list is this long. How many pages we chose to make is
-              our business; the reader asked about rental rules. */}
-          Each of these countries has something of its own — a toll system,
-          a winter rule, a law about where you may sleep — and our campsite
-          records say something about it that they do not say about anywhere
-          else.
+        {/* 🔴 Число країн — із генератора (CAMP-130: перелік свідомо
+            короткий і читач має право знати, що він не згенерований
+            сотнями). Речення, що рахує, живе з тим, що воно рахує. */}
+        <Block as="p" measure="read" className="mt-2 text-ink-2">
+          {countriesBlock.body}{" "}
+          {countries.length} member states have a page of their own.
         </Block>
-
-        <ul className="mt-6 grid gap-4 md:grid-cols-2">
-          {countries.map((c) => (
-            <li
-              key={c.code}
-              className="rounded-card border border-line-2 bg-surface p-5"
-            >
-              <h3 className="text-lg">
-                <Link
-                  className="text-heading underline"
-                  href={`/camper-rental/${c.code}`}
-                >
-                  Renting a camper in {inProse(c)}
-                </Link>
-              </h3>
-              <p className="mt-2 text-ink-2">{c.angle}</p>
-            </li>
-          ))}
-        </ul>
+        <div className="mt-6">
+          <MediaCards
+            columns={3}
+            items={countries.map((c) => ({
+              key: c.code,
+              media: <Flag code={c.code} />,
+              title: c.name,
+              text: c.angle,
+              cta: {
+                href: `/camper-rental/${c.code}`,
+                label: `Rules for ${c.name}`,
+              },
+            }))}
+          />
+        </div>
       </section>
 
-      {/* 🔴 CAMP-427: СТОРІНКА, НА ЯКУ НІЩО НЕ ВЕДЕ, НЕ ІСНУЄ. Каталог
-          компаній був доступний лише тому, хто набере адресу руками:
-          жодного вхідного посилання в усьому `apps/web/src`, тобто ані
-          читач, ані пошуковик його не знайшли б. */}
-      <section
-        aria-labelledby="providers-heading"
-        className="mt-12 border-t border-line-2 pt-8"
-      >
-        <h2
-          id="providers-heading"
-          className="text-xl text-heading"
-        >
-          Who to rent from
-        </h2>
-        <p className="mt-2 max-w-2xl">
-          The ten largest rental companies in the Union: what is included in the
-          price, what costs extra, and what each one has in its fleet. There are
-          no prices on purpose — they change weekly; the depot and fleet figures
-          are what the companies state about themselves, with the source and the
-          date we checked it beside each one.
-        </p>
-        <p className="mt-3">
-          <Link href="/camper-rental/providers">See the companies →</Link>
-        </p>
-      </section>
+      <RentalStories sections={stories.slice(1)} where="camper-rental" />
 
-      <RentalOfferSlot offers={offers} where="Europe" />
-
-{/* 🔴 CAMP-463: ТУТ БУЛА СЕКЦІЯ «What this section does not have
-          yet, and why» — про відсутніх партнерів, подані й непочуті
-          заявки та про те, чому слот порожній.
-
-          Власник про цей клас тексту: «ти що вирішив нас скомпроментувати
-          на весь світ?». Він має рацію по суті, а не лише по тону:
-          сторінка, що пояснює читачеві стан наших перемовин, говорить
-          про нас, а не про те, по що він прийшов.
-
-          Порожній слот і так порожній — він не потребує підпису. */}
-
+      {/* 6. FAQ — довгий текст сторінки, у акордеоні теми. */}
       <section
         aria-labelledby="faq-heading"
-        className="mt-12 border-t border-line-2 pt-8"
+        className="mt-16"
+        data-testid="rental-faq"
       >
-        <h2 id="faq-heading" className="text-xl text-heading">
-          Questions people ask before they book
+        <h2 id="faq-heading" className="text-2xl text-heading">
+          {faqSection.heading}
         </h2>
-        {/* 🔴 <dl>, not a details/summary accordion. A closed <details> is
-            text a crawler reads but a reader has to hunt for, and the
-            point of this block is that the answer is THERE — in the HTML,
-            on first paint, without JavaScript. */}
-        <Block as="dl" measure="read" className="mt-4">
-          {questions.map((f) => (
-            <div key={f.q} className="mt-5 first:mt-0">
-              <dt className="font-semibold text-ink">{f.q}</dt>
-              <dd className="mt-1 text-ink-2">{f.a}</dd>
-            </div>
-          ))}
+        <Faq items={faqItems} testId="rental-faq-list" />
+        <Block as="p" measure="read" className="mt-6 text-sm text-ink-2">
+          Every number on these pages is either a count of our own{" "}
+          {count(MEASURED.total.spots)} campsite records — measured on{" "}
+          <time dateTime={MEASURED.measuredAt}>
+            {longDate(MEASURED.measuredAt)}
+          </time>{" "}
+          — or a limit somebody with the authority to set it wrote down, cited
+          where it appears.
         </Block>
       </section>
     </main>
