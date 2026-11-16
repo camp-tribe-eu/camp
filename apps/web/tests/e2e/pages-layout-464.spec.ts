@@ -127,7 +127,7 @@ test.describe("🔴 CAMP-464 — блог і допис", () => {
     expect(total, "у блозі менше п'яти карток").toBeGreaterThanOrEqual(5);
 
     const real = page.locator(
-      '[data-testid="blog-posts"] img:not([data-testid="post-placeholder"])',
+      '[data-testid="blog-posts"] img',
     );
     expect(await real.count(), "жодної справжньої обкладинки").toBeGreaterThanOrEqual(5);
     for (const img of await real.all()) {
@@ -136,9 +136,9 @@ test.describe("🔴 CAMP-464 — блог і допис", () => {
       );
       expect(ok, `обкладинка не завантажилась: ${await img.getAttribute("src")}`).toBe(true);
     }
-    // Допис із фікстури CI без обкладинки лишається з лого — чесно, а не порожньо.
+    // Допис із фікстури CI без обкладинки — заглушка теми, а не порожнеча.
     await expect(
-      page.locator('[data-testid="blog-posts"] [data-testid="post-placeholder"]').first(),
+      page.locator('[data-testid="blog-posts"] [data-testid="photo-placeholder"]').first(),
     ).toBeVisible();
 
     const tags = page.locator('[data-testid="blog-posts"] [data-testid="post-tags"] li');

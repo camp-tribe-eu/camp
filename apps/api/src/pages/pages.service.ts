@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { isPhotoSlotKey } from './photo-slots';
 
 // CAMP-365 — сторінка, зібрана з універсальних секцій (модель CAMP-362).
 // CAMP-364 — дописи блогу їдуть тією самою моделлю, інший лише `type`.
@@ -267,6 +268,36 @@ export class PagesService {
           AND ${VISIBLE}
         LIMIT 1`,
       [code.toLowerCase(), language],
+    );
+    const src = rows[0]?.src?.trim();
+    if (!src) return null;
+    return { src, alt: rows[0].alt?.trim() ?? '' };
+  }
+
+  /**
+   * Фото слота: `pages` із `type = 'photo-slot'` і слагом = ключ.
+   *
+   * 🔴 КЛЮЧ ЛИШЕ З ПЕРЕЛІКУ `PHOTO_SLOTS`; решта — `null` без звернення до
+   * бази. `null` — «фото немає», і веб малює заглушку. Порожній рядок і
+   * пробіли — теж «немає». Видимість — та сама `VISIBLE`.
+   */
+  async photoSlot(
+    key: string,
+    language: string,
+  ): Promise<{ src: string; alt: string } | null> {
+    if (!isPhotoSlotKey(key)) return null;
+    const rows = await this.db.query<
+      Array<{ src: string | null; alt: string | null }>
+    >(
+      `SELECT p.banner_image_url AS src, t.banner_image_alt AS alt
+         FROM pages p
+         JOIN page_translations t
+           ON t.page_id = p.id AND t.language_code = $2
+        WHERE p.slug = $1
+          AND p.type = 'photo-slot'
+          AND ${VISIBLE}
+        LIMIT 1`,
+      [key, language],
     );
     const src = rows[0]?.src?.trim();
     if (!src) return null;

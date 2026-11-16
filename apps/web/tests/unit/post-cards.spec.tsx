@@ -52,22 +52,23 @@ test('🔴 уривок і підпис необовʼязкові — без н
   expect(visibleText(html)).toContain('Second post');
 });
 
-test('🔴 без фото картка бере наше лого — ОДИН файл на всіх', () => {
+test('🔴 без фото картка показує заглушку теми, а не лого: жодного <img>, сховано від читача екрана', () => {
   const html = renderComponent(PostCards, { items });
-  const srcs = [...html.matchAll(/<img[^>]*src="([^"]+)"/g)].map((m) => m[1]);
-  expect(srcs.length, 'картинок менше, ніж карток').toBe(items.length);
-  expect(
-    [...new Set(srcs)],
-    'картки беруть різні файли — заміна одного не змінить усіх',
-  ).toEqual(['/logo.svg']);
+  expect(html, 'картка без фото все ще бере лого').not.toContain('/logo.svg');
+  expect(html.match(/<img\b/g) ?? [], 'заглушка не має бути картинкою').toEqual([]);
+  const placeholders = html.match(/data-testid="photo-placeholder"/g) ?? [];
+  expect(placeholders.length, 'заглушок менше, ніж карток').toBe(items.length);
+  // Заглушка сховано від диктора й не веде нікуди окремо від назви.
+  expect(html.match(/<div[^>]*data-testid="photo-placeholder"[^>]*>/g)?.every((d) => d.includes('aria-hidden="true"'))).toBe(true);
+  expect(visibleText(html)).not.toMatch(/coming soon|no photo/i);
 
-  // Своє фото, коли воно є, витісняє плейсхолдер.
+  // Своє фото, коли воно є, витісняє заглушку — лише на цій картці.
   const withImage = renderComponent(PostCards, {
-    items: [{ ...items[1], image: { src: '/banners/tent.svg', alt: 'A tent' } }],
+    items: [{ ...items[1], image: { src: '/banners/tent.svg', alt: 'A tent' } }, items[0]],
   });
   expect(withImage).toContain('src="/banners/tent.svg"');
   expect(withImage).toContain('alt="A tent"');
-  expect(withImage).not.toContain('/logo.svg');
+  expect((withImage.match(/data-testid="photo-placeholder"/g) ?? []).length).toBe(1);
 });
 
 /**
@@ -77,10 +78,17 @@ test('🔴 без фото картка бере наше лого — ОДИН 
  * натиски табом до одного й того самого.
  */
 test('🔴 посилання-картинка сховане від читача екрана й від табуляції', () => {
-  const html = renderComponent(PostCards, { items: [items[1]] });
-  expect(html).toContain('class="ct-post__media"');
-  expect(html).toContain('tabindex="-1"');
-  expect(html).toContain('aria-hidden="true"');
+  // И з фото, і із заглушкою: інакше диктор чує два однакові посилання поспіль.
+  for (const item of [
+    items[1],
+    { ...items[1], image: { src: '/banners/tent.svg', alt: 'A tent' } },
+  ]) {
+    const html = renderComponent(PostCards, { items: [item] });
+    const link = html.match(/<a[^>]*class="ct-post__(?:media|link)"[^>]*>/)?.[0] ?? '';
+    expect(link, 'посилання-картинки немає').not.toBe('');
+    expect(link).toContain('tabindex="-1"');
+    expect(link).toContain('aria-hidden="true"');
+  }
 });
 
 test('🔴 рівень заголовка керований: h3 типово, h2 там, де картки є розділом', () => {

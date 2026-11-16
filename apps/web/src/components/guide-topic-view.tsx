@@ -31,11 +31,14 @@ export default function GuideTopicView({
   topic,
   guides,
   page,
+  background,
 }: {
   topic: Topic;
   /** Усі гайди теми. */
   guides: readonly TopicGuide[];
   page: number;
+  /** Фон банера зі слота `guide-topic-hero`; без нього — дефолтний. */
+  background?: { src: string; alt: string };
 }) {
   const ordered = orderedTopicGuides(guides);
   const pages = guidePageCount(ordered.length);
@@ -89,7 +92,7 @@ export default function GuideTopicView({
       <LayeredBanner
         className="mt-3"
         headingLevel={1}
-        background={{ src: "/banners/guides.webp" }}
+        background={background ?? { src: "/banners/guides.webp" }}
         tickerText={TOPICS[topic].toUpperCase()}
         heading={TOPICS[topic]}
         description={`${ordered.length.toLocaleString("en-GB")} regions across ${countries.length} countries. Each one counts what our records hold, and says how many campsites have nothing recorded.`}

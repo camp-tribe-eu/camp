@@ -384,7 +384,7 @@ test.describe('"What’s around it": distances drawn to a fixed scale', () => {
     expect(rowText(row)).toContain('Bled 2.1 km');
     expect(fillOf(row)).toBe(10.5);
     // …and the end of the scale is written under the bar.
-    expect(rowText(row)).toContain('0 20 km');
+    expect(rowText(row)).toContain('0 10 km 20 km');
   });
 
   test('all four scales, each at its own fixed end', async () => {
@@ -402,9 +402,26 @@ test.describe('"What’s around it": distances drawn to a fixed scale', () => {
     expect(fillOf(aroundRow(html, 'town')!)).toBe(10.5);
     expect(fillOf(aroundRow(html, 'supermarket')!)).toBe(30);
     expect(fillOf(aroundRow(html, 'stop')!)).toBe(25);
-    expect(rowText(aroundRow(html, 'water')!)).toContain('0 5 km');
-    expect(rowText(aroundRow(html, 'supermarket')!)).toContain('0 10 km');
-    expect(rowText(aroundRow(html, 'stop')!)).toContain('0 30 km');
+    expect(rowText(aroundRow(html, 'water')!)).toContain('0 2.5 km 5 km');
+    expect(rowText(aroundRow(html, 'supermarket')!)).toContain('0 5 km 10 km');
+    expect(rowText(aroundRow(html, 'stop')!)).toContain('0 15 km 30 km');
+  });
+
+  test('🔴 CAMP-441/63: the track carries three written marks with units, and sits in a card like its neighbours', async () => {
+    const html = await render({
+      context: { water: { m: 500, kind: 'lake', name: 'Lake Bled' }, elevation: 474 },
+    });
+    const row = aroundRow(html, 'water')!;
+    const marks = [...row.matchAll(/data-tick="(\d+)"[^>]*>([^<]*)</g)].map((m) => [m[1], m[2]]);
+    expect(marks).toEqual([
+      ['0', '0'],
+      ['50', '2.5 km'],
+      ['100', '5 km'],
+    ]);
+    // A row without a distance has no track and so no marks.
+    expect(aroundRow(html, 'elevation')!).not.toContain('data-tick');
+    // The block is a card (same classes as Facilities), not bare text on the page.
+    expect(/<section[^>]*rounded-card[^>]*>\s*<h2[^>]*>What.s around it/.test(html)).toBe(true);
   });
 
   test('🔴 the scale does not depend on the other rows: a remote valley is not drawn as a village', async () => {

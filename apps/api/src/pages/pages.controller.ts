@@ -32,6 +32,21 @@ export class PagesController {
   }
 
   /**
+   * Фото слота. Два сегменти шляху, із `:slug` не зіткнеться.
+   * 404 — «фото не поставлено» або ключа немає в переліку; веб малює
+   * заглушку.
+   */
+  @Get('photo-slot/:key')
+  async photoSlot(
+    @Param('key') key: string,
+    @Query('language') language = 'en',
+  ): Promise<{ src: string; alt: string }> {
+    const photo = await this.pages.photoSlot(key, language);
+    if (!photo) throw new NotFoundException(`немає фото для «${key}»`);
+    return photo;
+  }
+
+  /**
    * 🔴 404, А НЕ ПОРОЖНЯ СТОРІНКА. Сторінка, якої немає, мусить
    * виглядати як відсутня і для читача, і для пошуковика — інакше ми
    * віддамо 200 над порожнечею, і вона потрапить в індекс.

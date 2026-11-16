@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { PhotoFrame, PHOTO_RATIOS } from "./photo-frame";
+
 /**
  * Картки матеріалів — CAMP-449, секція 10 каталогу, і CAMP-465, пункт 3.
  *
@@ -37,10 +39,11 @@ import Link from "next/link";
  *     це не приховування змісту, а вирівнювання карток у ряду, і повний
  *     заголовок читач бачить на самій сторінці поста.
  *
- * 🔴 ФОТО В НАС НЕМАЄ ЖОДНОГО (CAMP-469), І ЦЕ ВИДНО ЧЕСНО: за
- * відсутності зображення картка показує наше лого — той самий один
- * файл `public/logo.svg`, що й картки сусідніх кемпінгів. Підміна
- * одного файлу міняє його скрізь.
+ * 🔴 ОБКЛАДИНКУ СТАВИТЬ ВЛАСНИК (`pages.banner_image_url` допису, CAMP-464).
+ * За відсутності зображення картка показує заглушку теми
+ * (`PhotoFrame`: тло `--color-img-placeholder-bg` і лінійний силует), а не
+ * лого: лого на картці допису читалось як «фото ще нема», тема ж тримає
+ * порожнє місце в тій самій пропорції. Рішення власника 16.11.2026.
  */
 
 export interface PostCard {
@@ -65,7 +68,7 @@ const POST_CSS = `
 .ct-post__tag{padding:2px 8px;border-radius:6px;background-color:var(--color-heading);color:var(--color-surface);font-size:11px;font-weight:600;line-height:1.5;letter-spacing:.03em;text-transform:uppercase}
 .ct-post__media{position:relative;display:block;width:100%;padding-top:82%;overflow:hidden;border-radius:var(--r,16px);background-color:var(--color-surface-2)}
 .ct-post__image{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover;object-position:center}
-.ct-post__image--placeholder{object-fit:contain;padding:18%}
+.ct-post__link{display:block}
 .ct-post__content{display:flex;flex-direction:column;gap:12px;width:100%;padding:0 8px}
 .ct-post__meta{display:inline-flex;align-items:center;gap:12px;align-self:flex-start;padding:7px 15px;border:1px solid var(--color-line-2);border-radius:44px;background-color:var(--color-surface-2);font-size:calc(var(--body-font-size,16px) * .875);font-weight:600;line-height:1.28;color:var(--color-heading)}
 .ct-post__title{overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.3;color:var(--color-heading)}
@@ -107,16 +110,21 @@ export default function PostCards({
         {items.map((p) => (
           <li key={p.key} className="ct-post">
             <div className="ct-post__figure">
-            <Link href={p.href} className="ct-post__media" tabIndex={-1} aria-hidden="true">
-              {/* eslint-disable-next-line @next/next/no-img-element -- `images.unoptimized: true` у next.config. */}
-              <img
-                className={`ct-post__image${p.image ? "" : " ct-post__image--placeholder"}`}
-                src={p.image?.src ?? "/logo.svg"}
-                alt={p.image?.alt ?? ""}
-                loading="lazy"
-                data-testid={p.image ? undefined : "post-placeholder"}
-              />
-            </Link>
+            {p.image ? (
+              <Link href={p.href} className="ct-post__media" tabIndex={-1} aria-hidden="true">
+                {/* eslint-disable-next-line @next/next/no-img-element -- `images.unoptimized: true` у next.config. */}
+                <img
+                  className="ct-post__image"
+                  src={p.image.src}
+                  alt={p.image.alt ?? ""}
+                  loading="lazy"
+                />
+              </Link>
+            ) : (
+              <Link href={p.href} className="ct-post__link" tabIndex={-1} aria-hidden="true">
+                <PhotoFrame image={null} ratio={PHOTO_RATIOS.card} slot="post-card" />
+              </Link>
+            )}
             {/* 🔴 ТЕГИ ПОЗА ПОСИЛАННЯМ-КАРТИНКОЮ: воно під `aria-hidden`, і
                 мітки всередині нього читач екрана не почув би. Поверх фото
                 їх ставить CSS, а в дереві вони стоять поруч, не всередині. */}
