@@ -94,6 +94,10 @@ export default function PlanBBlock({
         <ul className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {planB.items.map((i) => {
             const h = height(i);
+            // One word at the end of the line when every figure on it has
+            // the same status; a word beside each figure when they differ.
+            const words = h ? [kind, dist, high] : [kind, dist];
+            const each = new Set(words).size > 1;
             return (
               <li
                 key={i.slug}
@@ -105,15 +109,17 @@ export default function PlanBBlock({
                 </Link>
                 <p className="mt-1 text-sm text-ink-2">
                   {SPOT_TYPE_LABEL[i.type as keyof typeof SPOT_TYPE_LABEL] ?? 'Campsite'}
-                  {mark(kind)} · <span className="tabular-nums">{km(i.metres)}</span> away
-                  {mark(dist)}
+                  {each ? mark(kind) : null} ·{' '}
+                  <span className="tabular-nums">{km(i.metres)}</span> away
+                  {each ? mark(dist) : null}
                   {h ? (
                     <>
                       {' '}
                       · <span className="tabular-nums">{h}</span>
-                      {mark(high)}
+                      {each ? mark(high) : null}
                     </>
                   ) : null}
+                  {each ? null : mark(kind)}
                 </p>
               </li>
             );

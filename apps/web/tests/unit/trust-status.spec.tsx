@@ -125,13 +125,13 @@ const PARAMS = { country: 'hr', region: 'istria', slug: 'camping-test' };
 
 async function page(
   extra: Record<string, unknown> = {},
-  { cms = true }: { cms?: boolean } = {},
+  { cms = true, planB }: { cms?: boolean; planB?: unknown } = {},
 ): Promise<string> {
   let html = '';
   await withFetch(
     (url) => {
       if (url.includes('/spots/hr/istria/camping-test'))
-        return json({ spot: spot(extra), nearby: [] });
+        return json({ spot: spot(extra), nearby: [], ...(planB ? { planB } : {}) });
       if (cms && url.includes(`/pages/${TRUST_SLUG}`)) return json(trustPage);
       return json({}, 404);
     },
@@ -338,6 +338,35 @@ test('🔴 легенда пояснює рівно ті статуси, що є
   );
 });
 
+// CAMP-524: the words the «If it's full here» block prints reach the page's
+// legend. The campsite is built so that NO other figure on it reads
+// «Imported» (its record was last edited 800 days ago, so its type and
+// amenities read «Outdated» or «Not recorded»; nothing is derived), which makes the block the
+// only reason that row can appear. Drop `planBStatuses` from the page and
+// this goes red.
+test('🔴 легенда пояснює слово, яке надрукував лише План Б', async () => {
+  const quiet = {
+    osmRecordEditedAt: daysAgo(800),
+    ownerOverrides: {},
+    context: {},
+    amenities: Object.fromEntries(
+      Object.keys(spot({}).amenities).map((k) => [k, 'unknown']),
+    ),
+  };
+  const planB = {
+    ranking: 'Ranked by X.',
+    radiusM: 15_000,
+    items: [
+      { slug: 'a', name: 'A', path: '/camping/hr/istria/a', type: 'camper_stop', metres: 1200, elevation: null, elevationDelta: null },
+    ],
+  };
+  const without = await page(quiet);
+  expect(Object.keys(legend(without))).not.toContain('imported');
+  expect(figures(without).some((f) => f.marks.some((m) => m.status === 'imported'))).toBe(false);
+  const withBlock = await page(quiet, { planB });
+  expect(legend(withBlock).imported).toContain('Imported — ');
+});
+
 test('🔴 без CMS легенди немає, а слова на показниках лишаються', async () => {
   const html = await page({}, { cms: false });
   expect(html).not.toContain('data-testid="trust-legend"');
@@ -409,8 +438,9 @@ test('🔴 План Б: слово довіри біля кожної цифри
   };
   const count = (h: string, w: string) => h.split(`data-trust-status="${w}"`).length - 1;
   const own = await renderComponent(PlanBBlock, { planB });
-  // тип, відстань, висота — по одному слову, і всі три «Imported».
-  expect(count(own, 'imported')).toBe(3);
+  // тип, відстань, висота мають один статус — одне слово в кінці рядка.
+  expect(count(own, 'imported')).toBe(1);
+  expect(own.indexOf('data-trust-status')).toBeGreaterThan(own.indexOf('m higher'));
   expect(visibleText(own)).toContain(TRUST_LABEL.imported);
   const none = { kind: 'none' as const };
   const base = {
@@ -428,7 +458,17 @@ test('🔴 План Б: слово довіри біля кожної цифри
   expect(visibleText(noType)).toContain(TRUST_LABEL.unknown);
   // Висоти немає — слова для неї теж немає.
   const flat = { ...planB, items: [{ ...planB.items[0], elevation: null, elevationDelta: null }] };
-  expect(count(await renderComponent(PlanBBlock, { planB: flat }), 'imported')).toBe(2);
+  expect(count(await renderComponent(PlanBBlock, { planB: flat }), 'imported')).toBe(1);
+  // Однаковий статус, не обовʼязково «Imported»: одне слово «Not recorded».
+  const allNone = await renderComponent(PlanBBlock, {
+    planB,
+    origins: { distance: none, height: none, type: none },
+  });
+  expect(count(allNone, 'unknown')).toBe(1);
+  expect(count(allNone, 'imported')).toBe(0);
+  // Різні статуси — біля кожної цифри свій (тут два різні на три цифри).
+  expect(count(noDist, 'imported') + count(noDist, 'unknown')).toBe(3);
+  expect(count(noHeight, 'imported') + count(noHeight, 'owner-confirmed')).toBe(3);
 });
 
 test('🔴 кожен блок сторінки кемпінгу або має статус, або названий серед тих, що ще ні', () => {
