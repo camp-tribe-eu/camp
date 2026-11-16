@@ -14,7 +14,15 @@ import { assertAllSectionsUsed } from "@/components/page-sections";
 // `findSection` вимагає рівно одну, а слайдів власник додає стільки, скільки
 // хоче. Обидва переліки читає й сторінка, і `missingHomeSections`, тож
 // сторож «чого бракує» бачить їх так само, як бачить сторінка.
-export const HOME_SECTIONS = ["hero", "steps", "search"] as const;
+//
+// 🔴 `hero` ПРИБРАНО З ПЕРЕЛІКУ (поліш-картка): старий блок h1 + вступ під
+// слайдером дублював заголовок, а h1 головної тепер — перший слайд. Рядок у
+// CMS ховає міграція (`visible = false`); `RETIRED_HOME_TYPES` тримає сторінку
+// живою, якщо API ще віддає його (деплой коду раніше за міграцію).
+export const HOME_SECTIONS = ["steps", "search"] as const;
+
+/** Типи, які головна більше не малює й не вважає зайвими. */
+export const RETIRED_HOME_TYPES = ["hero"] as const;
 
 /** Типи, яких на головній ≥ 1 (CAMP-488): слайди й рядки з фото. */
 export const HOME_REPEATED = ["slide", "image-text"] as const;
@@ -108,7 +116,9 @@ export function missingHomeSections(sections: SectionView[]): string[] {
  */
 export function assertHomeSectionsUsed(sections: SectionView[]): void {
   const byType = sections.filter(
-    (s) => !(s.slot !== null && (HOME_SLOTS as readonly string[]).includes(s.slot)),
+    (s) =>
+      !(s.slot !== null && (HOME_SLOTS as readonly string[]).includes(s.slot)) &&
+      !(RETIRED_HOME_TYPES as readonly string[]).includes(s.type),
   );
   assertAllSectionsUsed(byType, [...HOME_SECTIONS, ...HOME_REPEATED], "головна");
 }

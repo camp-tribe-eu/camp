@@ -75,9 +75,8 @@ export default function PlanPage() {
         <p className="mt-3">
           <strong>What it does not know:</strong> the roads, so every distance
           is a straight line and there are no driving times; the size of your
-          vehicle, because we hold no data on pitch sizes, so the height,
-          length and weight you enter are saved with the trip and change
-          nothing in the plan; and whether a campsite is open on your dates.
+          vehicle, so the height, length and weight you enter are saved with
+          the trip and change nothing in the plan; and whether a campsite is open on your dates.
           Place names are looked up in our own data only, as they are written
           locally.
         </p>
@@ -89,10 +88,8 @@ export default function PlanPage() {
         <p data-testid="plan-disclaimer" className="mt-3">
           <strong>For your information only.</strong> Everything here may
           differ from real conditions. CampTribe is not a navigation app. The
-          data comes from other providers&rsquo; records, some of them open
-          sources kept up by volunteers, and can be wrong or out of date. Check
-          the roads, opening dates and your vehicle&rsquo;s limits yourself:
-          you use this at your own discretion and risk. More in{' '}
+          data can be wrong or out of date, so you use this at your own
+          discretion and risk. More in{' '}
           <Link className="underline" href="/legal/disclaimer">
             What we do and do not know
           </Link>

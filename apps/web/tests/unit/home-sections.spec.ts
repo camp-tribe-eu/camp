@@ -24,19 +24,19 @@ const s = (type: string, slot: string | null = null): SectionView => ({
 
 test.describe("секції головної", () => {
   test("знаходить секцію, коли вона рівно одна", () => {
-    expect(findSection([s("hero"), s("steps")], "hero")?.type).toBe("hero");
+    expect(findSection([s("search"), s("steps")], "steps")?.type).toBe("steps");
   });
 
   test("немає секції — `null`, а не виняток", () => {
-    expect(() => findSection([s("steps")], "hero")).not.toThrow();
-    expect(findSection([s("steps")], "hero")).toBeNull();
+    expect(() => findSection([s("steps")], "search")).not.toThrow();
+    expect(findSection([s("steps")], "search")).toBeNull();
   });
 
   // 🔴 ДВІ СЕКЦІЇ ОДНОГО ТИПУ — ТЕЖ `null`, І ЦЕ НАВМИСНО. Малювати
   // першу-ліпшу означало б тихо обрати за власника; нехай краще блок
   // зникне й сторож про це скаже.
   test("дві секції одного типу — теж `null`", () => {
-    expect(findSection([s("hero"), s("hero")], "hero")).toBeNull();
+    expect(findSection([s("steps"), s("steps")], "steps")).toBeNull();
   });
 
   test("порожній перелік — названі і типи, і слоти", () => {
@@ -48,7 +48,7 @@ test.describe("секції головної", () => {
   });
 
   const full = () => [
-    s("hero"), s("steps"), s("search"),
+    s("steps"), s("search"),
     s("slide"), s("slide"), s("slide"),
     s("image-text"), s("image-text"),
     s("prose", "stay"), s("prose", "drive"), s("cards", "drive-links"),
@@ -80,8 +80,19 @@ test.describe("секції головної", () => {
   });
 
   test("бракує однієї — названо саме її", () => {
-    expect(missingHomeSections(full().filter((x) => x.type !== "hero")))
-      .toEqual(["hero"]);
+    expect(missingHomeSections(full().filter((x) => x.type !== "steps")))
+      .toEqual(["steps"]);
+  });
+
+  // 🔴 Старий блок h1 + вступ прибрано з головної. База, яку ще не
+  // мігрували, віддасть його й далі: сторінка не падає і не вважає його
+  // відсутнім; перелік очікуваного його НЕ містить.
+  test("🔴 `hero` не очікується, а якщо база його віддала — не валить сторінку", () => {
+    expect([...HOME_SECTIONS]).not.toContain("hero");
+    expect(missingHomeSections(full())).toEqual([]);
+    expect(() => assertHomeSectionsUsed([...full(), s("hero")])).not.toThrow();
+    // …а справді зайва секція й далі ловиться.
+    expect(() => assertHomeSectionsUsed([...full(), s("faq")])).toThrow();
   });
 
   // ── слоти ──────────────────────────────────────────────────────────
