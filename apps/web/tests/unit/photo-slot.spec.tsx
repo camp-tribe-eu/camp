@@ -279,69 +279,81 @@ const guideWorld = (slot: World['slot']): World => {
   };
 };
 
-const PAGES: ReadonlyArray<{
-  key: PhotoSlotKey;
-  render: (slot: World['slot']) => Promise<string>;
-}> = [
-  {
-    key: 'route-hero',
-    render: (slot) =>
-      inWorld(routeWorld(slot), () =>
-        renderNestedAsync(
-          RoutePage,
-          { params: Promise.resolve({ slug: route.slug }) },
-          { omit: [RouteMapEmbed] },
-        ),
-      ),
-  },
-  {
-    key: 'provider-hero',
-    render: (slot) =>
-      inWorld(providerWorld(slot), () =>
-        renderNestedAsync(ProviderPageView, {
-          params: Promise.resolve({ slug: 'nordic-campers' }),
-        }),
-      ),
-  },
-  {
-    key: 'guide-hero',
-    render: (slot) =>
-      inWorld(guideWorld(slot), () =>
-        renderNestedAsync(GuidePage, {
-          params: Promise.resolve({ slug: 'fr-ain-water' }),
-        }),
-      ),
-  },
-  {
-    key: 'guide-topic-hero',
-    render: (slot) =>
-      inWorld(guideWorld(slot), () =>
-        renderNestedAsync(GuidesByTopic, {
-          params: Promise.resolve({ topic: 'water' }),
-        }),
-      ),
-  },
-];
+const DEFAULT_BG: Record<string, string> = {
+  'guide-hero': '/banners/guides.webp',
+  'guide-topic-hero': '/banners/guides.webp',
+  'provider-hero': '/banners/camper.webp',
+};
 
-test('🔴 чотири сторінки — чотири слоти, і кожен ключ рівно на своїй сторінці', async () => {
-  expect(PAGES.map((p) => p.key).sort()).toEqual([...PHOTO_SLOT_KEYS].sort());
-  for (const p of PAGES) {
-    const html = await p.render(null);
-    expect(html, p.key).toContain(`data-photo-slot="${p.key}"`);
-    expect(html, p.key).toContain('data-testid="photo-placeholder"');
-    // Рівно одне місце під фото, чужих слотів на сторінці немає.
-    expect(html.match(/data-photo-slot="/g), p.key).toHaveLength(1);
-  }
+const renderers = {
+  'route-hero': (slot: World['slot']) =>
+    inWorld(routeWorld(slot), () =>
+      renderNestedAsync(
+        RoutePage,
+        { params: Promise.resolve({ slug: route.slug }) },
+        { omit: [RouteMapEmbed] },
+      ),
+    ),
+  'provider-hero': (slot: World['slot']) =>
+    inWorld(providerWorld(slot), () =>
+      renderNestedAsync(ProviderPageView, {
+        params: Promise.resolve({ slug: 'nordic-campers' }),
+      }),
+    ),
+  'guide-hero': (slot: World['slot']) =>
+    inWorld(guideWorld(slot), () =>
+      renderNestedAsync(GuidePage, {
+        params: Promise.resolve({ slug: 'fr-ain-water' }),
+      }),
+    ),
+  'guide-topic-hero': (slot: World['slot']) =>
+    inWorld(guideWorld(slot), () =>
+      renderNestedAsync(GuidesByTopic, {
+        params: Promise.resolve({ topic: 'water' }),
+      }),
+    ),
+} as const;
+
+/** `src` усіх фонових шарів банерів на сторінці. */
+const bannerBackgrounds = (html: string): string[] =>
+  [...html.matchAll(/<img\b[^>]*class="ct-banner__background"[^>]*>/g)].map(
+    (m) => /src="([^"]*)"/.exec(m[0])?.[1] ?? '',
+  );
+
+test('🔴 /routes/[slug] без банера: слот стоїть окремим фото, заглушка при порожньому', async () => {
+  const html = await renderers['route-hero'](null);
+  expect(html).toContain('data-photo-slot="route-hero"');
+  expect(html).toContain('data-testid="photo-placeholder"');
+  expect(html.match(/data-photo-slot="/g)).toHaveLength(1);
+  const filled = await renderers['route-hero']({ src: '/banners/lake.webp', alt: 'Hero' });
+  expect(filled).toContain('src="/banners/lake.webp"');
+  expect(filled).toContain('alt="Hero"');
+  expect(filled).not.toContain('data-testid="photo-placeholder"');
 });
 
-test('🔴 заповнений слот на кожній із сторінок — <img> власника в тілі сторінки', async () => {
-  for (const p of PAGES) {
-    const html = await p.render({ src: '/banners/lake.webp', alt: `Hero of ${p.key}` });
-    expect(html, p.key).toContain('src="/banners/lake.webp"');
-    expect(html, p.key).toContain(`alt="Hero of ${p.key}"`);
-    expect(html, p.key).not.toContain('data-testid="photo-placeholder"');
-  }
-});
+for (const key of ['guide-hero', 'guide-topic-hero', 'provider-hero'] as const) {
+  test(`🔴 ${key}: слот живить ФОН банера, окремого фото під банером немає`, async () => {
+    const empty = await renderers[key](null);
+    // Порожній слот → нинішній фон, нічого не змінилось.
+    expect(bannerBackgrounds(empty), key).toEqual([DEFAULT_BG[key]]);
+    expect(empty, key).not.toContain('data-photo-slot');
+    expect(empty, key).not.toContain('data-testid="photo-placeholder"');
+
+    const filled = await renderers[key]({ src: '/banners/lake.webp', alt: 'Own photo' });
+    expect(bannerBackgrounds(filled), key).toEqual(['/banners/lake.webp']);
+    expect(filled, key).toContain('alt="Own photo"');
+    // Рівно одне героїчне зображення: банер, без PhotoFrame під ним.
+    expect(filled, key).not.toContain('data-photo-slot');
+    expect(filled.match(/class="ct-banner__background"/g), key).toHaveLength(1);
+  });
+
+  test(`🔴 ${key}: зіпсований слот лишає дефолтний фон`, async () => {
+    for (const bad of [{ src: 'https://evil.example/x.jpg', alt: 'x' }, { src: 42 }, 'junk']) {
+      const html = await renderers[key](bad as World['slot']);
+      expect(bannerBackgrounds(html), JSON.stringify(bad)).toEqual([DEFAULT_BG[key]]);
+    }
+  });
+}
 
 // ── 3. маршрут /media/photo/<ключ> ───────────────────────────────────────
 

@@ -107,3 +107,15 @@ export async function getRawPhotoSlotMemo(key: PhotoSlotKey): Promise<RawBanner>
   rawInflight.set(key, p);
   return p;
 }
+
+/**
+ * Фон банера, який живить слот: фото власника, а порожній слот — дефолтний
+ * фон, тож сторінка без фото виглядає рівно як до слота. Опис — зі слота
+ * (порожній, коли власник його не вписав: фон декоративний).
+ */
+export async function bannerBackground(
+  key: PhotoSlotKey,
+  fallback: string,
+): Promise<{ src: string; alt: string }> {
+  return (await getPhotoSlot(key)) ?? { src: fallback, alt: '' };
+}

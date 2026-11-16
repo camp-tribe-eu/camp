@@ -11,8 +11,9 @@ import {
   type ProviderPage,
 } from "@/lib/rental-providers";
 import Day from "@/components/day";
+import { LayeredBanner } from "@/components/layered-banner";
 import { Block } from "@/components/layout";
-import { PhotoSlot } from "@/components/photo-slot";
+import { bannerBackground } from "@/lib/photo-slot";
 
 // CAMP-427 — сторінка однієї компанії, за зразком single product page.
 
@@ -53,6 +54,76 @@ const SOURCE_LABEL: Record<string, string> = {
   google: "Google",
 };
 
+// 🔴 ЗНАЧКИ ЛИШЕ НЕСУТЬ ТЕ, ЩО ВЖЕ НАПИСАНО СЛОВАМИ (CAMP-445/3). Рядок
+// сервісу й так каже «included in the price», значок лише дає оку
+// зачіпку; він під `aria-hidden`, тож читач екрана не чує дубля.
+const SERVICE_ICON = {
+  included: (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path
+        d="m8.2 12.3 2.6 2.6 5-5.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  ),
+  extra: (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 8v8M8 12h8" strokeLinecap="round" />
+    </svg>
+  ),
+  unavailable: (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="m9 9 6 6m0-6-6 6" strokeLinecap="round" />
+    </svg>
+  ),
+} as const;
+
+const VEHICLE_ICON = (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    aria-hidden="true"
+  >
+    <path
+      d="M3 16V8.5A1.5 1.5 0 0 1 4.5 7h9A1.5 1.5 0 0 1 15 8.5V16m0-6h3.2a1.5 1.5 0 0 1 1.2.6l1.6 2.1V16"
+      strokeLinejoin="round"
+    />
+    <path d="M2.5 16h19" strokeLinecap="round" />
+    <circle cx="7.5" cy="17.5" r="1.8" />
+    <circle cx="17" cy="17.5" r="1.8" />
+  </svg>
+);
+
+// Рядок-картка: значок ліворуч, текст праворуч. `min-w-0` + `break-words`
+// не дають довгій адресі в приміткам розтягнути колонку (див. нижче).
+const ROW =
+  "grid grid-cols-[28px_minmax(0,1fr)] gap-x-3 rounded-card border border-line-2 bg-surface p-4 break-words";
+const ROW_ICON = "mt-0.5 h-7 w-7 text-heading [&>svg]:h-7 [&>svg]:w-7";
+
 export default async function ProviderPageView({
   params,
 }: {
@@ -65,20 +136,38 @@ export default async function ProviderPageView({
   const path = providerPath(p.slug);
 
   return (
-    <main className="mx-auto max-w-wrap px-4 py-10 xl:px-6">
+    <main className="mx-auto max-w-wrap px-4 pb-12 pt-4 xl:px-6">
       {/* CAMP-431 (пункт 4): граф компанії. Лише те, що є на сторінці —
           ні рейтингу, ні ціни, бо ні того, ні того ми не тримаємо. */}
       <script {...jsonLdProps(providerGraph(p, path))} />
-      <p className="text-sm">
-        <Link href="/camper-rental/providers">← all companies</Link>
-      </p>
-      <h1 className="mt-4 text-3xl leading-tight text-heading md:text-[42px]">
-        {p.name}
-      </h1>
+      <nav aria-label="Breadcrumb" className="text-sm text-ink-2">
+        <Link className="underline" href="/camper-rental/providers">
+          ← all companies
+        </Link>
+      </nav>
 
-      <div className="mt-5">
-        <PhotoSlot slot="provider-hero" />
-      </div>
+      {/* 🔴 БАНЕР НЕСЕ `h1` (CAMP-445/1) — той самий компонент і та сама
+          композиція, що на хабі оренди й на сторінці країни; заголовок
+          переїхав УСЕРЕДИНУ банера, а не продублювався під ним. Опис — не
+          новий текст: країна реєстрації це те саме поле, що «Registered
+          in» у панелі нижче. Кнопка веде до парку, якщо він є. */}
+      <LayeredBanner
+        className="mt-3"
+        headingLevel={1}
+        background={await bannerBackground("provider-hero", "/banners/camper.webp")}
+        tickerText={p.name.toUpperCase()}
+        heading={p.name}
+        description={`Camper rental company registered in ${countryName(p.homeCountry)}.`}
+        cta={
+          p.vehicles.length > 0
+            ? { href: "#fleet", label: "See the fleet" }
+            : p.services.length > 0
+              ? { href: "#services", label: "See the services" }
+              : undefined
+        }
+        minHeight="min(56svh, 460px)"
+        textSize={{ desktop: "120px", mobile: "48px" }}
+      />
 
       {/* 🔴 ДВІ КОЛОНКИ — ЦЕ НЕ СМАК, А ЧИСЛА З ТЕМИ FUSE.
           `assets/product.build.css`, сторінка товару:
@@ -93,59 +182,83 @@ export default async function ProviderPageView({
           Нижче 1200 px усе стає одним стовпцем. Власник просив сингл
           «за зразком single product page» — ось він, із заміром, а не
           з голови. 75rem у Tailwind це рівно наш --breakpoint-xl=1200px. */}
-      <div className="mt-6 flex flex-col gap-3 xl:flex-row">
+      <div className="mt-10 flex flex-col gap-3 xl:flex-row">
         <div className="min-w-0 xl:w-[calc(100%-480px-12px)]">
           {/* 🔴 Абзац — це те, заради чого каталог існує. Без нього
               сторінка компанії нічим не відрізняється від рядка таблиці,
               і читач не дізнається, чим ця компанія відрізняється від
               сусідньої. Сівалка не пропустить провайдера без вступу. */}
-          {p.intro && <Block as="p" measure="read" className="text-ink-2">{p.intro}</Block>}
+          {p.intro && (
+            <Block as="p" measure="read" className="break-words text-ink-2">
+              {p.intro}
+            </Block>
+          )}
 
           {p.whatToKnow && (
-            <section className="mt-6">
+            <section className="mt-8 rounded-card border border-line-2 bg-surface-2 p-5 md:p-6">
               <h2 className="text-2xl text-heading">What to know</h2>
-              <Block as="p" measure="read" className="mt-3 text-ink-2">{p.whatToKnow}</Block>
+              {/* 🔴 `break-words`: ЗАМІРЯНО 16.11.2026 на Indie Campers —
+                  примітка містила адресу PDF без жодного пробілу, абзац
+                  став ширший за екран і сторінка отримала 12 px
+                  горизонтальної прокрутки на 375 px (scrollWidth 387). */}
+              <Block
+                as="p"
+                measure="read"
+                className="mt-3 break-words text-ink-2"
+              >
+                {p.whatToKnow}
+              </Block>
             </section>
           )}
 
           {p.services.length > 0 && (
-            <section className="mt-6">
+            <section id="services" className="mt-10 scroll-mt-20">
               <h2 className="text-2xl text-heading">Services</h2>
-              <ul className="mt-2 grid gap-1 text-sm" data-testid="services">
+              <ul
+                className="mt-4 grid gap-3 text-sm md:grid-cols-2"
+                data-testid="services"
+              >
                 {p.services.map((s) => (
-                  <li key={s.code}>
-                    <span className="font-medium">{serviceLabel(s.code)}</span>{" "}
-                    — {AVAILABILITY_LABEL[s.availability]}
-                    {s.note && <> ({s.note})</>}
-                    {/* Та сама умова, що й для парку: умови прокату
+                  <li key={s.code} className={ROW}>
+                    <span className={ROW_ICON}>
+                      {SERVICE_ICON[s.availability]}
+                    </span>
+                    <span>
+                      <span className="font-medium">
+                        {serviceLabel(s.code)}
+                      </span>{" "}
+                      — {AVAILABILITY_LABEL[s.availability]}
+                      {s.note && <> ({s.note})</>}
+                      {/* Та сама умова, що й для парку: умови прокату
                         міняються, тож рядок несе дату свого прочитання. */}
-                    {s.source_checked_on && (
-                      <span
-                        className="text-ink-2"
-                        data-testid="service-checked"
-                      >
-                        {" "}
-                        · read{" "}
-                        {s.source_url ? (
-                          <a
-                            href={s.source_url}
-                            target="_blank"
-                            rel="noopener noreferrer nofollow"
-                          >
+                      {s.source_checked_on && (
+                        <span
+                          className="text-ink-2"
+                          data-testid="service-checked"
+                        >
+                          {" "}
+                          · read{" "}
+                          {s.source_url ? (
+                            <a
+                              href={s.source_url}
+                              target="_blank"
+                              rel="noopener noreferrer nofollow"
+                            >
+                              <Day value={s.source_checked_on} />
+                            </a>
+                          ) : (
                             <Day value={s.source_checked_on} />
-                          </a>
-                        ) : (
-                          <Day value={s.source_checked_on} />
-                        )}
-                      </span>
-                    )}
+                          )}
+                        </span>
+                      )}
+                    </span>
                   </li>
                 ))}
               </ul>
               {/* 🔴 Відсутність рядка — це «ми не перевіряли», а не «компанія
                   не дає». Сказати це вголос дешевше, ніж бути звинуваченим у
                   неправді про чужий бізнес. */}
-              <p className="mt-2 text-xs">
+              <p className="mt-3 text-xs">
                 Only what we checked is here. A service that is not in the list
                 is one we have not verified, not one the company fails to offer.
               </p>
@@ -153,75 +266,83 @@ export default async function ProviderPageView({
           )}
 
           {p.vehicles.length > 0 && (
-            <section className="mt-6">
+            <section id="fleet" className="mt-10 scroll-mt-20">
               <h2 className="text-2xl text-heading">Fleet</h2>
-              <ul className="mt-2 grid gap-1 text-sm" data-testid="vehicles">
+              <ul
+                className="mt-4 grid gap-3 text-sm md:grid-cols-2"
+                data-testid="vehicles"
+              >
                 {p.vehicles.map((v) => (
-                  <li key={v.slug}>
-                    <span className="font-medium">{v.name}</span>
-                    {/* 🔴 CAMP-371: ТИП СТОЇТЬ ПОРУЧ ІЗ ТИМ, ЩО СКАЗАВ
+                  <li key={v.slug} className={ROW}>
+                    <span className={ROW_ICON}>{VEHICLE_ICON}</span>
+                    <span>
+                      <span className="block text-base font-semibold text-heading">
+                        {v.name}
+                      </span>
+                      {/* 🔴 CAMP-371: ТИП СТОЇТЬ ПОРУЧ ІЗ ТИМ, ЩО СКАЗАВ
                         САМ ПРОКАТНИК, І ЗІ СВОЄЮ ДАТОЮ.
                         «Over-cab motorhome» без його слів — наш висновок,
                         виданий за його; зі своєю датою — бо парк читали
                         02.11, а типи 03.11. Тип є не в усіх, і порожнє
                         місце тут чесніше за здогад із довжини. */}
-                    {v.camper_type_name && (
-                      <span data-testid="vehicle-type">
-                        {" "}
-                        · {v.camper_type_name}
-                        {v.camper_type_said && (
-                          <span className="text-ink-2">
-                            {" "}
-                            (they say: {v.camper_type_said}
-                            {v.camper_type_checked_on && (
-                              <>
-                                , read{" "}
-                                <Day value={v.camper_type_checked_on} />
-                              </>
-                            )}
-                            )
-                          </span>
-                        )}
-                      </span>
-                    )}
-                    {v.berths !== null && <> · berths: {v.berths}</>}
-                    {v.belted_seats !== null && (
-                      <> · belted seats: {v.belted_seats}</>
-                    )}
-                    {v.length_cm !== null && (
-                      <> · length: {(v.length_cm / 100).toFixed(2)} m</>
-                    )}
-                    {/* 🔴 CAMP-371: ДАТА ПРОЧИТАННЯ СТОЇТЬ ПОРУЧ ІЗ ФАКТОМ.
+                      {v.camper_type_name && (
+                        <span data-testid="vehicle-type">
+                          {" "}
+                          · {v.camper_type_name}
+                          {v.camper_type_said && (
+                            <span className="text-ink-2">
+                              {" "}
+                              (they say: {v.camper_type_said}
+                              {v.camper_type_checked_on && (
+                                <>
+                                  , read{" "}
+                                  <Day value={v.camper_type_checked_on} />
+                                </>
+                              )}
+                              )
+                            </span>
+                          )}
+                        </span>
+                      )}
+                      {v.berths !== null && <> · berths: {v.berths}</>}
+                      {v.belted_seats !== null && (
+                        <> · belted seats: {v.belted_seats}</>
+                      )}
+                      {v.length_cm !== null && (
+                        <> · length: {(v.length_cm / 100).toFixed(2)} m</>
+                      )}
+                      {/* 🔴 CAMP-371: ДАТА ПРОЧИТАННЯ СТОЇТЬ ПОРУЧ ІЗ ФАКТОМ.
                         «У них є ця модель» без дати — твердження про
                         сьогодні, якого ми не перевіряли: машину могли
                         продати. Дата в базі була від самого початку, її
                         просто ніхто не показував. */}
-                    {v.source_checked_on && (
-                      <span
-                        className="text-ink-2"
-                        data-testid="vehicle-checked"
-                      >
-                        {" "}
-                        · read{" "}
-                        {v.source_url ? (
-                          <a
-                            href={v.source_url}
-                            target="_blank"
-                            rel="noopener noreferrer nofollow"
-                          >
+                      {v.source_checked_on && (
+                        <span
+                          className="text-ink-2"
+                          data-testid="vehicle-checked"
+                        >
+                          {" "}
+                          · read{" "}
+                          {v.source_url ? (
+                            <a
+                              href={v.source_url}
+                              target="_blank"
+                              rel="noopener noreferrer nofollow"
+                            >
+                              <Day value={v.source_checked_on} />
+                            </a>
+                          ) : (
                             <Day value={v.source_checked_on} />
-                          </a>
-                        ) : (
-                          <Day value={v.source_checked_on} />
-                        )}
-                      </span>
-                    )}
+                          )}
+                        </span>
+                      )}
+                    </span>
                   </li>
                 ))}
               </ul>
               {/* Те саме застереження, що й про сервіси: перелік — це те,
                   що ми бачили в названий день, а не склад парку сьогодні. */}
-              <p className="mt-2 text-xs text-ink-2">
+              <p className="mt-3 text-xs text-ink-2">
                 What a company had on the day we read its page. Fleets change;
                 ask them before you plan around a model.
               </p>
@@ -236,7 +357,7 @@ export default async function ProviderPageView({
             flex-рядка інакше розтягується на всю висоту й не їде. */}
         <aside
           data-testid="provider-panel"
-          className="shrink-0 self-start rounded-card border border-line bg-surface p-6 shadow-card xl:sticky xl:top-4 xl:w-[480px]"
+          className="min-w-0 max-w-full shrink-0 self-start [overflow-wrap:anywhere] rounded-card border border-line bg-surface p-6 shadow-card xl:sticky xl:top-4 xl:w-[480px]"
         >
           <section>
             <h2 className="text-2xl text-heading">Contacts</h2>
@@ -289,39 +410,39 @@ export default async function ProviderPageView({
           {/* 🔴 «За даними компанії» — не ввічливість, а точність: ці числа
               заявлені, а не зміряні нами, і читач має знати різницю. */}
           {(scaleParts(p).length > 0 || p.sourceUrl) && (
-          <section className="mt-6">
-            <h2 className="text-2xl text-heading">
-              Scale, as the company states it
-            </h2>
-            {/* 🔴 CAMP-463: РОЗДІЛЮВАЧ СТОЇТЬ МІЖ ЗНАЧЕННЯМИ, А НЕ ПІСЛЯ КОЖНОГО.
+            <section className="mt-6">
+              <h2 className="text-2xl text-heading">
+                Scale, as the company states it
+              </h2>
+              {/* 🔴 CAMP-463: РОЗДІЛЮВАЧ СТОЇТЬ МІЖ ЗНАЧЕННЯМИ, А НЕ ПІСЛЯ КОЖНОГО.
                 Раніше кожен рядок мав свою « · » у кінці, і коли не було
                 року заснування, останній рядок закінчувався «fleet: 3 ·»
                 — крапка є, значення немає. Тепер частини збираються в
                 перелік і зʼєднуються тим, що справді є. */}
-            {scaleParts(p).length > 0 && (
-              <p className="mt-2 text-sm" data-testid="declared-scale">
-                {scaleParts(p).join(" · ")}
-              </p>
-            )}
-            {p.sourceUrl && (
-              <p className="mt-1 text-xs">
-                Source:{" "}
-                <a
-                  href={p.sourceUrl}
-                  target="_blank"
-                  rel="noopener noreferrer nofollow"
-                >
-                  {p.sourceUrl.replace(/^https:\/\//, "")}
-                </a>
-                {p.sourceCheckedOn && (
-                  <>
-                    {" "}
-                    · checked <Day value={p.sourceCheckedOn} />
-                  </>
-                )}
-              </p>
-            )}
-          </section>
+              {scaleParts(p).length > 0 && (
+                <p className="mt-2 text-sm" data-testid="declared-scale">
+                  {scaleParts(p).join(" · ")}
+                </p>
+              )}
+              {p.sourceUrl && (
+                <p className="mt-1 text-xs">
+                  Source:{" "}
+                  <a
+                    href={p.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer nofollow"
+                  >
+                    {p.sourceUrl.replace(/^https:\/\//, "")}
+                  </a>
+                  {p.sourceCheckedOn && (
+                    <>
+                      {" "}
+                      · checked <Day value={p.sourceCheckedOn} />
+                    </>
+                  )}
+                </p>
+              )}
+            </section>
           )}
 
           {p.reviewProfiles.length > 0 && (
