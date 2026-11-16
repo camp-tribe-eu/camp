@@ -106,7 +106,7 @@ export default function RentalCountryData({
         )}
       </Block>
 
-      <table className="mt-5 w-full border-collapse text-sm">
+      <table className="mx-auto mt-5 w-full max-w-read border-collapse text-sm">
         <caption className="sr-only">
           Campsite records for {inProse(country)}, by what each record answers
         </caption>

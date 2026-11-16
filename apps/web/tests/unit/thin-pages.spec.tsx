@@ -330,6 +330,57 @@ const NUMBER_WORDS = [
   "twenty",
 ];
 
+const hubSlot = (slot: string, over: Record<string, unknown> = {}) => ({
+  type: "prose",
+  variant: null,
+  slot,
+  heading: null,
+  subheading: null,
+  body: null,
+  imageUrl: null,
+  imageAlt: null,
+  ctaHref: null,
+  ctaLabel: null,
+  items: [],
+  ...over,
+});
+const HUB_SLOTS = [
+  hubSlot("intro", { body: "Intro." }),
+  hubSlot("banner", {
+    type: "hero",
+    heading: "Renting a camper in the EU",
+    subheading: "CAMPER RENTAL",
+    body: "Compare.",
+    ctaHref: "/camper-rental/providers",
+    ctaLabel: "Choose a rental company",
+  }),
+  hubSlot("picker", {
+    type: "cta",
+    heading: "Find a rental company",
+    ctaHref: "/camper-rental/providers",
+    ctaLabel: "Show rental companies",
+  }),
+  hubSlot("providers", {
+    heading: "Rental companies",
+    ctaHref: "/camper-rental/providers",
+    ctaLabel: "Compare all rental companies",
+  }),
+  hubSlot("mass-line", {
+    type: "steps",
+    heading: "Almost everything changes at 3 500 kg",
+    items: ["A", "B", "C", "D"].map((t) => ({ term: t, text: `${t} text` })),
+  }),
+  hubSlot("countries", {
+    heading: "Rules and costs, country by country",
+    body: "Each country page covers what is true there and not next door.",
+  }),
+  hubSlot("faq", {
+    type: "faq",
+    heading: "Questions",
+    items: [{ term: "Q?", text: "Answer." }],
+  }),
+];
+
 // 🔴 CAMP-463 (коло 2): вступ до переліку країн оренди каже, що правда про
 // країни, а не чому сторінок небагато. Читається ВІДДАНА розмітка хабу.
 test.describe("/camper-rental: the intro above the country list", () => {
@@ -344,6 +395,20 @@ test.describe("/camper-rental: the intro above the country list", () => {
               : { countries: [RENTAL_COUNTRY_FIXTURE] },
           );
         }
+        // 🔴 CAMP-461: хаб оренди збирається зі слотів CMS і без них падає
+        // (порожній хаб гірший за відмову збірки), тож фікстура дає повний
+        // набір слотів, як у міграції. Текст вступу до країн — з нього.
+        if (url.includes("/pages/camper-rental"))
+          return json({
+            slug: "camper-rental",
+            title: "Renting a camper in the EU",
+            metaTitle: null,
+            metaDescription: null,
+            noindex: false,
+            sections: HUB_SLOTS,
+          });
+        if (url.includes("/rental/providers")) return json([]);
+        if (url.includes("/rental/camper-types")) return json([]);
         if (url.includes("/pages/")) return json({ sections: [] });
         return json({});
       },
@@ -354,7 +419,9 @@ test.describe("/camper-rental: the intro above the country list", () => {
     const text = visibleText(html);
     // Якір: перелік країн справді намальовано (інакше «нема фрази» — ні про що).
     expect(html).toContain('data-testid="rental-country-index"');
-    expect(text).toContain("a toll system, a winter rule, a law about where you may sleep");
+    expect(text).toContain(
+      "Each country page covers what is true there and not next door",
+    );
     expect(text).not.toMatch(/thin one|two hundred city pages|rather not have|both tests/i);
   });
 });
