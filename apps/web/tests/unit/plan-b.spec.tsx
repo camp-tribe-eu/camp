@@ -3,7 +3,7 @@ import CampsitePage from '@/app/camping/[country]/[region]/[slug]/page';
 import { renderAsyncComponent } from './render-component';
 import { visibleText } from './rendered-text';
 import { CLIENT_ISLANDS } from './client-islands';
-import { PLAN_B_RANKING } from '../../../api/src/spots/plan-b';
+import { PLAN_B_RANKING } from '../../../api/src/spots/plan-b-ranking';
 
 // CAMP-524 — «If it's full here», read from the HTML the real page serves.
 //
