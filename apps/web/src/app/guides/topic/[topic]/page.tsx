@@ -1,13 +1,9 @@
-import type { Metadata } from 'next';
-import Link from 'next/link';
-import { notFound } from 'next/navigation';
-import { countryName } from '@/lib/api';
-import { byTopic, isTopic, TOPICS } from '@/lib/guide-facets';
-import { CatalogueProvenance } from '@/components/catalogue-provenance';
-import { cardProvenanceLabel, getGuides } from '@/lib/guides';
-import { breadcrumbList, collectionGraph, jsonLdProps } from '@/lib/jsonld';
-import { alternatesFor } from '@/lib/i18n';
-import { Block } from '@/components/layout';
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
+import { byTopic, isTopic, TOPICS } from "@/lib/guide-facets";
+import { getGuides } from "@/lib/guides";
+import { alternatesFor } from "@/lib/i18n";
+import GuideTopicView from "@/components/guide-topic-view";
 
 // CAMP-210 — the other facet. See `country/[cc]/page.tsx` for why these
 // live under a static segment rather than beside the articles.
@@ -57,100 +53,6 @@ export default async function GuidesByTopic(props: {
   const entry = byTopic(await getGuides()).find((t) => t.topic === topic);
   if (!entry) notFound();
 
-  const byCountryHere = new Map<string, typeof entry.guides>();
-  for (const g of entry.guides) {
-    const list = byCountryHere.get(g.facets.country) ?? [];
-    list.push(g);
-    byCountryHere.set(g.facets.country, list);
-  }
-  const groups = [...byCountryHere.entries()]
-    .map(([country, guides]) => ({ country, guides }))
-    .sort(
-      (a, b) =>
-        b.guides.length - a.guides.length || a.country.localeCompare(b.country),
-    );
-
-  return (
-    <main className="mx-auto max-w-wrap px-4 py-10 xl:px-6">
-      <script
-        {...jsonLdProps(
-          collectionGraph({
-            name: TOPICS[topic],
-            description: `${entry.guides.length} regions where our records answer this question.`,
-            path: `/guides/topic/${topic}`,
-            items: entry.guides.map((g) => ({
-              name: g.title,
-              path: `/guides/${g.slug}`,
-            })),
-          }),
-        )}
-      />
-      <script
-        {...jsonLdProps(
-          breadcrumbList([
-            { name: 'Guides', path: '/guides' },
-            { name: TOPICS[topic], path: `/guides/topic/${topic}` },
-          ]),
-        )}
-      />
-
-      <nav aria-label="Breadcrumb" className="text-sm text-ink-2">
-        <ol className="flex flex-wrap items-center gap-x-2">
-          <li>
-            <Link href="/guides" className="hover:text-heading">
-              Guides
-            </Link>
-          </li>
-          <li aria-hidden="true">/</li>
-          <li aria-current="page">{TOPICS[topic]}</li>
-        </ol>
-      </nav>
-
-      <h1 className="mt-4 text-3xl leading-tight md:text-[42px]">
-        {TOPICS[topic]}
-      </h1>
-
-      <CatalogueProvenance guides={entry.guides} />
-      <Block as="p" measure="read" className="mt-3 text-ink-2">
-        {entry.guides.length.toLocaleString('en-GB')} regions across{' '}
-        {groups.length} countries. Each one counts what our records hold, and
-        says how many campsites have nothing recorded.
-      </Block>
-
-      {groups.map((group) => (
-        <section key={group.country} className="mt-10">
-          <h2 className="text-xl md:text-[25px]">
-            <Link
-              href={`/guides/country/${group.country}`}
-              className="hover:underline"
-            >
-              {countryName(group.country)}
-            </Link>
-          </h2>
-          <ul className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-            {group.guides.map((g) => (
-              <li key={g.slug}>
-                <Link
-                  href={`/guides/${g.slug}`}
-                  className="block rounded-card border border-line-2 bg-surface p-4 hover:border-line-blue"
-                >
-                  <span className="font-semibold text-heading">{g.title}</span>
-                  {g.summary && (
-                    <span className="mt-1 block text-sm text-ink-2">
-                      {g.summary}
-                    </span>
-                  )}
-                  {cardProvenanceLabel(g.provenance) && (
-                    <span className="mt-2 block text-xs uppercase tracking-[0.08em] text-ink-2">
-                      {cardProvenanceLabel(g.provenance)}
-                    </span>
-                  )}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ))}
-    </main>
-  );
+  // CAMP-443/6: перша сторінка; решта — `page/[n]/page.tsx`.
+  return <GuideTopicView topic={topic} guides={entry.guides} page={1} />;
 }

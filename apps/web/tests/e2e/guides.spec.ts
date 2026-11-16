@@ -1,7 +1,7 @@
 import { expect, test, type APIRequestContext } from "./api-request";
-import { openHeaderNav } from './header-nav';
-import { facetBudgetExtraMs } from './guides-budget';
-import { TOPICS } from '../../src/lib/guide-facets';
+import { openHeaderNav } from "./header-nav";
+import { facetBudgetExtraMs } from "./guides-budget";
+import { TOPICS } from "../../src/lib/guide-facets";
 
 // CAMP-66 — the guides section, on real pages.
 //
@@ -109,7 +109,9 @@ test.describe("the section the header points at", () => {
     // exceeded» — рівно те, що #310 викорінював. Заміряно рецензією.
     //
     // Тому додаємо до того, що дав проєкт, замість підміняти.
-    test.setTimeout(test.info().timeout + facetBudgetExtraMs(FACET_BUDGET_GUESS));
+    test.setTimeout(
+      test.info().timeout + facetBudgetExtraMs(FACET_BUDGET_GUESS),
+    );
 
     const list = await guides(request);
     expect(list.length, "no guides are published").toBeGreaterThan(0);
@@ -185,12 +187,12 @@ test.describe("the section the header points at", () => {
     const isTopicName = (v: string) =>
       Object.prototype.hasOwnProperty.call(TOPICS, v);
     for (const g of list) {
-      const parts = g.slug.split('-');
+      const parts = g.slug.split("-");
       if (parts.length < 3) continue; // «не підшито нікуди»
       const country = parts[0];
       const topic = parts[parts.length - 1];
-      const region = parts.slice(1, -1).join('-');
-      if (!/^[a-z]{2}$/.test(country) || !isTopicName(topic) || region === '')
+      const region = parts.slice(1, -1).join("-");
+      if (!/^[a-z]{2}$/.test(country) || !isTopicName(topic) || region === "")
         continue;
       countries.add(country);
       topics.add(topic);
@@ -201,7 +203,7 @@ test.describe("the section the header points at", () => {
     ].sort();
     expect(
       [...facets].sort(),
-      'хаб і опубліковані гайди називають різні фасети',
+      "хаб і опубліковані гайди називають різні фасети",
     ).toEqual(derived);
 
     // 🔴 A guide the parser cannot file is linked from the hub itself, in
@@ -233,10 +235,33 @@ test.describe("the section the header points at", () => {
         .map((m) => m[1].replace(/&amp;/g, "&"))
         .filter((h) => pattern.test(h));
 
-    const guideHrefsAt = async (href: string) => {
-      const res = await request.get(href);
-      expect(res.ok(), `${href} не відповідає`).toBe(true);
-      return hrefsInHtml(await res.text(), /^\/guides\/[^/]+$/);
+    // 🔴 CAMP-443/6: ТЕМАТИЧНА СТОРІНКА ПОДІЛЕНА НА СТОРІНКИ. Перелік гайдів
+    // теми тепер лежить на `/guides/topic/x`, `/guides/topic/x/page/2` …;
+    // обхід іде за посиланням `rel="next"`, доки воно є, інакше «досяжні»
+    // рахувало б лише першу сторінку й тест червонів би на чесному сайті
+    // (або, гірше, лишався б зеленим на каталозі, де сторінка 2 порожня).
+    const guideHrefsAt = async (href: string, follow = true) => {
+      const found: string[] = [];
+      const visited = new Set<string>();
+      let next: string | undefined = href;
+      while (next && !visited.has(next)) {
+        visited.add(next);
+        const url: string = next;
+        const res = await request.get(url);
+        expect(res.ok(), `${url} не відповідає`).toBe(true);
+        const html: string = await res.text();
+        found.push(...hrefsInHtml(html, /^\/guides\/[^/]+$/));
+        next = !follow
+          ? undefined
+          : [
+              ...html.matchAll(
+                /<a\s[^>]*?href="([^"]+)"[^>]*?rel="next"|<a\s[^>]*?rel="next"[^>]*?href="([^"]+)"/g,
+              ),
+            ]
+              .map((m) => m[1] ?? m[2])
+              .find((h) => /^\/guides\/(topic|country)\//.test(h));
+      }
+      return found;
     };
 
     // 🔴 ПЕРЕВІРКА МЕТОДУ ЗА ТИПОМ СТОРІНКИ, А НЕ ЗА ПОЗИЦІЄЮ.
@@ -261,6 +286,8 @@ test.describe("the section the header points at", () => {
     const empty: string[] = [];
     for (const href of facets) {
       const found = await guideHrefsAt(href);
+      // Браузер читає одну сторінку, тож і розбір для звірки методу — лише першу.
+      const firstPage = await guideHrefsAt(href, false);
 
       const type = typeOf(href);
       if (!probed.has(type)) {
@@ -268,7 +295,7 @@ test.describe("the section the header points at", () => {
         await page.goto(href);
         const inBrowser = await hrefsOn(/^\/guides\/[^/]+$/);
         expect(
-          [...new Set(found)].sort(),
+          [...new Set(firstPage)].sort(),
           `розбір HTML і браузер читають різні посилання на ${href}`,
         ).toEqual([...new Set(inBrowser)].sort());
       }
@@ -459,13 +486,17 @@ test.describe("🔴 CAMP-459/460 — /guides і /routes беруть текст 
       request,
     }, testInfo) => {
       const res = await request.get(`${API}/pages/${slug}`);
-      expect(res.status(), `GET ${API}/pages/${slug} → ${res.status()}`).toBe(200);
+      expect(res.status(), `GET ${API}/pages/${slug} → ${res.status()}`).toBe(
+        200,
+      );
       const body = (await res.json()) as {
         title: string;
         sections: { type: string; body: string | null }[];
       };
 
-      expect(body.title?.length, "у базі немає назви сторінки").toBeGreaterThan(2);
+      expect(body.title?.length, "у базі немає назви сторінки").toBeGreaterThan(
+        2,
+      );
       const prose = body.sections.find((s) => s.type === "prose" && s.body);
       expect(prose, "у базі немає вступного абзацу").toBeTruthy();
 
@@ -482,7 +513,10 @@ test.describe("🔴 CAMP-459/460 — /guides і /routes беруть текст 
       // Перше речення вступу — достатньо, щоб довести джерело, і стійко
       // до розмітки всередині абзацу.
       const firstSentence = prose!.body!.split(". ")[0];
-      expect(firstSentence.length, "речення для звірки завузьке").toBeGreaterThan(20);
+      expect(
+        firstSentence.length,
+        "речення для звірки завузьке",
+      ).toBeGreaterThan(20);
       await expect(page.locator("main")).toContainText(firstSentence);
 
       testInfo.annotations.push({
