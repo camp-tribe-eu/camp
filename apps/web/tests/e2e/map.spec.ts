@@ -953,8 +953,9 @@ test.describe('/map', () => {
     page.on('pageerror', (e) => crashes.push(e.message));
 
     await page.goto('/map');
-
-    await openSettings(page);
+    // Без WebGL шухляди немає: мапа спершу малює смугу з кнопкою, а коли
+    // MapLibre не отримує контексту, підміняє все одним реченням, і кнопка
+    // зникає. Натиск у цей момент гнався з підміною (флак на mobile-chrome).
 
     await expect(page.getByTestId('map-unsupported')).toBeVisible();
     await expect(page.getByTestId('map-unsupported')).toContainText('WebGL');
