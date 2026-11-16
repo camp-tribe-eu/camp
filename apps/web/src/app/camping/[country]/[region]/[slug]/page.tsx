@@ -43,6 +43,7 @@ import { WarningsForSpot } from '@/components/warnings-for-spot';
 import { settingParagraph } from '@/lib/setting';
 import { droughtAtBuild } from '@/lib/drought-build';
 import { WebcamNote } from '@/components/webcam-panel';
+import PlanBBlock from '@/components/plan-b';
 import { ButtonLink } from '@/components/button';
 import { CampsiteMedia, type Photo } from '@/components/campsite-media';
 import { ScaleTrack, SpotFactsLine } from '@/components/spot-facts';
@@ -763,6 +764,8 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
         <DroughtPanel state={droughtAtBuild()} lat={spot.lat} lon={spot.lon} />
         {!hasWebcamTab && <WebcamNote webcams={spot.webcams} renderedAt={renderedAt} />}
       </div>
+
+      <PlanBBlock planB={data.planB} />
 
       {data.nearby.length > 0 && (
         <Section title="Campsites nearby">

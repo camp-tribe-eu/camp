@@ -26,6 +26,7 @@ import {
   type RegionRename,
 } from './region-renames';
 import { NOTHING_TO_SAY_SQL, SPOT_DETAIL_SQL } from './detail-query';
+import { planB, type PlanBView } from './plan-b';
 import {
   listRegion,
   NO_FILTERS,
@@ -309,6 +310,11 @@ export class SpotsService {
     }
 
     return toView(mergeAllLinked(row));
+  }
+
+  /** CAMP-524: up to three places to try if this one is full, or null. */
+  async planB(slug: string): Promise<PlanBView | null> {
+    return planB(this.db, slug);
   }
 
   /**

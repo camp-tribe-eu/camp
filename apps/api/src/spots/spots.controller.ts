@@ -233,6 +233,7 @@ export class SpotsController {
     return {
       spot,
       nearby: nearby === '0' ? [] : await this.spots.nearby(slug),
+      planB: nearby === '0' ? null : await this.spots.planB(slug),
     };
   }
 }
