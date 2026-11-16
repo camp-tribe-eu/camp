@@ -16,7 +16,7 @@ import { TrustMark } from '@/components/trust';
  * labelled "Nearest …" must find the one in the section it belongs to.
  */
 /** "293 m" must not break between the number and its unit. */
-const glueUnit = (v: string): string => v.replace(/ (m|km)$/, '\u00A0$1');
+export const glueUnit = (v: string): string => v.replace(/ (m|km)$/, '\u00A0$1');
 
 export function SpotFactsLine({ facts }: { facts: readonly SpotFact[] }) {
   if (facts.length === 0) return null;
@@ -51,7 +51,12 @@ export function SpotFactsLine({ facts }: { facts: readonly SpotFact[] }) {
 
 /**
  * A distance drawn to a fixed scale: a track, a fill that is
- * `distance / end` of it, and the two ends written under it.
+ * `distance / end` of it, and three marks under it (0, the middle, the
+ * end — each with its unit).
+ *
+ * The track is the theme's progress bar (Fuse `product-inventory-status`:
+ * 12 px high, 8 px radius, diagonal 14 px stripes on the fill) so it is
+ * read as the same control as everywhere else on the site.
  *
  * `role="meter"` rather than a bare `<div>`: it IS a measurement within
  * a known range, and `aria-valuemax` says which range, so the bar is
@@ -62,6 +67,7 @@ export function ScaleTrack({ row }: { row: AroundRow }) {
   if (!row.scale) return null;
   const key = row.key as keyof typeof SCALE_MAX_M;
   const max = SCALE_MAX_M[key];
+  const ticks = row.scale.ticks;
   return (
     <div data-scale={row.key}>
       <div
@@ -71,17 +77,31 @@ export function ScaleTrack({ row }: { row: AroundRow }) {
         aria-valuemax={max}
         aria-valuenow={Math.round((row.scale.fill / 100) * max)}
         aria-valuetext={row.value}
-        className="relative h-1.5 overflow-hidden rounded-full border border-line-2 bg-surface-2"
+        className="relative h-3 overflow-hidden rounded-lg bg-surface-2 p-0.5 ring-1 ring-inset ring-line-2"
       >
         <span
           data-fill
-          className="absolute inset-y-0 left-0 rounded-full bg-heading"
+          className="block h-full rounded-[6px] bg-heading bg-[linear-gradient(-45deg,rgb(255_255_255/0.15)_25%,transparent_25%,transparent_50%,rgb(255_255_255/0.15)_50%,rgb(255_255_255/0.15)_75%,transparent_75%)] bg-[length:14px_14px]"
           style={{ width: `${row.scale.fill}%` }}
         />
       </div>
-      <div className="mt-1 flex justify-between text-[11px] text-ink-2">
-        <div>0</div>
-        <div>{row.scale.end}</div>
+      <div data-ticks className="relative mt-1 h-4 text-xs tabular-nums text-ink-2">
+        {ticks.map((t) => (
+          <div
+            key={t.at}
+            data-tick={t.at}
+            className={
+              t.at === 0
+                ? 'absolute left-0'
+                : t.at === 100
+                  ? 'absolute right-0'
+                  : 'absolute -translate-x-1/2'
+            }
+            style={t.at > 0 && t.at < 100 ? { left: `${t.at}%` } : undefined}
+          >
+            {t.label}
+          </div>
+        ))}
       </div>
     </div>
   );
