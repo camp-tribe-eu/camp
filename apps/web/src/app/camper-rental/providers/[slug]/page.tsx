@@ -13,6 +13,7 @@ import {
 import Day from "@/components/day";
 import { LayeredBanner } from "@/components/layered-banner";
 import { Block } from "@/components/layout";
+import { bannerBackground } from "@/lib/photo-slot";
 
 // CAMP-427 — сторінка однієї компанії, за зразком single product page.
 
@@ -153,7 +154,7 @@ export default async function ProviderPageView({
       <LayeredBanner
         className="mt-3"
         headingLevel={1}
-        background={{ src: "/banners/camper.webp" }}
+        background={await bannerBackground("provider-hero", "/banners/camper.webp")}
         tickerText={p.name.toUpperCase()}
         heading={p.name}
         description={`Camper rental company registered in ${countryName(p.homeCountry)}.`}

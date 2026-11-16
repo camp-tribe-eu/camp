@@ -9,6 +9,7 @@ import { Flag } from "@/components/flag";
 import { LayeredBanner } from "@/components/layered-banner";
 import { countryName } from "@/lib/api";
 import { parseGuideSlug, TOPICS } from "@/lib/guide-facets";
+import { bannerBackground } from "@/lib/photo-slot";
 
 // CAMP-66 — one guide.
 //
@@ -110,7 +111,7 @@ export default async function GuidePage(props: { params: Promise<Params> }) {
       <LayeredBanner
         className="mt-3"
         headingLevel={1}
-        background={{ src: "/banners/guides.webp" }}
+        background={await bannerBackground("guide-hero", "/banners/guides.webp")}
         tickerText={(facets ? TOPICS[facets.topic] : "Guide").toUpperCase()}
         heading={guide.title}
         description={guide.summary ?? undefined}

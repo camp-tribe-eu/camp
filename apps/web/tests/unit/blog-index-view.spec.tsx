@@ -265,6 +265,7 @@ test('🔴 обкладинка й теги допису доходять у к�
   expect(html).toContain('src="/banners/lake.webp"');
   expect(html).toContain('alt="A calm lake"');
   expect(html).toContain('>Rules<');
-  // Допис без обкладинки лишається з лого, а не з порожньою плиткою.
-  expect(html).toContain('data-testid="post-placeholder"');
+  // Допис без обкладинки — заглушка теми (власник ставить фото сам), а не лого.
+  expect(html).toContain('data-testid="photo-placeholder"');
+  expect(html).not.toContain('/logo.svg');
 });
