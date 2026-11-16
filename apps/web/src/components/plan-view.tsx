@@ -3,8 +3,14 @@ import type { ReactNode, Ref } from 'react';
 import { AMENITY_LABEL, countryName } from '@/lib/api';
 import {
   EXAMPLE,
-  FIELD_ORDER,
+  fieldOrder,
   MAX_DAYS,
+  MAX_VIA,
+  viaField,
+  VEHICLE_TYPES,
+  type ChosenPlace,
+  type LegRequest,
+  type LegResult,
   type PlanDraft,
   type PlanErrors,
   type PlanField,
@@ -13,27 +19,31 @@ import {
   type PlannedNight,
   type PlannedSource,
   type PlannedTrip,
-  type PlanRequest,
   type PlanRun,
+  type TripRequest,
+  type VehicleType,
 } from '@/lib/plan';
+import type { SavedTrip } from '@/lib/plan-save';
 import { SOURCES, formatUpdated } from '@/lib/sources';
 import { Button } from '@/components/button';
+import Checkbox from '@/components/checkbox';
+import PlaceField from '@/components/place-field';
 
 // CAMP-205 — те, що /plan малює: форма й панель відповіді.
+// CAMP-456 — з назвами місць, проміжними точками, зворотним шляхом, даними
+// авто, збереженням і посиланням.
 //
-// 🔴 Лише розмітка. Жодного стану, жодного запиту, жодного імпорту
-// plan-source.ts: ці функції беруть значення і повертають HTML, тому їх
-// можна прочитати на виданому HTML (tests/unit/plan-view.spec.tsx), а не
-// на константі чи класі. Стан живе в plan-form.tsx, правила — в
-// lib/plan.ts.
+// 🔴 Лише розмітка. Жодного запиту, жодного імпорту plan-source.ts:
+// ці функції беруть значення і повертають HTML, тому їх можна прочитати на
+// виданому HTML (tests/unit/plan-view.spec.tsx), а не на константі чи класі.
+// Стан живе в plan-form.tsx, правила — в lib/plan.ts. (Поле місця —
+// `PlaceField` — само питає підказки, але в виданому HTML воно просто поле.)
 //
 // 🔴 Мова верстки — наявних сторінок, а не нова. Двоколонка «форма +
 // відповідь» і поля — з калькулятора вартості (CAMP-55); червона рамка
 // помилки — з тієї ж ідіоми, що попередження на сторінці кемпінга
 // (`border-warn/40 bg-warn/5`); жовта рамка «ще не працює» — з
-// повідомлення про застарілі ціни пального. Макета (`Design/05-planner`),
-// на який посилається картка, в репозиторії немає, і нічого з нього тут
-// не вгадано.
+// повідомлення про застарілі ціни пального.
 //
 // 🔴 Два відхилення від калькулятора, обидва заради доступності, обидва
 // заміряні, а не «так гарніше»:
@@ -47,22 +57,29 @@ import { Button } from '@/components/button';
 //     `:focus-visible` з globals.css лишається, бо одна лише зміна
 //     кольору рамки — це слабка ознака фокуса для людини з клавіатури.
 
-/** Ідентифікатори полів. Підсумок помилок веде на них, `aria-describedby` посилається на похідні. */
-export const FIELD_ID: Record<PlanField, string> = {
-  from: 'plan-from',
-  to: 'plan-to',
-  days: 'plan-days',
-};
+/** Ідентифікатор поля. Підсумок помилок веде на нього, `aria-describedby` посилається на похідні. */
+export const fieldId = (f: PlanField): string => `plan-${f}`;
 
 const PLACES_HINT_ID = 'plan-places-hint';
 const DAYS_HINT_ID = 'plan-days-hint';
-const errorId = (f: PlanField) => `${FIELD_ID[f]}-error`;
+const VEHICLE_HINT_ID = 'plan-vehicle-hint';
+const errorId = (f: PlanField) => `${fieldId(f)}-error`;
 
 const LABEL = 'block text-sm font-medium text-ink-2';
 const HINT = 'mt-1 text-sm text-ink-2';
 const FIELD =
   'mt-1 w-full rounded border bg-surface px-3 py-2 text-ink focus:border-line-blue';
 const border = (bad: boolean) => (bad ? 'border-warn' : 'border-line-2');
+
+/**
+ * 🔴 СЕЛЕКТ ЗА ТЕМОЮ (docs/design-system-from-theme.md, «Поля вводу й
+ * селекти»): `appearance: none` і ВЛАСНИЙ шеврон, а справа відступ 40px
+ * (`padding-inline-end`) — тема тримає його втричі більшим за лівий, і
+ * саме тому шеврон не торкається краю. Ці дві речі ходять парою: без
+ * власного шеврона `appearance: none` зробив би селект схожим на звичайне
+ * поле. Висота 56px і відступи 18px — теж із теми.
+ */
+const SELECT = `${FIELD} min-h-14 appearance-none py-[18px] ps-4 pe-10 font-semibold`;
 
 /** Ідентифікатори через пробіл, без порожніх і без тих, на які немає на що посилатись. */
 const describedBy = (...ids: (string | false | undefined)[]) =>
@@ -80,6 +97,56 @@ function ErrorLine({ field, errors }: { field: PlanField; errors: PlanErrors }) 
   );
 }
 
+const VEHICLE_LABEL: Record<VehicleType, string> = {
+  motorhome: 'Motorhome',
+  campervan: 'Campervan',
+  caravan: 'Car with a caravan',
+  tent: 'Car with a tent',
+};
+
+/** Селект зі своїм шевроном: див. `SELECT`. Шеврон — вбудований SVG, а не `background-image`: так його не торкається CSP (`img-src`). */
+function Select(props: {
+  id: string;
+  label: string;
+  value: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+  children: ReactNode;
+  describedBy?: string;
+}) {
+  return (
+    <div>
+      <label className={LABEL} htmlFor={props.id}>
+        {props.label}
+      </label>
+      <div className="relative">
+        <select
+          id={props.id}
+          name={props.id}
+          disabled={props.disabled}
+          value={props.value}
+          aria-describedby={props.describedBy}
+          onChange={(e) => props.onChange(e.target.value)}
+          className={`${SELECT} border-line-2`}
+        >
+          {props.children}
+        </select>
+        <svg
+          aria-hidden="true"
+          data-testid="select-chevron"
+          width="12"
+          height="8"
+          viewBox="0 0 12 8"
+          fill="none"
+          className="pointer-events-none absolute end-4 top-1/2 mt-0.5 -translate-y-1/2 text-heading"
+        >
+          <path d="M1 1.5 6 6.5 11 1.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </div>
+    </div>
+  );
+}
+
 export interface PlanFormViewProps {
   draft: PlanDraft;
   errors: PlanErrors;
@@ -93,22 +160,41 @@ export interface PlanFormViewProps {
   ready: boolean;
   /** Куди React кладе посилання на підсумок помилок, щоб перенести на нього фокус. */
   summaryRef?: Ref<HTMLDivElement>;
+  /** Що сталося з `?to=` чи посиланням: рядок над формою, або нічого. */
+  notice?: string | null;
   onEdit: (field: PlanField, value: string) => void;
+  onPick: (field: 'from' | 'to' | `via-${string}`, place: ChosenPlace) => void;
+  onVehicleType: (value: '' | VehicleType) => void;
+  onRoundTrip: (value: boolean) => void;
+  onAddVia: () => void;
+  onRemoveVia: (id: string) => void;
+  onMoveVia: (id: string, to: number) => void;
   onSubmit: () => void;
   /** Клік по помилці в підсумку: фокус на полі, яке треба виправити. */
   onJump: (field: PlanField) => void;
 }
 
-export function PlanFormView({
-  draft,
-  errors,
-  ready,
-  summaryRef,
-  onEdit,
-  onSubmit,
-  onJump,
-}: PlanFormViewProps) {
-  const failing = FIELD_ORDER.filter((f) => errors[f]);
+export function PlanFormView(p: PlanFormViewProps) {
+  const { draft, errors, ready } = p;
+  const failing = fieldOrder(draft).filter((f) => errors[f]);
+  const placeField = (
+    field: 'from' | 'to' | `via-${string}`,
+    label: string,
+    text: string,
+    hintId = PLACES_HINT_ID,
+  ) => (
+    <PlaceField
+      id={fieldId(field)}
+      label={label}
+      value={text}
+      disabled={!ready}
+      invalid={!!errors[field]}
+      describedBy={describedBy(hintId, errors[field] && errorId(field))}
+      className={`${FIELD} ${border(!!errors[field])}`}
+      onType={(value) => p.onEdit(field, value)}
+      onPick={(place) => p.onPick(field, place)}
+    />
+  );
 
   return (
     <form
@@ -121,7 +207,7 @@ export function PlanFormView({
       className="rounded-card border border-line-2 bg-surface-2 p-5"
       onSubmit={(e) => {
         e.preventDefault();
-        onSubmit();
+        p.onSubmit();
       }}
     >
       <h2 id="plan-form-heading" className="text-lg text-heading">
@@ -135,9 +221,15 @@ export function PlanFormView({
         </p>
       )}
 
+      {p.notice && (
+        <p data-testid="plan-notice" role="status" className="mt-4 rounded border border-line-2 bg-surface p-3 text-sm text-ink">
+          {p.notice}
+        </p>
+      )}
+
       {failing.length > 0 && (
         <div
-          ref={summaryRef}
+          ref={p.summaryRef}
           role="alert"
           tabIndex={-1}
           data-testid="plan-errors"
@@ -148,11 +240,11 @@ export function PlanFormView({
             {failing.map((f) => (
               <li key={f}>
                 <a
-                  href={`#${FIELD_ID[f]}`}
+                  href={`#${fieldId(f)}`}
                   className="underline"
                   onClick={(e) => {
                     e.preventDefault();
-                    onJump(f);
+                    p.onJump(f);
                   }}
                 >
                   {errors[f]}
@@ -163,63 +255,132 @@ export function PlanFormView({
         </div>
       )}
 
-      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+      <div className="mt-4 space-y-4">
         <div>
-          <label className={LABEL} htmlFor={FIELD_ID.from}>
-            Starting point (latitude, longitude)
-          </label>
-          <input
-            id={FIELD_ID.from}
-            name="from"
-            type="text"
-            autoComplete="off"
-            required
-            disabled={!ready}
-            value={draft.from}
-            onChange={(e) => onEdit('from', e.target.value)}
-            aria-invalid={errors.from ? true : undefined}
-            aria-describedby={describedBy(PLACES_HINT_ID, errors.from && errorId('from'))}
-            className={`${FIELD} ${border(!!errors.from)}`}
-          />
+          {placeField('from', 'Starting point', draft.from)}
           <ErrorLine field="from" errors={errors} />
         </div>
 
+        {/* Проміжні точки: у тому порядку, у якому проїжджаються. Перетягнути
+            за ручку чи кнопками «Up / Down» — клавіатурою. */}
+        {draft.via.length > 0 && (
+          <ol aria-label="Stops on the way" className="space-y-3" data-testid="via-list">
+            {draft.via.map((v, i) => {
+              const f = viaField(v.id);
+              return (
+                <li
+                  key={v.id}
+                  data-testid="via-row"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const id = e.dataTransfer.getData('text/plain');
+                    if (id !== '' && id !== v.id) p.onMoveVia(id, i);
+                  }}
+                  className="rounded border border-dashed border-line-2 p-3"
+                >
+                  <div className="flex items-start gap-2">
+                    <span
+                      draggable={ready}
+                      data-testid="via-handle"
+                      title="Drag to change the order"
+                      aria-hidden="true"
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData('text/plain', v.id);
+                        e.dataTransfer.effectAllowed = 'move';
+                      }}
+                      className="mt-9 cursor-grab select-none px-1 text-xl leading-none text-ink-2"
+                    >
+                      ⋮⋮
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      {placeField(f, `Stop ${i + 1}`, v.text)}
+                      <ErrorLine field={f} errors={errors} />
+                    </div>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={!ready || i === 0}
+                      aria-label={`Move stop ${i + 1} up`}
+                      onClick={() => p.onMoveVia(v.id, i - 1)}
+                    >
+                      Up
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={!ready || i === draft.via.length - 1}
+                      aria-label={`Move stop ${i + 1} down`}
+                      onClick={() => p.onMoveVia(v.id, i + 1)}
+                    >
+                      Down
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="danger-soft"
+                      disabled={!ready}
+                      aria-label={`Remove stop ${i + 1}`}
+                      onClick={() => p.onRemoveVia(v.id)}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        )}
+
         <div>
-          <label className={LABEL} htmlFor={FIELD_ID.to}>
-            Destination (latitude, longitude)
-          </label>
-          <input
-            id={FIELD_ID.to}
-            name="to"
-            type="text"
-            autoComplete="off"
-            required
-            disabled={!ready}
-            value={draft.to}
-            onChange={(e) => onEdit('to', e.target.value)}
-            aria-invalid={errors.to ? true : undefined}
-            aria-describedby={describedBy(PLACES_HINT_ID, errors.to && errorId('to'))}
-            className={`${FIELD} ${border(!!errors.to)}`}
-          />
+          <Button
+            type="button"
+            size="sm"
+            data-testid="add-via"
+            disabled={!ready || draft.via.length >= MAX_VIA}
+            onClick={p.onAddVia}
+          >
+            Add a stop on the way
+          </Button>
+          {draft.via.length >= MAX_VIA && (
+            <p className={HINT}>A trip can have up to {MAX_VIA} stops between the start and the destination.</p>
+          )}
+        </div>
+
+        <div>
+          {placeField('to', 'Destination', draft.to)}
           <ErrorLine field="to" errors={errors} />
         </div>
 
-        {/* 🔴 Одна підказка на обидва поля, і вона каже правду про те, чого
-            форма не робить: назви ніде не шукаються. Підказка, яка
-            натякала б на пошук, обіцяла б те, чого немає. Приклад —
-            справжні координати Любляни, а не «XX.XXXX». */}
-        <p id={PLACES_HINT_ID} className={`${HINT} sm:col-span-2`}>
-          Latitude first, then longitude, in degrees: Ljubljana is{' '}
-          {EXAMPLE.from}. Copy the numbers from a map. Place names are not
-          looked up yet, so a name will not work.
+        <Checkbox
+          checked={draft.roundTrip}
+          onChange={p.onRoundTrip}
+          disabled={!ready}
+          testId="round-trip"
+          weight="plain"
+        >
+          Return to the start
+        </Checkbox>
+
+        {/* 🔴 Одна підказка на всі поля місць, і вона каже правду про те, що
+            форма вміє: назви шукаються лише в нашій базі й так, як їх
+            пишуть на місці; координати теж годяться. Приклад — справжні
+            координати Любляни, а не «XX.XXXX». */}
+        <p id={PLACES_HINT_ID} className={HINT}>
+          Type at least three letters of a city, town, village, region or
+          campsite and pick it from the list. Names are matched as they are
+          written locally (München, not Munich). Or write latitude, then
+          longitude, in degrees: Ljubljana is {EXAMPLE.from}.
         </p>
 
         <div>
-          <label className={LABEL} htmlFor={FIELD_ID.days}>
+          <label className={LABEL} htmlFor={fieldId('days')}>
             Number of days
           </label>
           <input
-            id={FIELD_ID.days}
+            id={fieldId('days')}
             name="days"
             type="text"
             inputMode="numeric"
@@ -227,24 +388,191 @@ export function PlanFormView({
             required
             disabled={!ready}
             value={draft.days}
-            onChange={(e) => onEdit('days', e.target.value)}
+            onChange={(e) => p.onEdit('days', e.target.value)}
             aria-invalid={errors.days ? true : undefined}
             aria-describedby={describedBy(DAYS_HINT_ID, errors.days && errorId('days'))}
             className={`${FIELD} ${border(!!errors.days)}`}
           />
           <p id={DAYS_HINT_ID} className={HINT}>
-            Whole days, 1 to {MAX_DAYS}.
+            Whole days, 1 to {MAX_DAYS}, and at least one per leg of the trip.
           </p>
           <ErrorLine field="days" errors={errors} />
         </div>
+
+        <fieldset className="rounded border border-line-2 p-3" aria-describedby={VEHICLE_HINT_ID}>
+          <legend className="px-1 text-sm font-medium text-ink-2">Your vehicle (optional)</legend>
+          <div className="space-y-3">
+            <Select
+              id="plan-vehicle-type"
+              label="Vehicle type"
+              value={draft.vehicle.type}
+              disabled={!ready}
+              onChange={(v) => p.onVehicleType(v as '' | VehicleType)}
+            >
+              <option value="">Not specified</option>
+              {VEHICLE_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {VEHICLE_LABEL[t]}
+                </option>
+              ))}
+            </Select>
+            <div className="grid gap-3 sm:grid-cols-3">
+              {(
+                [
+                  ['height', 'Height, m', draft.vehicle.height],
+                  ['length', 'Length, m', draft.vehicle.length],
+                  ['weight', 'Weight, t', draft.vehicle.weight],
+                ] as const
+              ).map(([f, label, value]) => (
+                <div key={f}>
+                  <label className={LABEL} htmlFor={fieldId(f)}>
+                    {label}
+                  </label>
+                  <input
+                    id={fieldId(f)}
+                    name={f}
+                    type="text"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    disabled={!ready}
+                    value={value}
+                    onChange={(e) => p.onEdit(f, e.target.value)}
+                    aria-invalid={errors[f] ? true : undefined}
+                    aria-describedby={describedBy(VEHICLE_HINT_ID, errors[f] && errorId(f))}
+                    className={`${FIELD} ${border(!!errors[f])}`}
+                  />
+                  <ErrorLine field={f} errors={errors} />
+                </div>
+              ))}
+            </div>
+            {/* 🔴 Правда про ці числа: зберігаються з поїздкою й попадають у
+                посилання, а планувальник їх НЕ читає — він не знає ні доріг,
+                ні розмірів майданчиків, тож план від них не залежить. */}
+            <p id={VEHICLE_HINT_ID} data-testid="vehicle-hint" className={HINT}>
+              Saved with your trip and kept in the link, but the planner does not use them yet: it does
+              not know the roads or the size of the pitches, so the plan is the same whatever you enter
+              here.
+            </p>
+          </div>
+        </fieldset>
       </div>
 
-      <Button
-        type="submit"
-        disabled={!ready} variant="accent" className="mt-5">
+      <Button type="submit" disabled={!ready} variant="accent" className="mt-5">
         Check my trip
       </Button>
     </form>
+  );
+}
+
+// ── Збереження й посилання ────────────────────────────────────────────
+
+export interface PlanKeepViewProps {
+  ready: boolean;
+  name: string;
+  saved: SavedTrip[];
+  /** Скільки записів у сховищі не вдалося прочитати. */
+  dropped: number;
+  /** Повідомлення про останню дію: збережено, повно, сховище недоступне. */
+  message: string | null;
+  /** Посилання, яке зараз можна скопіювати; `null` — його ще не створено. */
+  shareUrl: string | null;
+  onName: (value: string) => void;
+  onSave: () => void;
+  onShare: () => void;
+  onOpen: (id: string) => void;
+  onDelete: (id: string) => void;
+}
+
+export function PlanKeepView(p: PlanKeepViewProps) {
+  return (
+    <section
+      aria-labelledby="plan-keep-heading"
+      data-testid="plan-keep"
+      className="mt-6 rounded-card border border-line-2 bg-surface-2 p-5"
+    >
+      <h2 id="plan-keep-heading" className="text-lg text-heading">
+        Save and share
+      </h2>
+      <p className={HINT}>
+        A saved trip stays in this browser only. We do not keep it, and there is no account. The link
+        carries the places you entered inside the address after the “#”, which your browser never
+        sends to us; whoever you give it to will see those places.
+      </p>
+
+      <div className="mt-3">
+        <label className={LABEL} htmlFor="plan-save-name">
+          Name for this trip
+        </label>
+        <input
+          id="plan-save-name"
+          type="text"
+          autoComplete="off"
+          maxLength={60}
+          disabled={!p.ready}
+          value={p.name}
+          onChange={(e) => p.onName(e.target.value)}
+          className={`${FIELD} border-line-2`}
+        />
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button type="button" data-testid="save-trip" disabled={!p.ready} onClick={p.onSave}>
+          Save this trip
+        </Button>
+        <Button type="button" data-testid="share-trip" disabled={!p.ready} onClick={p.onShare}>
+          Copy link
+        </Button>
+      </div>
+
+      <p role="status" data-testid="keep-message" className="mt-3 text-sm text-ink">
+        {p.message}
+      </p>
+
+      {p.shareUrl && (
+        <div className="mt-2">
+          <label className={LABEL} htmlFor="plan-share-url">
+            Link to this trip
+          </label>
+          <input
+            id="plan-share-url"
+            data-testid="share-url"
+            type="text"
+            readOnly
+            value={p.shareUrl}
+            onFocus={(e) => e.currentTarget.select()}
+            className={`${FIELD} border-line-2`}
+          />
+        </div>
+      )}
+
+      {p.dropped > 0 && (
+        <p data-testid="saved-dropped" className="mt-3 text-sm text-ink">
+          {p.dropped === 1
+            ? 'One saved record in this browser could not be read and was left out.'
+            : `${p.dropped} saved records in this browser could not be read and were left out.`}
+        </p>
+      )}
+
+      <h3 className="mt-5 text-sm uppercase tracking-[0.08em] text-ink-2">Saved in this browser</h3>
+      {p.saved.length === 0 ? (
+        <p data-testid="saved-empty" className={HINT}>
+          No saved trips yet.
+        </p>
+      ) : (
+        <ul className="mt-2 space-y-2" data-testid="saved-list">
+          {p.saved.map((t) => (
+            <li key={t.id} data-testid="saved-item" className="flex flex-wrap items-center gap-2">
+              <span className="wrap-anywhere min-w-0 flex-1 font-semibold text-heading">{t.name}</span>
+              <Button type="button" size="sm" disabled={!p.ready} onClick={() => p.onOpen(t.id)} aria-label={`Open ${t.name}`}>
+                Open
+              </Button>
+              <Button type="button" size="sm" variant="danger-soft" disabled={!p.ready} onClick={() => p.onDelete(t.id)} aria-label={`Delete ${t.name}`}>
+                Delete
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -283,19 +611,33 @@ export function distance(m: number): string {
 const plural = (n: number, one: string, many = `${one}s`) =>
   `${n.toLocaleString('en-GB')} ${n === 1 ? one : many}`;
 
-function Echo({ request }: { request: PlanRequest }) {
+
+/** Що запитано: один перегін показується так, як було до CAMP-456. */
+function Echo({ trip }: { trip: TripRequest }) {
+  const first = trip.stops[0];
+  const last = trip.stops[trip.stops.length - 1];
+  const via = trip.stops.slice(1, trip.roundTrip ? -2 : -1);
+  const v = trip.vehicle;
   const rows: [string, ReactNode][] = [
-    ['From', `${request.from.lat}, ${request.from.lon}`],
-    ['To', `${request.to.lat}, ${request.to.lon}`],
-    ['Days', request.days],
+    ['From', first.label],
+    ...via.map((s, i): [string, ReactNode] => [`Stop ${i + 1}`, s.label]),
+    [trip.roundTrip ? 'To, then back to the start' : 'To', trip.roundTrip ? trip.stops[trip.stops.length - 2].label : last.label],
+    ['Days', trip.days],
   ];
+  const vehicle = [
+    v.type ? VEHICLE_LABEL[v.type] : null,
+    v.heightM !== null ? `${v.heightM} m high` : null,
+    v.lengthM !== null ? `${v.lengthM} m long` : null,
+    v.weightT !== null ? `${v.weightT} t` : null,
+  ].filter(Boolean);
+  if (vehicle.length > 0) rows.push(['Vehicle (not used by the planner)', vehicle.join(', ')]);
   return (
     <>
       <h3 className="mt-4 text-xs uppercase tracking-[0.08em] text-ink-2">
         What you asked for
       </h3>
-      {/* 🔴 Стовпчиком, а не рядками «ліворуч — праворуч»: панель завширшки
-          360px, а координати з багатьма знаками не стискаються. */}
+      {/* 🔴 Стовпчиком, а не рядками «ліворуч — праворуч»: панель вузька, а
+          підписи місць і координати з багатьма знаками не стискаються. */}
       <dl className="mt-2 space-y-2">
         {rows.map(([name, value]) => (
           <div key={name}>
@@ -364,7 +706,7 @@ function Sources({ sources }: { sources: PlannedSource[] }) {
  */
 const label = (k: string) => AMENITY_LABEL[k as keyof typeof AMENITY_LABEL].toLowerCase();
 
-function NightBody({ day, night }: { day: number; night: PlannedNight }) {
+function NightBody({ day, night, multi }: { day: number; night: PlannedNight; multi: boolean }) {
   const name = night.name ?? 'Unnamed campsite';
   const weighed = night.reasons.filter((r) => r.weighed);
   const near = night.reasons.filter((r) => !r.weighed);
@@ -392,9 +734,12 @@ function NightBody({ day, night }: { day: number; night: PlannedNight }) {
           Решта причин — лише те, що в записі справді є; порожній перелік
           читається «більше нічого не записано», а не «ми не знаємо, чому». */}
       <p className="mt-1 text-sm text-ink-2">
-        On an even split of the trip, day {day} would end {distance(night.fromTargetM)} from this
-        campsite. It lies {distance(night.offsetM)} to the side of the straight line from your
-        start to your destination.
+        {multi
+          ? `On an even split of this leg, its day ${day} would end `
+          : `On an even split of the trip, day ${day} would end `}
+        {distance(night.fromTargetM)} from this campsite. It lies {distance(night.offsetM)} to the
+        side of the straight line from{' '}
+        {multi ? 'the start of this leg to the end of it.' : 'your start to your destination.'}
       </p>
       {weighed.length > 0 && (
         <>
@@ -437,30 +782,44 @@ function NightBody({ day, night }: { day: number; night: PlannedNight }) {
   );
 }
 
-function DayItem({ day, last }: { day: PlannedDay; last: boolean }) {
+function DayItem({
+  day,
+  last,
+  offset,
+  multi,
+}: {
+  day: PlannedDay;
+  last: boolean;
+  offset: number;
+  multi: boolean;
+}) {
+  // Нумерація днів наскрізна по всій поїздці: у другому перегоні перший день — не «Day 1».
+  const n = day.day + offset;
   return (
     <li className="border-t border-line-2 pt-3 first:border-t-0 first:pt-0">
-      <h4 className="text-heading">Day {day.day}</h4>
+      <h4 className="text-heading">Day {n}</h4>
       <p className="mt-1 text-ink">
         {distance(day.runM)} {STRAIGHT_LINE}
-        {last ? ', to your destination.' : '.'}
+        {last ? (multi ? ', to the end of this leg.' : ', to your destination.') : '.'}
       </p>
-      {day.night && <NightBody day={day.day} night={day.night} />}
+      {day.night && <NightBody day={day.day} night={day.night} multi={multi} />}
     </li>
   );
 }
 
-function HowChosen({ plan }: { plan: PlannedTrip }) {
+function HowChosen({ plan, multi }: { plan: PlannedTrip; multi: boolean }) {
   return (
     <section className="mt-6" aria-labelledby="plan-how-heading">
       <h3 id="plan-how-heading" className="text-sm uppercase tracking-[0.08em] text-ink-2">
         How the nights were chosen
       </h3>
       <p className="mt-2 text-sm text-ink-2">
-        The straight line from your start to your destination is cut into days, and each night
-        is taken from {plural(plan.candidates, 'campsite')} near that line. The planner picks the
-        set of nights that fits where the days should end, and lets a day run shorter or longer
-        than an even share where the campsites make that fit better. Each campsite is scored on:
+        {multi
+          ? 'Each leg is a straight line from one place to the next, cut into days, and each night is taken from the campsites near that line. '
+          : `The straight line from your start to your destination is cut into days, and each night is taken from ${plural(plan.candidates, 'campsite')} near that line. `}
+        The planner picks the set of nights that fits where the days should end, and lets a day run
+        shorter or longer than an even share where the campsites make that fit better. Each campsite
+        is scored on:
       </p>
       <ul className="mt-2 list-disc pl-5 text-sm text-ink-2">
         {plan.ranking.map((t) => (
@@ -477,9 +836,11 @@ function HowChosen({ plan }: { plan: PlannedTrip }) {
   );
 }
 
-function Licences({ plan }: { plan: PlannedTrip }) {
+function Licences({ plans }: { plans: PlannedTrip[] }) {
   const ids = [
-    ...new Set(plan.days.flatMap((d) => (d.night ? d.night.sources.map((s) => s.id) : []))),
+    ...new Set(
+      plans.flatMap((p) => p.days.flatMap((d) => (d.night ? d.night.sources.map((s) => s.id) : []))),
+    ),
   ];
   if (ids.length === 0) return null;
   return (
@@ -509,68 +870,68 @@ function Licences({ plan }: { plan: PlannedTrip }) {
   );
 }
 
-function PlannedBody({ request, plan }: { request: PlanRequest; plan: PlannedTrip }) {
-  const nights = plan.days.filter((d) => d.night).length;
+function PlanDays({ leg, plan, multi }: { leg: LegRequest; plan: PlannedTrip; multi: boolean }) {
   return (
-    <>
-      <p className="text-ink">
-        <strong>
-          {plural(plan.days.length, 'day')}, {plural(nights, 'night')}.
-        </strong>{' '}
-        From your start to your destination is {distance(plan.lengthM)} {STRAIGHT_LINE}.
-      </p>
-      {/* 🔴 Перед списком днів, а не під ним: перше, що має прочитати людина,
-          — що це не дорога. Метри в плані — по прямій, годин за кермом немає,
-          бо немає маршрутизатора, і речення каже це словами. */}
-      <p className="mt-3 text-sm text-ink-2">
-        <strong className="text-ink">Every distance here is a straight line, not a road.</strong>{' '}
-        The planner does not know the roads, so it cannot say how far a day&rsquo;s drive is or how
-        long it takes. Check the real route in your navigation app before you set off.
-      </p>
-      <ol className="mt-4 space-y-4" aria-label="The days of the trip">
-        {plan.days.map((d, i) => (
-          <DayItem key={d.day} day={d} last={i === plan.days.length - 1} />
-        ))}
-      </ol>
-      <HowChosen plan={plan} />
-      <Echo request={request} />
-      <Licences plan={plan} />
-      {/* 🔴 Твердження про те, що з даними сталося. Воно істинне, бо запит
-          іде в READ ONLY транзакцію (plan.service.ts: перший рядок, який
-          бачить зʼєднання, — BEGIN … READ ONLY, і spec це читає), а тіло
-          запиту ніде не логується. Слово «ми» — не про Cloudflare, через
-          який іде будь-який запит до сайту. */}
-      <p className="mt-4 text-sm text-ink-2">
-        To make this plan, your two points and the number of days were sent to our server. We do
-        not store them.
-      </p>
-    </>
+    <ol className="mt-4 space-y-4" aria-label="The days of the trip">
+      {plan.days.map((d, i) => (
+        <DayItem key={d.day} day={d} last={i === plan.days.length - 1} offset={leg.offset} multi={multi} />
+      ))}
+    </ol>
+  );
+}
+
+/** Твердження про те, що з даними сталося. Див. коментар перед ним у `TripBody`. */
+function Stored() {
+  return (
+    <p className="mt-4 text-sm text-ink-2">
+      To make this plan, the points of each leg of your trip and its number of days were sent to our
+      server. We do not store them. The trip is kept in this browser only if you press{' '}
+      <strong>Save this trip</strong>.
+    </p>
   );
 }
 
 const WHERE: Record<'from' | 'to', string> = { from: 'start', to: 'destination' };
 
 /**
- * Що сказало джерело.
+ * Що сказало джерело про ОДИН перегін.
  *
  * 🔴 Вичерпний `switch`: гілка `default` присвоює `never`. Коли `PlanOutcome`
  * отримає ще один варіант, ця функція перестане компілюватись — і зупинить
  * збірку саме тут, у єдиному місці, де цей варіант треба намалювати.
  */
-function OutcomeBody({ request, outcome }: { request: PlanRequest; outcome: PlanOutcome }) {
+function OutcomeBody({
+  leg,
+  outcome,
+  multi,
+}: {
+  leg: LegRequest;
+  outcome: PlanOutcome;
+  multi: boolean;
+}) {
   switch (outcome.status) {
-    case 'planned':
-      return <PlannedBody request={request} plan={outcome.plan} />;
-    case 'refused':
-      return outcome.reason === 'round-trip' ? (
+    case 'planned': {
+      const nights = outcome.plan.days.filter((d) => d.night).length;
+      return (
         <>
           <p className="text-ink">
-            <strong>No plan for a round trip.</strong> The start and the destination are the same
-            point. The planner cuts a line between two different points into days; it does not plan
-            loops. Change one of the two.
+            <strong>
+              {plural(outcome.plan.days.length, 'day')}, {plural(nights, 'night')}.
+            </strong>{' '}
+            {multi ? 'This leg is' : 'From your start to your destination is'}{' '}
+            {distance(outcome.plan.lengthM)} {STRAIGHT_LINE}.
           </p>
-          <Echo request={request} />
+          <PlanDays leg={leg} plan={outcome.plan} multi={multi} />
         </>
+      );
+    }
+    case 'refused':
+      return outcome.reason === 'round-trip' ? (
+        <p className="text-ink">
+          <strong>No plan for a round trip.</strong> The start and the destination
+          {multi ? ' of this leg' : ''} are the same point. The planner cuts a line between two
+          different points into days; it does not plan loops. Change one of the two.
+        </p>
       ) : (
         <>
           <p className="text-ink">
@@ -584,11 +945,10 @@ function OutcomeBody({ request, outcome }: { request: PlanRequest; outcome: Plan
             That happens when the line crosses open water, or when the days are too many for the
             distance. Try fewer days, or other points.
           </p>
-          <Echo request={request} />
         </>
       );
     case 'outside-union': {
-      const which = outcome.fields.map((f) => WHERE[f]);
+      const which = outcome.fields.map((f) => (multi ? `${WHERE[f]} of this leg (${leg[f === 'from' ? 'from' : 'to'].label})` : WHERE[f]));
       return (
         <>
           <p className="text-ink">
@@ -603,7 +963,6 @@ function OutcomeBody({ request, outcome }: { request: PlanRequest; outcome: Plan
             Check the numbers: latitude comes first. Ljubljana is {EXAMPLE.from}; the same two
             numbers the other way round are somewhere in Africa.
           </p>
-          <Echo request={request} />
         </>
       );
     }
@@ -611,8 +970,8 @@ function OutcomeBody({ request, outcome }: { request: PlanRequest; outcome: Plan
       return (
         <p className="text-ink">
           <strong>Too many plans in a minute.</strong> The planner limits how many trips one visitor
-          can ask for at once. Nothing was lost: your details are still in the form. Press{' '}
-          <strong>Check my trip</strong> again in a minute.
+          can ask for at once, and every leg of a trip counts as one. Nothing was lost: your details
+          are still in the form. Press <strong>Check my trip</strong> again in a minute.
         </p>
       );
     case 'failed':
@@ -630,6 +989,70 @@ function OutcomeBody({ request, outcome }: { request: PlanRequest; outcome: Plan
   }
 }
 
+/** Поїздка з одного перегону — так само, як до CAMP-456; з кількох — перегін за перегоном. */
+function TripBody({ request, legs }: { request: TripRequest; legs: LegResult[] }) {
+  const multi = legs.length > 1;
+  const plans = legs.flatMap((l) => (l.outcome.status === 'planned' ? [l.outcome.plan] : []));
+  const nights = plans.reduce((s, p) => s + p.days.filter((d) => d.night).length, 0);
+
+  return (
+    <>
+      {multi && (
+        <p className="text-ink">
+          <strong>
+            {plural(request.days, 'day')} in {plural(legs.length, 'leg')}
+            {plans.length === legs.length ? `, ${plural(nights, 'night')}` : ''}.
+          </strong>{' '}
+          Each leg is planned on its own, from one of your places to the next; the days are shared
+          between the legs in proportion to their straight-line length, at least one each.
+        </p>
+      )}
+      {/* 🔴 Перед списком днів, а не під ним: перше, що має прочитати людина,
+          — що це не дорога. Метри в плані — по прямій, годин за кермом немає,
+          бо немає маршрутизатора, і речення каже це словами. */}
+      <p className={multi ? 'mt-3 text-sm text-ink-2' : 'text-sm text-ink-2'}>
+        <strong className="text-ink">Every distance here is a straight line, not a road.</strong>{' '}
+        The planner does not know the roads, so it cannot say how far a day&rsquo;s drive is or how
+        long it takes. Check the real route in your navigation app before you set off.
+      </p>
+      {multi ? (
+        <ol className="mt-4 space-y-6" aria-label="The legs of the trip">
+          {legs.map((l, i) => (
+            <li key={i} data-testid="leg" className="border-t border-line-2 pt-4 first:border-t-0 first:pt-0">
+              <h3 className="wrap-anywhere text-heading">
+                Leg {i + 1}: {l.leg.from.label} to {l.leg.to.label}{' '}
+                <span className="font-normal text-ink-2">({plural(l.leg.days, 'day')})</span>
+              </h3>
+              <div className="mt-2">
+                <OutcomeBody leg={l.leg} outcome={l.outcome} multi />
+              </div>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <div className="mt-3">
+          <OutcomeBody leg={legs[0].leg} outcome={legs[0].outcome} multi={false} />
+        </div>
+      )}
+      {plans.length > 0 && <HowChosen plan={plans[0]} multi={multi} />}
+      {/* Що запитано, друкується, коли планувальник ВІДПОВІВ (план чи відмова).
+          Коли він мовчить чи ліміт вичерпано, форма поруч і так тримає все. */}
+      {legs.some((l) => l.outcome.status !== 'failed' && l.outcome.status !== 'throttled') && (
+        <Echo trip={request} />
+      )}
+      <Licences plans={plans} />
+      {/* 🔴 Твердження про те, що з даними сталося. Воно істинне, бо кожен
+          запит іде в READ ONLY транзакцію (plan.service.ts: перший рядок, який
+          бачить зʼєднання, — BEGIN … READ ONLY, і spec це читає), а тіло
+          запиту ніде не логується. Слово «ми» — не про Cloudflare, через
+          який іде будь-який запит до сайту. Збереження в браузері — окреме
+          твердження, і воно тут же: поїздка лишається в браузері, лише якщо
+          натиснуто кнопку. */}
+      {plans.length > 0 ? <Stored /> : null}
+    </>
+  );
+}
+
 function RunBody({ run }: { run: PlanRun }) {
   switch (run.phase) {
     case 'idle':
@@ -643,7 +1066,7 @@ function RunBody({ run }: { run: PlanRun }) {
     case 'pending':
       return <p>Asking the planner…</p>;
     case 'done':
-      return <OutcomeBody request={run.request} outcome={run.outcome} />;
+      return <TripBody request={run.request} legs={run.legs} />;
   }
 }
 

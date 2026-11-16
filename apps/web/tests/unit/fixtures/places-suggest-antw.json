@@ -1,0 +1,53 @@
+{
+  "status": 200,
+  "body": {
+    "items": [
+      {
+        "kind": "city",
+        "name": "Antwerpen",
+        "country": "be",
+        "lat": 51.2211097,
+        "lon": 4.3997081
+      },
+      {
+        "kind": "region",
+        "name": "Antwerp",
+        "country": "be",
+        "lat": 51.232790432782224,
+        "lon": 4.761655020653224
+      },
+      {
+        "kind": "village",
+        "name": "Antwort",
+        "country": "de",
+        "lat": 47.8905139,
+        "lon": 12.3079255
+      },
+      {
+        "kind": "village",
+        "name": "Antweiler",
+        "country": "de",
+        "lat": 50.6064984,
+        "lon": 6.7467819
+      },
+      {
+        "kind": "campsite",
+        "name": "City Camping Antwerp",
+        "country": "be",
+        "lat": 51.23381665,
+        "lon": 4.393624799151242,
+        "slug": "city-camping-antwerp",
+        "path": "/camping/be/antwerp/city-camping-antwerp"
+      },
+      {
+        "kind": "campsite",
+        "name": "Camperpark Vogelzang Antwerpen",
+        "country": "be",
+        "lat": 51.1902124,
+        "lon": 4.401304861505434,
+        "slug": "camperpark-vogelzang-antwerpen",
+        "path": "/camping/be/antwerp/camperpark-vogelzang-antwerpen"
+      }
+    ]
+  }
+}

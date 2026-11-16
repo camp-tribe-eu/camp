@@ -37,7 +37,7 @@ import { Block } from '@/components/layout';
 export const metadata: Metadata = {
   title: 'Trip planner',
   description:
-    'Plan a trip between two points in the EU, day by day: a campsite for each night and the reason it was chosen. Distances are straight lines, not roads.',
+    'Plan a trip between places in the EU, day by day: a campsite for each night and the reason it was chosen. Search by name, add stops, come back to the start. Distances are straight lines, not roads.',
   alternates: alternatesFor('/plan'),
   robots: { index: false, follow: true },
 };
@@ -68,16 +68,35 @@ export default function PlanPage() {
       >
         <p>
           <strong>This planner cuts a straight line into days.</strong> Give it
-          a start, a destination and a number of days, and it picks a campsite
-          from our database for each night, near where that day should end,
-          and says why.
+          a start, a destination, any stops on the way and a number of days,
+          and it picks a campsite from our database for each night, near where
+          that day should end, and says why.
         </p>
         <p className="mt-3">
           <strong>What it does not know:</strong> the roads, so every distance
           is a straight line and there are no driving times; the size of your
-          vehicle, because we hold no data on pitch sizes; and whether a
-          campsite is open on your dates. It takes coordinates, not place
-          names, because nothing looks names up yet.
+          vehicle, because we hold no data on pitch sizes, so the height,
+          length and weight you enter are saved with the trip and change
+          nothing in the plan; and whether a campsite is open on your dates.
+          Place names are looked up in our own data only, as they are written
+          locally.
+        </p>
+        {/* 🔴 Застереження — у виданому HTML, а не після гідратації, і воно
+            стоїть тут, перед формою, а не в підвалі: юридично воно потрібне,
+            а не бажане (CAMP-456, п. 8; слова власника — «дані наведені для
+            вашої інформації й можуть відрізнятись від реальних умов»). Тест
+            читає саме цей вузол у виданому документі. */}
+        <p data-testid="plan-disclaimer" className="mt-3">
+          <strong>For your information only.</strong> Everything here may
+          differ from real conditions. CampTribe is not a navigation app. The
+          data comes from other providers&rsquo; records, some of them open
+          sources kept up by volunteers, and can be wrong or out of date. Check
+          the roads, opening dates and your vehicle&rsquo;s limits yourself:
+          you use this at your own discretion and risk. More in{' '}
+          <Link className="underline" href="/legal/disclaimer">
+            What we do and do not know
+          </Link>
+          .
         </p>
       </Block>
 
