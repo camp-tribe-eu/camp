@@ -1,6 +1,10 @@
 import Link from "next/link";
 
-import { Flag } from "./flag";
+import type { CSSProperties } from "react";
+
+import type { DotMap } from "@/lib/mini-map";
+import { rankRegions } from "./country-panel";
+import { ArtStyle, RegionArt } from "./place-art";
 
 /**
  * Картки регіонів на сторінці країни — CAMP-451.
@@ -15,9 +19,15 @@ import { Flag } from "./flag";
  * посилання — з `small-collection-card` тієї ж теми (`products-count`
  * кольором `--color-text-secondary`, `link` 0.875em вагою 600).
  *
- * 🔴 ФОТОГРАФІЙ РЕГІОНІВ У НАС НЕМАЄ — у репозиторії нуль зображень.
- * Зображенням картки стоїть прапор країни, як у плиток країн; заглушки
- * не вигадуємо.
+ * 🔴 ФОТОГРАФІЙ РЕГІОНІВ У НАС НЕМАЄ, І ПРАПОР КРАЇНИ НЕ ЗОБРАЖЕННЯ
+ * РЕГІОНУ (CAMP-441: сто дві картки Франції з одним прапором — найпомітніше
+ * на другому екрані). Зображення картки — мінікарта її кемпінгів,
+ * намальована з наших координат (lib/mini-map.ts, place-art.tsx). Регіон
+ * без жодної координати має картку без зображення, не порожню.
+ *
+ * 🔴 КОЛОНКИ: 2 на телефоні, 4 від 768px — і це ЗА ЗАМОВЧУВАННЯМ ТОГО Ж
+ * ПЕРЕМИКАЧА, що й картки кемпінгів (listing-panel.tsx: 1/2/3 і 3/4/5).
+ * Драбина 2 → 3 → 4, що стояла тут, мала б іншу «4», ніж кнопка на панелі.
  *
  * 🔴 ТРИ-ЧОТИРИ В РЯД, А НЕ ШІСТЬ. Тема дає `16.666%` від 992px для
  * переліку колекцій; тут регіонів у країні буває до 100 (Франція), і
@@ -92,42 +102,65 @@ const REGION_TILES_CSS = `
 .ct-rtiles__col{display:flex;width:50%;padding:0 4px}
 .ct-rtile{position:relative;display:flex;flex-direction:column;width:100%;height:100%;overflow:hidden;padding:4px;padding-bottom:0;border-radius:var(--r,16px);background-color:var(--color-surface-2);color:inherit;text-decoration:none}
 .ct-rtile__image-wrapper{position:relative;display:block;overflow:hidden;padding-top:56.4%;border-radius:calc(var(--r,16px) * .75);background-color:var(--color-surface)}
-.ct-rtile__image-wrapper .ct-flag{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;transition:transform .4s ease-out}
-.ct-rtile__image-wrapper .ct-flag--none{display:flex;align-items:center;justify-content:center;font-weight:700;letter-spacing:.1em;color:var(--color-ink-2)}
+.ct-rtile__image-wrapper .ct-art{transition:transform .4s ease-out}
 .ct-rtile__header{display:flex;flex:1 1 auto;flex-direction:column;padding:12px 12px 16px;word-wrap:break-word}
 .ct-rtile__title{font-weight:600;line-height:1.5;color:var(--color-heading)}
 .ct-rtile__count{font-size:.875rem;line-height:1.6;color:var(--color-ink-2)}
 .ct-rtile__link{margin-top:auto;padding-top:8px;align-self:flex-start;font-size:.875rem;font-weight:600;color:var(--color-heading);text-decoration:underline;text-decoration-color:transparent;transition:text-decoration-color .4s}
 a.ct-rtile:focus-visible{outline:2px solid var(--color-heading);outline-offset:2px}
-@media(hover:hover),(pointer:fine){a.ct-rtile:hover .ct-flag{transform:scale(1.04)}a.ct-rtile:hover .ct-rtile__link{text-decoration-color:currentColor}}
-@media(min-width:992px){.ct-rtiles__row{row-gap:12px}.ct-rtiles__col{width:33.333%}.ct-rtile{padding:8px;padding-bottom:0}}
-@media(min-width:1200px){.ct-rtiles__col{width:25%}}
-@media(prefers-reduced-motion:reduce){.ct-rtile__image-wrapper .ct-flag,.ct-rtile__link{transition:none}}
+@media(hover:hover),(pointer:fine){a.ct-rtile:hover .ct-art{transform:scale(1.04)}a.ct-rtile:hover .ct-rtile__link{text-decoration-color:currentColor}}
+@media(min-width:768px){.ct-rtiles__col{width:25%}}
+@media(min-width:992px){.ct-rtiles__row{row-gap:12px}.ct-rtile{padding:8px;padding-bottom:0}}
+@media(prefers-reduced-motion:reduce){.ct-rtile__image-wrapper .ct-art,.ct-rtile__link{transition:none}}
 `;
 
 export function RegionTiles({
   country,
   regions,
+  art,
   className,
 }: {
-  /** Код країни: його прапор стоїть зображенням кожної картки. */
+  /** Код країни — для адреси картки. */
   country: string;
   regions: readonly RegionCard[];
+  /**
+   * Мінікарти за slug регіону. Немає запису (або `null`) — картка без
+   * зображення; один регіон, чиї координати не прочиталися, коштує одного
+   * зображення.
+   */
+  art?: ReadonlyMap<string, DotMap | null>;
   className?: string;
 }) {
   if (regions.length === 0) return null;
+  const ranks = rankRegions(regions);
   return (
     <div className={["ct-rtiles", className].filter(Boolean).join(" ")}>
       <style href="ct-rtiles" precedence="ct-components">
         {REGION_TILES_CSS}
       </style>
+      <ArtStyle />
       <ul className="ct-rtiles__row">
-        {regions.map((r) => (
-          <li className="ct-rtiles__col" key={r.slug}>
+        {regions.map((r) => {
+          const map = art?.get(r.slug) ?? null;
+          const rank = ranks.get(r.slug);
+          return (
+          <li
+            className="ct-rtiles__col"
+            key={r.slug}
+            // Один кемпінг: фільтр «2+» ховає картку, посилання лишається.
+            data-single={r.spots === 1 ? "" : undefined}
+            style={
+              rank
+                ? ({ "--ct-name": rank.name, "--ct-count": rank.count } as CSSProperties)
+                : undefined
+            }
+          >
             <Link href={`/camping/${country}/${r.slug}`} className="ct-rtile">
-              <span className="ct-rtile__image-wrapper">
-                <Flag code={country} />
-              </span>
+              {map && (
+                <span className="ct-rtile__image-wrapper">
+                  <RegionArt map={map} />
+                </span>
+              )}
               <span className="ct-rtile__header">
                 <span className="ct-rtile__title">{r.region}</span>
                 <span className="ct-rtile__count">{regionCountLabel(r.spots)}</span>
@@ -135,7 +168,8 @@ export function RegionTiles({
               </span>
             </Link>
           </li>
-        ))}
+          );
+        })}
       </ul>
     </div>
   );

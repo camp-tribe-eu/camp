@@ -42,6 +42,9 @@ import { countedAsOf, regionFaq, regionTiles } from '@/lib/hub-stats';
 import { HubFaq, HubStatTiles } from '@/components/hub-stats';
 import { LayeredBanner } from '@/components/layered-banner';
 import { Block, PageShell } from '@/components/layout';
+import { ArtStyle, MarkedArt, OutlineArt, RegionSymbol } from '@/components/place-art';
+import { dotMap, outlinePath, type DotMap } from '@/lib/mini-map';
+import { regionPoints } from '@/lib/region-points';
 
 // CAMP-71, level 2: the region hub. Shared by /camping/{c}/{r},
 // /camping/{c}/{r}/page/{n} and /camping/{c}/{r}/filter?… so the first
@@ -104,7 +107,7 @@ export default async function RegionListing({
   // unticked. Decided before anything is fetched, so the filter route —
   // hundreds of thousands of addresses — never asks for the figures.
   const baseFirstPage = page === 1 && !live && !hasState(q);
-  const [meta, data, stats, stylePage] = await Promise.all([
+  const [meta, data, stats, stylePage, points] = await Promise.all([
     regionMeta(country, region).catch((e: unknown) => {
       if (!live) throw e;
       return null;
@@ -115,7 +118,11 @@ export default async function RegionListing({
     // reached costs the group, never the hub — the same trade the header
     // makes for its own labels (layout.tsx).
     pageContent(TRAVEL_STYLES_PAGE).catch(() => null),
+    // CAMP-441: where the region's campsites are — the picture of a card
+    // whose campsite has no outline. A failure is `[]`: cards without it.
+    regionPoints(country, region),
   ]);
+  const cloud = dotMap(points);
   if (!meta || !data.region) notFound();
 
   // 🔴 CAMP-520: A STYLE WE CANNOT NAME, OR CANNOT COUNT, IS NOT A PAGE.
@@ -294,15 +301,20 @@ export default async function RegionListing({
       ) : (
         /* 🔴 `grid` stays in the class list: tests/e2e/hub-filters.spec.ts
            counts the cards as `main ul.grid li a`. */
-        <ul className="ct-cards mt-6 grid">
-          {data.items.map((s) => (
-            <SpotListCard
-              key={s.slug}
-              spot={s}
-              href={`/camping/${country}/${region}/${s.slug}`}
-            />
-          ))}
-        </ul>
+        <>
+          <ArtStyle />
+          <RegionSymbol id={CLOUD_ID} map={cloud} />
+          <ul className="ct-cards mt-6 grid">
+            {data.items.map((s) => (
+              <SpotListCard
+                key={s.slug}
+                spot={s}
+                href={`/camping/${country}/${region}/${s.slug}`}
+                cloud={cloud}
+              />
+            ))}
+          </ul>
+        </>
       )}
 
       {/* CAMP-451: the theme's paginator (components/pagination.tsx).
@@ -406,6 +418,7 @@ const REGION_CSS = `
 .ct-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;list-style:none;margin:24px 0 0;padding:0}
 .ct-card{display:flex}
 .ct-card__link{display:flex;flex-direction:column;width:100%;height:100%;padding:4px;border-radius:var(--r,16px);background-color:var(--color-surface-2);color:inherit;text-decoration:none}
+.ct-card__image{position:relative;display:block;flex:none;overflow:hidden;padding-top:56.25%;margin-bottom:4px;border-radius:calc(var(--r,16px) * .75);background-color:var(--color-surface)}
 .ct-card__body{display:flex;flex:1 1 auto;flex-direction:column;align-items:flex-start;height:100%;padding:16px 20px 20px;border-radius:calc(var(--r,16px) * .75);background-color:var(--color-surface)}
 .ct-card__title{font-weight:600;line-height:1.5;color:var(--color-heading);word-break:break-word}
 .ct-card__type{margin-top:8px;font-size:.875rem;line-height:1.5;color:var(--color-ink-2)}
@@ -419,7 +432,31 @@ a.ct-card__link:focus-visible{outline:2px solid var(--color-heading);outline-off
 @media(min-width:992px){.ct-region{grid-template-columns:repeat(2,minmax(0,1fr))}.ct-region__map{position:sticky;top:calc(var(--ct-header-h,63px) + 24px);align-self:start}.ct-card__link{padding:8px}}
 `;
 
-function SpotListCard({ spot, href }: { spot: SpotCard; href: string }) {
+/** The one symbol of the region's cloud on a page; every outline-less card uses it. */
+const CLOUD_ID = 'ct-region-cloud';
+
+function SpotListCard({
+  spot,
+  href,
+  cloud,
+}: {
+  spot: SpotCard;
+  href: string;
+  cloud: DotMap | null;
+}) {
+  // CAMP-441 (58). The picture: the ground's own outline where OSM has one
+  // (about half of the campsites), else the region's cloud with this
+  // campsite marked, else none — never a flag, never an empty frame.
+  const shape = outlinePath(spot.outline);
+  const at =
+    typeof spot.lat === 'number' && typeof spot.lon === 'number'
+      ? { lat: spot.lat, lon: spot.lon }
+      : null;
+  const picture = shape ? (
+    <OutlineArt d={shape} />
+  ) : cloud ? (
+    <MarkedArt symbolId={CLOUD_ID} map={cloud} at={at} />
+  ) : null;
   // Only what is actually recorded. A card that prints five grey icons for
   // five unknown amenities says "we know nothing" five times; one honest
   // line says it once and leaves room for what we do know.
@@ -431,12 +468,17 @@ function SpotListCard({ spot, href }: { spot: SpotCard; href: string }) {
       {/* Без `aria-labelledby` — див. 🔴 у заголовку файла: часткове імʼя
           ламає WCAG 2.5.3, і це заміряно, а не припущено. */}
       <Link href={href} className="ct-card__link">
+        {picture && <span className="ct-card__image">{picture}</span>}
         <span className="ct-card__body">
           <span className="ct-card__title">
             {spot.name ?? SPOT_TYPE_LABEL[spot.type]}
           </span>
           <span className="ct-card__type">{SPOT_TYPE_LABEL[spot.type]}</span>
-          {known.length > 0 ? (
+          {/* 🔴 CAMP-441 (58): no line at all when nothing is recorded. The
+              card used to print "Facilities not recorded" on half of them —
+              the same sentence 12 times a screen. The absence is said once,
+              on the filter panel's note, not on every card. */}
+          {known.length > 0 && (
             <span className="ct-card__tags">
               {known.map(([k, label]) => (
                 <span key={k} className="ct-card__tag">
@@ -444,8 +486,6 @@ function SpotListCard({ spot, href }: { spot: SpotCard; href: string }) {
                 </span>
               ))}
             </span>
-          ) : (
-            <span className="ct-card__type">Facilities not recorded</span>
           )}
           <span className="ct-card__button">
             {/* The theme's secondary button (button.tsx), drawn on a span:

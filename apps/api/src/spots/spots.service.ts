@@ -265,6 +265,14 @@ export interface SpotCard {
   region: string | null;
   type: string;
   amenities: CampingSpotAmenities;
+  /**
+   * CAMP-441, the region listing only: where the campsite is and the shape
+   * of its ground, for the card's picture. Absent on the other routes that
+   * return a card (`notable`).
+   */
+  lat?: number;
+  lon?: number;
+  outline?: GeoJsonPolygon | null;
 }
 
 export interface NearbySpot {

@@ -400,8 +400,8 @@ test.describe('the country page', () => {
       href: /href="([^"]*)"/.exec(m[1])?.[1] ?? '',
       text: visibleText(m[2]).trim(),
     }));
-    const map = anchors.find((a) => a.text === 'Open on map');
-    const plan = anchors.find((a) => a.text === 'Plan a trip');
+    const map = anchors.find((a) => a.text === 'Open the campsite map');
+    const plan = anchors.find((a) => a.text === 'Plan a route');
     expect(map?.href).toBe('/map');
     expect(plan?.href).toBe('/plan');
     for (const a of [map!, plan!]) {

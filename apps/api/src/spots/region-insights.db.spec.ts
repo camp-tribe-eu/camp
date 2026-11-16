@@ -67,7 +67,9 @@ beforeAll(async () => {
       last_seen_at timestamptz, missing_since timestamptz,
       overnight_status varchar NOT NULL DEFAULT 'unknown',
       overnight_source varchar, overnight_checked_at date,
-      travel_styles jsonb NOT NULL DEFAULT '{}');
+      travel_styles jsonb NOT NULL DEFAULT '{}',
+      -- CAMP-441: the listing query now selects the outline for the card.
+      outline geometry(MultiPolygon, 4326));
     CREATE TABLE spot_links (
       primary_id uuid NOT NULL, secondary_id uuid NOT NULL,
       unlinked_at timestamptz, created_at timestamptz DEFAULT now());`);
