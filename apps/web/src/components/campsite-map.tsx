@@ -50,6 +50,8 @@ import {
 import { LayerChip } from "./layer-chip";
 import { WildfirePanel } from "./wildfire-panel";
 import { droughtBeforeId, underBaseLabels } from "@/lib/map-layer-order";
+import { paintOffThread } from "@/lib/drought-offthread";
+import { makeDroughtWorker } from "@/lib/drought-worker-factory";
 import { DroughtLayerPanel } from "./drought-layer-panel";
 import { WarningPanel } from "./warning-panel";
 import { canCountSpots, levelByZone, levelForSpot } from "@/lib/map-hazard";
@@ -86,7 +88,6 @@ import {
 import {
   DROUGHT_RASTER_OPACITY,
   DROUGHT_URL,
-  paintSmoothOverlay,
   readDroughtPayload,
   type DroughtLayerState,
   type DroughtOverlay,
@@ -382,10 +383,7 @@ interface DroughtImage {
  * would be the wrong repair. A canvas source reads the canvas directly and
  * makes no request at all.
  */
-function buildDroughtImage(
-  state: Extract<DroughtState, { kind: "current" }>,
-): DroughtImage | null {
-  const overlay = paintSmoothOverlay(state);
+function buildDroughtImage(overlay: DroughtOverlay): DroughtImage | null {
   const canvas = document.createElement("canvas");
   canvas.width = overlay.width;
   canvas.height = overlay.height;
@@ -401,6 +399,18 @@ function buildDroughtImage(
     0,
   );
   return { canvas, coordinates: overlay.coordinates };
+}
+
+/**
+ * CAMP-530: the picture is painted in a Web Worker (`drought-worker.ts`) and
+ * comes back as a transferable buffer, so a phone is not frozen for seconds
+ * when the layer is switched on. Any failure of the worker falls back to the
+ * same painter on this thread (`paintOffThread`).
+ */
+async function buildDroughtImageOffThread(
+  state: Extract<DroughtState, { kind: "current" }>,
+): Promise<DroughtImage | null> {
+  return buildDroughtImage(await paintOffThread(state, makeDroughtWorker));
 }
 
 /**
@@ -873,6 +883,7 @@ export default function CampsiteMap() {
     kind: "loading",
   });
   const droughtImage = useRef<DroughtImage | null>(null);
+  const droughtBuilding = useRef(false);
   /** Whether the picture should be showing — read by `attach`, which runs on every styledata. */
   const droughtShown = useRef(false);
   const droughtAsked = useRef(false);
@@ -2172,22 +2183,30 @@ export default function CampsiteMap() {
     const shown = droughtOn && droughtStateNow.kind === "current";
     droughtShown.current = shown;
     if (shown && !droughtImage.current && droughtStateNow.kind === "current") {
-      let built: DroughtImage | null = null;
-      try {
-        built = buildDroughtImage(droughtStateNow);
-      } catch {
-        built = null; // a canvas this size that the browser will not give us
+      // 🔴 CAMP-530: built off the main thread, so this returns at once and
+      // `drawDrought` runs again when the picture arrives. `droughtBuilding`
+      // keeps a second call (a re-render) from starting a second worker.
+      if (!droughtBuilding.current) {
+        droughtBuilding.current = true;
+        buildDroughtImageOffThread(droughtStateNow)
+          .catch(() => null) // a canvas this size that the browser will not give us
+          .then((built) => {
+            droughtBuilding.current = false;
+            if (!mounted.current) return;
+            if (!built) {
+              // 🔴 A panel that describes a drawn layer over a map it could not
+              // draw on is the blank that reads as an all-clear. `missing` is
+              // the honest state for "we hold it and cannot show it".
+              droughtShown.current = false;
+              const e2 = container.current;
+              if (e2) e2.dataset.droughtDrawn = "0";
+              setDroughtStateNow({ kind: "missing" });
+              return;
+            }
+            droughtImage.current = built;
+            drawDroughtRef.current();
+          });
       }
-      if (!built) {
-        // 🔴 A panel that describes a drawn layer over a map it could not
-        // draw on is the blank that reads as an all-clear. `missing` is
-        // the honest state for "we hold it and cannot show it".
-        droughtShown.current = false;
-        if (el) el.dataset.droughtDrawn = "0";
-        setDroughtStateNow({ kind: "missing" });
-        return;
-      }
-      droughtImage.current = built;
     }
     if (m) tryAttachDrought(m, droughtImage.current, shown);
     if (el) {
