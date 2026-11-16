@@ -12,10 +12,12 @@ import {
   inflateBase64,
   maskFileOf,
   paintOverlay,
+  paintSmoothOverlay,
   readDroughtPayload,
   readingAt,
   type DroughtState,
 } from "@/lib/drought";
+import { SMOOTH_FACTOR } from "@/lib/drought-smooth";
 import { DroughtLayerPanel } from "@/components/drought-layer-panel";
 import { GET } from "@/app/data/drought.json/route";
 import { renderComponent } from "./render-component";
@@ -458,6 +460,253 @@ test.describe("paintOverlay", () => {
       "the mask is not empty and not everything",
     ).toBeGreaterThan(0.2);
     expect(shareGrid).toBeLessThan(0.9);
+  });
+});
+
+// ── the picture, smoothed for showing (CAMP-530) ─────────────────────────
+
+test.describe("paintSmoothOverlay", () => {
+  // 20 × 13 cells of 1°: class 3 on the west half, class 1 on the east, ONE lone
+  // class-5 cell inside the west half, and a masked-out patch in the east.
+  const W = 20;
+  const H = 13;
+  const cells: number[] = [];
+  const mask: number[] = [];
+  for (let r = 0; r < H; r++)
+    for (let c = 0; c < W; c++) {
+      cells.push(c < 10 ? 3 : 1);
+      mask.push(1);
+    }
+  cells[6 * W + 3] = 5;
+  for (const [r, c] of [3, 4, 5, 6].flatMap((r) => [14, 15, 16, 17].map((c) => [r, c]))) mask[r * W + c] = 0;
+  const T2 = { width: W, height: H, lon0: 10, lat0: 53, pixel: 1, cells, mask };
+  const px = (o: { data: Uint8ClampedArray; width: number }, r: number, c: number) =>
+    Array.from(o.data.slice((r * o.width + c) * 4, (r * o.width + c) * 4 + 4));
+  const F = SMOOTH_FACTOR;
+
+  const PURE = new Set([WANT[1], WANT[3], WANT[5], BARE].map((v) => v.join(",")));
+  const isPure = (v: number[]) => PURE.has(v.join(","));
+
+  test("🔴 inside a class the colour is the palette's, exactly; mixed colours live only in a band at the edge, and the lone cell is gone", () => {
+    // THIS test is the blur's. Mutation: set `EDGE_BLUR` to [1] — no pixel is
+    // mixed, the band is empty and it fails. (The lone-cell filter's test is
+    // "a lone cell the smoothing alone would keep is absorbed first", below.)
+    const o = paintSmoothOverlay(tinyState(T2));
+    const mixed: Array<[number, number]> = [];
+    for (let r = 0; r < o.height; r++)
+      for (let c = 0; c < o.width; c++) if (!isPure(px(o, r, c))) mixed.push([r, c]);
+    expect(mixed.length, "the edges are blurred: some pixels are not a palette colour").toBeGreaterThan(50);
+    // Every mixed pixel has pure pixels of two different kinds within 6 px,
+    // so it IS at an edge; nothing is mixed in the middle of a class.
+    for (const [r, c] of mixed) {
+      const kinds = new Set<string>();
+      for (let dr = -6; dr <= 6; dr++)
+        for (let dc = -6; dc <= 6; dc++) {
+          const rr = r + dr, cc = c + dc;
+          if (rr < 0 || cc < 0 || rr >= o.height || cc >= o.width) continue;
+          const v = px(o, rr, cc);
+          if (isPure(v)) kinds.add(v.join(","));
+        }
+      expect(kinds.size, `pixel (${r},${c}) is mixed with no edge near`).toBeGreaterThanOrEqual(2);
+    }
+    expect(o.width).toBe(W * F);
+  });
+
+  test("away from any change the picture is the colour of the cell under it, as the plain oracle says", () => {
+    // `expectedPixel` walks the SOURCE cells and the mercator rows forward.
+    // Pixels two cells or more from a class change, from the lone cell, from
+    // the masked patch and from the grid's edge are ONE cell's colour and the
+    // oracle must agree. Mutation: shift the rows by half a cell — they
+    // disagree and this fails.
+    const o = paintSmoothOverlay(tinyState(T2));
+    const yTop = mercY(T2.lat0);
+    const yBottom = mercY(T2.lat0 - T2.height * T2.pixel);
+    const wrong: string[] = [];
+    let checked = 0;
+    for (let r = 0; r < o.height; r++) {
+      const y = yTop - ((r + 0.5) * (yTop - yBottom)) / o.height;
+      let row = -1;
+      for (let i = 0; i < H; i++)
+        if (y <= mercY(T2.lat0 - i * T2.pixel) && y > mercY(T2.lat0 - (i + 1) * T2.pixel)) row = i;
+      for (let c = 0; c < o.width; c++) {
+        const col = Math.floor(c / F);
+        const near = (a: number, b: number) =>
+          Math.abs(row - a) <= 2 && Math.abs(col - b) <= 2;
+        const calm =
+          row >= 2 && row <= H - 3 && col >= 2 && col <= W - 3 &&
+          Math.abs(col - 9.5) >= 2.5 && !near(6, 3) && !(row >= 1 && row <= 8 && col >= 12);
+        if (!calm) continue;
+        checked++;
+        const want = expectedPixel(T2, o.height, r, col);
+        if (px(o, r, c).some((v, k) => v !== want[k]))
+          wrong.push(`(${r},${c}) got ${px(o, r, c)} want ${want}`);
+      }
+    }
+    expect(checked).toBeGreaterThan(200);
+    expect(wrong.slice(0, 5), `${wrong.length} of ${checked} differ`).toEqual([]);
+  });
+
+  test("🔴 a lone cell the smoothing alone would keep is absorbed first", () => {
+    // The vote at a cell's own centre gives the cell a quarter of the weight.
+    // Ring it with four different classes round the sides and three equal
+    // ones in the corners and no class tops a quarter, so the smoothing alone
+    // KEEPS it — while three of its eight neighbours are one class, which is
+    // what `dropLoneCells` goes by. Mutation: skip `dropLoneCells` in the
+    // painter (use `cls` for `tidy`) — a class-5 pixel is drawn and this fails.
+    //   1 2 1
+    //   0 5 3     the 5 is alone; 1 holds three of the eight round it
+    //   1 4 6
+    const ring = [1, 2, 1, 0, 5, 3, 1, 4, 6];
+    const n = 7;
+    const cs: number[] = new Array(n * n).fill(2);
+    for (let i = 0; i < 9; i++) cs[(2 + Math.floor(i / 3)) * n + 2 + (i % 3)] = ring[i];
+    // Without the edge blur (`[1]`), so a pixel is a class's own colour and
+    // "a class-5 pixel" means exactly that.
+    const o = paintSmoothOverlay(
+      tinyState({ width: n, height: n, lon0: 10, lat0: 50, pixel: 1, cells: cs, mask: cs.map(() => 1) }),
+      undefined,
+      undefined,
+      [1],
+    );
+    let fives = 0;
+    for (let r = 0; r < o.height; r++)
+      for (let c = 0; c < o.width; c++)
+        if (px(o, r, c).join(",") === WANT[5].join(",")) fives++;
+    expect(fives).toBe(0);
+  });
+
+  test("🔴 the edge between two classes is where the source puts it, to the pixel, in both directions", () => {
+    // A horizontal edge (rows 0-5 class 3, rows 6-12 class 1) and a vertical
+    // one (columns 0-9 class 3, 10-19 class 1). The oracle projects the edge's
+    // latitude FORWARD into mercator and asks which output row centre is the
+    // first below it. Mutation: drop the half-cell from the rows' source
+    // position in the painter — the edge moves one output row and this fails.
+    const bands = (horizontal: boolean) => {
+      const cs: number[] = [];
+      for (let r = 0; r < H; r++)
+        for (let c = 0; c < W; c++) cs.push((horizontal ? r < 6 : c < 10) ? 3 : 1);
+      return paintSmoothOverlay(
+        tinyState({ ...T2, cells: cs, mask: cs.map(() => 1) }),
+      );
+    };
+    const horizontal = bands(true);
+    const yTop = mercY(T2.lat0);
+    const yBottom = mercY(T2.lat0 - T2.height * T2.pixel);
+    const edge =
+      ((yTop - mercY(T2.lat0 - 6)) / (yTop - yBottom)) * horizontal.height;
+    const firstRow = Math.ceil(edge - 0.5);
+    const col = 4 * F;
+    // The edge is blurred, so the two pixels beside it are mixed; the one on
+    // the class-3 side is nearer class 3's red, the other nearer class 1's.
+    const near3 = (v: number[]) => Math.abs(v[0] - WANT[3][0]) < Math.abs(v[0] - WANT[1][0]);
+    expect(near3(px(horizontal, firstRow - 1, col))).toBe(true);
+    expect(near3(px(horizontal, firstRow, col))).toBe(false);
+    expect(px(horizontal, firstRow - 4, col)).toEqual(WANT[3]);
+    expect(px(horizontal, firstRow + 3, col)).toEqual(WANT[1]);
+    const vertical = bands(false);
+    expect(near3(px(vertical, 5 * F, 10 * F - 1))).toBe(true);
+    expect(near3(px(vertical, 5 * F, 10 * F))).toBe(false);
+  });
+
+  test("the masked patch is bare at its middle, and the lone cell's class is still what the data says", () => {
+    const state = tinyState(T2);
+    const before = Array.from(state.cdi);
+    const o = paintSmoothOverlay(state);
+    // 🔴 The picture is for the eye. The reading a campsite is given comes
+    // from the arrays, and those are not touched.
+    expect(Array.from(state.cdi)).toEqual(before);
+    const lat = T2.lat0 - 6.5;
+    const lone = readingAt(state, lat, T2.lon0 + 3.5);
+    expect(lone.known && lone.value).toBe(5);
+    const patch = readingAt(state, T2.lat0 - 4.9, T2.lon0 + 15.9);
+    expect(patch.known).toBe(false);
+    // Middle of the 2 × 2 masked patch (rows 3-6, cols 14-17) in output pixels:
+    const yTop = mercY(T2.lat0);
+    const yBottom = mercY(T2.lat0 - T2.height * T2.pixel);
+    const r = Math.round(((yTop - mercY(T2.lat0 - 5)) / (yTop - yBottom)) * o.height);
+    expect(px(o, r, 16 * F)).toEqual(BARE);
+  });
+
+  test("🔴 the colours come from the table it is given, with the factor it is given", () => {
+    // Mutation: hard-code a colour in the painter — the swapped table does not show and this fails.
+    const swapped = {
+      ...DROUGHT_COLOURS,
+      3: { hex: "#112233", alpha: 200 },
+      1: { hex: "#445566", alpha: 255 },
+    };
+    const o = paintSmoothOverlay(tinyState(T2), swapped, 3);
+    expect(o.width).toBe(W * 3);
+    // Pure pixels, away from every edge, carry the swapped table's colours.
+    expect(px(o, 6 * 3, 2 * 3)).toEqual([17, 34, 51, 200]);
+    expect(px(o, 10 * 3, 17 * 3)).toEqual([68, 85, 102, 255]);
+  });
+
+  test("the shipped grid: the picture holds the seven classes' colours and bare, and nothing else", () => {
+    // Read from the raw arrays, not from `readingAt`: which classes the grid
+    // has, and so how many colours the picture may use.
+    const s = droughtState(FILE, DOMAIN, after(12), nodeDecode);
+    if (s.kind !== "current") throw new Error("expected current");
+    const present = new Set<number>();
+    for (let i = 0; i < s.cdi.length; i++)
+      if ((s.domain[i >> 3] >> (i & 7)) & 1) present.add(s.cdi[i]);
+    expect(present.size, "every class the file describes is in the grid").toBe(7);
+    const o = paintSmoothOverlay(s);
+    expect(o.width).toBe(1280 * F);
+    expect(o.coordinates[0]).toEqual([-18.5, 71.5]);
+    // 🔴 Replaces "eight colours": the picture is blurred at its edges, so
+    // the colours are the seven classes' and bare INSIDE, and mixed only in a
+    // band. Every pixel is a palette colour (or bare) or sits within 6 px of
+    // a pixel of a different colour; and the band is a minority.
+    const wantSet = new Set<number>([0]);
+    for (const k of present) {
+      const [r, g, b, a] = WANT[k];
+      wantSet.add(new Uint32Array(Uint8Array.of(r, g, b, a).buffer)[0]);
+    }
+    const u = new Uint32Array(o.data.buffer, o.data.byteOffset, o.data.length / 4);
+    let mixed = 0;
+    let stray = 0;
+    for (let y = 0; y < o.height; y++)
+      for (let x = 0; x < o.width; x++) {
+        const v = u[y * o.width + x];
+        if (wantSet.has(v)) continue;
+        mixed++;
+        let edge = false;
+        for (let dy = -6; dy <= 6 && !edge; dy++)
+          for (let dx = -6; dx <= 6; dx++) {
+            const yy = y + dy, xx = x + dx;
+            if (yy < 0 || xx < 0 || yy >= o.height || xx >= o.width) continue;
+            const q = u[yy * o.width + xx];
+            if (wantSet.has(q) && q !== v) { edge = true; break; }
+          }
+        if (!edge) stray++;
+      }
+    // Only the middle of a feature narrower than the band (a one-cell strip)
+    // can have no pure pixel near it; that is a fraction of a percent.
+    expect(stray / mixed, "mixed pixels with no pure pixel within 6 px").toBeLessThan(0.005);
+    expect(mixed, "there is a blurred band").toBeGreaterThan(10_000);
+    expect(mixed / u.length, "the band is a minority of the picture").toBeLessThan(0.15);
+  });
+
+  test("🔴 until the picture is on the map the panel says it is drawing, and shows no key; with it, the key", () => {
+    // Mutation: ignore `pictureReady` in the panel — the key stands beside a
+    // map with no colours and the first expectation fails.
+    const state = tinyState(T2);
+    const drawing = renderComponent(DroughtLayerPanel, { state, pictureReady: false });
+    expect(visibleText(drawing)).toContain("Drawing the drought layer");
+    expect(drawing).not.toContain('data-testid="drought-legend"');
+    expect(drawing).toContain('data-drawn="no"');
+    expect(drawing).toContain('data-state="current"');
+    const drawn = renderComponent(DroughtLayerPanel, { state, pictureReady: true });
+    expect(drawn).toContain('data-testid="drought-legend"');
+    expect(visibleText(drawn)).not.toContain("Drawing the drought layer");
+    expect(drawn).toContain('data-drawn="yes"');
+  });
+
+  test("the panel says the picture is smoothed and that a campsite's class is read from the data", () => {
+    const html = renderComponent(DroughtLayerPanel, { state: tinyState(T2) });
+    const text = visibleText(html);
+    expect(text).toContain("smoothed for display");
+    expect(text).toContain("read from the Copernicus data at its own location");
   });
 });
 
