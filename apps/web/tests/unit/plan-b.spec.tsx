@@ -159,7 +159,7 @@ test.describe('План Б на сторінці кемпінгу', () => {
     expect(visibleText(ferme)).not.toContain('above sea level');
     expect(text).toContain('2 m above sea level (40 m lower)');
     // Без назви — тип місця, а не порожнє посилання.
-    expect(text).toContain('Campsite · 12.0 km away');
+    expect(text).toContain('Campsite Imported · 12.0 km away');
   });
 
   test('речення про ранжування — у відданому HTML, видиме, поруч із блоком', async () => {

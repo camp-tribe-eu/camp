@@ -1,5 +1,7 @@
 import Link from 'next/link';
 import { SPOT_TYPE_LABEL, type PlanB } from '@/lib/api';
+import { TrustMark } from '@/components/trust';
+import { fieldOrigin, trustOf, type Origin, type TrustStatus } from '@/lib/trust';
 
 // CAMP-524 — «If it's full here»: up to three other places within 15 km.
 //
@@ -15,6 +17,36 @@ import { SPOT_TYPE_LABEL, type PlanB } from '@/lib/api';
 //
 // 🔴 EMPTY IS NOT DRAWN. No candidate within the radius — no block, no
 // "nothing found" heading promising something that is not there.
+
+// 🔴 THE WORDS ARE DERIVED, NEVER TYPED (CAMP-521). Each figure names what
+// stands behind it and `trustOf` turns that into the word:
+//   distance — worked out by us from two coordinates       → derived
+//   height   — worked out by us from the elevation model   → derived
+//   type     — the record's own imported field             → import
+// Handing the block another origin changes the word; a test proves it.
+export interface PlanBOrigins {
+  distance: Origin;
+  height: Origin;
+  type: Origin;
+}
+export const PLAN_B_ORIGINS: PlanBOrigins = {
+  distance: { kind: 'derived', sourceId: 'osm' },
+  height: { kind: 'derived', sourceId: 'copernicus-dem' },
+  // The API does not send the alternative's source list, so only the
+  // fact that it is an imported field is known: no age, no "outdated".
+  type: fieldOrigin({}, 'type'),
+};
+
+/** The words this block puts on a page, for the page's legend. */
+export function planBStatuses(
+  planB: PlanB | null | undefined,
+  origins: PlanBOrigins = PLAN_B_ORIGINS,
+): TrustStatus[] {
+  if (!planB || !planB.ranking || planB.items.length === 0) return [];
+  const out = [trustOf(origins.distance), trustOf(origins.type)];
+  if (planB.items.some((i) => i.elevation !== null)) out.push(trustOf(origins.height));
+  return out;
+}
 
 const km = (m: number): string =>
   m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`;
@@ -32,7 +64,23 @@ function height(item: PlanB['items'][number]): string | null {
   return `${item.elevation} m above sea level${rel}`;
 }
 
-export default function PlanBBlock({ planB }: { planB: PlanB | null | undefined }) {
+export default function PlanBBlock({
+  planB,
+  origins = PLAN_B_ORIGINS,
+}: {
+  planB: PlanB | null | undefined;
+  /** A seam for the test that proves the words are derived; production passes none. */
+  origins?: PlanBOrigins;
+}) {
+  const dist = trustOf(origins.distance);
+  const kind = trustOf(origins.type);
+  const high = trustOf(origins.height);
+  const mark = (st: TrustStatus) => (
+    <>
+      {' '}
+      <TrustMark status={st} className="text-xs text-ink-2" />
+    </>
+  );
   if (!planB || !planB.ranking || planB.items.length === 0) return null;
   return (
     <section className="mt-8" data-testid="plan-b">
@@ -56,12 +104,14 @@ export default function PlanBBlock({ planB }: { planB: PlanB | null | undefined 
                   {i.name ?? SPOT_TYPE_LABEL[i.type as keyof typeof SPOT_TYPE_LABEL] ?? 'Campsite'}
                 </Link>
                 <p className="mt-1 text-sm text-ink-2">
-                  {SPOT_TYPE_LABEL[i.type as keyof typeof SPOT_TYPE_LABEL] ?? 'Campsite'} ·{' '}
-                  <span className="tabular-nums">{km(i.metres)}</span> away
+                  {SPOT_TYPE_LABEL[i.type as keyof typeof SPOT_TYPE_LABEL] ?? 'Campsite'}
+                  {mark(kind)} · <span className="tabular-nums">{km(i.metres)}</span> away
+                  {mark(dist)}
                   {h ? (
                     <>
                       {' '}
                       · <span className="tabular-nums">{h}</span>
+                      {mark(high)}
                     </>
                   ) : null}
                 </p>

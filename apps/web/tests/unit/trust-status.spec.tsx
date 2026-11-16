@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import CampsitePage from '@/app/camping/[country]/[region]/[slug]/page';
 import { TRUST_LABEL, TRUST_STATUSES, trustOf } from '@/lib/trust';
-import { renderAsyncComponent } from './render-component';
+import { renderAsyncComponent, renderComponent } from './render-component';
+import PlanBBlock from '@/components/plan-b';
 import { visibleText } from './rendered-text';
 import { CLIENT_ISLANDS } from './client-islands';
 import {
@@ -369,7 +370,7 @@ test('міграція сіє речення для кожного з восьм
  * origin in their own sentences. A block added to the page and to neither
  * list fails here, so "no status" is always somebody's written decision.
  */
-const COVERED = ['SpotFactsLine', 'AmenityList', 'TrustLegend'];
+const COVERED = ['SpotFactsLine', 'AmenityList', 'TrustLegend', 'PlanBBlock'];
 
 const NOT_YET = [
   'Around',
@@ -380,7 +381,6 @@ const NOT_YET = [
   'DroughtPanel',
   'OpeningHours',
   'OvernightStay',
-  'PlanBBlock',
   'RecordEdited',
   'SpotEvents',
   'TariffTable',
@@ -396,6 +396,41 @@ const NO_FIGURES = [
   'ScaleTrack', 'Section', 'SourceNote', 'SpotTabs', 'TravelNotice',
 ];
 
+// CAMP-524: PlanBBlock is in COVERED, so each figure prints a trust word, and
+// the word must be DERIVED from the origin: another origin has to change it.
+// A block that typed "Imported" would not.
+test('🔴 План Б: слово довіри біля кожної цифри виведене з походження, а не набране', async () => {
+  const planB = {
+    ranking: 'Ranked by X.',
+    radiusM: 15_000,
+    items: [
+      { slug: 'a', name: 'A', path: '/camping/fr/x/a', type: 'camper_stop', metres: 1200, elevation: 40, elevationDelta: 20 },
+    ],
+  };
+  const count = (h: string, w: string) => h.split(`data-trust-status="${w}"`).length - 1;
+  const own = await renderComponent(PlanBBlock, { planB });
+  // тип, відстань, висота — по одному слову, і всі три «Imported».
+  expect(count(own, 'imported')).toBe(3);
+  expect(visibleText(own)).toContain(TRUST_LABEL.imported);
+  const none = { kind: 'none' as const };
+  const base = {
+    distance: { kind: 'derived' as const, sourceId: null },
+    height: { kind: 'derived' as const, sourceId: null },
+    type: { kind: 'import' as const, sourceId: null },
+  };
+  const noDist = await renderComponent(PlanBBlock, { planB, origins: { ...base, distance: none } });
+  expect(count(noDist, 'unknown')).toBe(1);
+  expect(count(noDist, 'imported')).toBe(2);
+  const noHeight = await renderComponent(PlanBBlock, { planB, origins: { ...base, height: { kind: 'owner' as const } } });
+  expect(count(noHeight, 'owner-confirmed')).toBe(1);
+  const noType = await renderComponent(PlanBBlock, { planB, origins: { ...base, type: none } });
+  expect(count(noType, 'unknown')).toBe(1);
+  expect(visibleText(noType)).toContain(TRUST_LABEL.unknown);
+  // Висоти немає — слова для неї теж немає.
+  const flat = { ...planB, items: [{ ...planB.items[0], elevation: null, elevationDelta: null }] };
+  expect(count(await renderComponent(PlanBBlock, { planB: flat }), 'imported')).toBe(2);
+});
+
 test('🔴 кожен блок сторінки кемпінгу або має статус, або названий серед тих, що ще ні', () => {
   const src = readFileSync(
     join(process.cwd(), 'src/app/camping/[country]/[region]/[slug]/page.tsx'),
@@ -410,5 +445,5 @@ test('🔴 кожен блок сторінки кемпінгу або має �
   // but it makes the debt look larger or smaller than it is.
   expect([...known].filter((k) => !used.includes(k)).sort()).toEqual([]);
   // 🔴 The debt, as a number. It may go down. It may not go up.
-  expect(NOT_YET.length).toBe(15);
+  expect(NOT_YET.length).toBe(14);
 });

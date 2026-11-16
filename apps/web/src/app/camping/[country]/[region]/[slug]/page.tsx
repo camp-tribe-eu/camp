@@ -43,7 +43,7 @@ import { WarningsForSpot } from '@/components/warnings-for-spot';
 import { settingParagraph } from '@/lib/setting';
 import { droughtAtBuild } from '@/lib/drought-build';
 import { WebcamNote } from '@/components/webcam-panel';
-import PlanBBlock from '@/components/plan-b';
+import PlanBBlock, { planBStatuses } from '@/components/plan-b';
 import { ButtonLink } from '@/components/button';
 import { CampsiteMedia, type Photo } from '@/components/campsite-media';
 import { ScaleTrack, SpotFactsLine } from '@/components/spot-facts';
@@ -338,7 +338,12 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
   const facts = spotFacts(spot);
   const amenitiesTrust = amenityTrust(spot, spot.amenities, AMENITY_KEYS);
   const legend = trustLegend(
-    [...facts.map((f) => f.trust), ...Object.values(amenitiesTrust)],
+    [
+      ...facts.map((f) => f.trust),
+      ...Object.values(amenitiesTrust),
+      // CAMP-524: the words the "If it's full here" block prints.
+      ...planBStatuses(data.planB),
+    ],
     trustPage?.sections ?? null,
   );
   const name = spot.name;
