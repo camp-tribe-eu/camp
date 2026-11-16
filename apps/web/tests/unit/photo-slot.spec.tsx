@@ -38,6 +38,7 @@ import {
   type PhotoSlotKey,
 } from '@/lib/photo-slot';
 import { ROUTE_FIXTURE } from '../fixtures/route';
+import { visibleText } from './rendered-text';
 import { renderAsyncComponent, renderComponent, renderNestedAsync } from './render-component';
 
 const CMS = 'http://cms.photo-slots.invalid';
@@ -123,7 +124,7 @@ test('🔴 порожній слот: заглушка без <img>, схова�
     expect(html, key).toContain('aria-hidden="true"');
     expect(html, key).toContain('<svg');
     // Порожнє не малюємо словами.
-    expect(html.replace(/<style[\s\S]*?<\/style>/g, '').replace(/<[^>]+>/g, '').trim(), key).toBe('');
+    expect(visibleText(html).trim(), key).toBe('');
   }
 });
 
