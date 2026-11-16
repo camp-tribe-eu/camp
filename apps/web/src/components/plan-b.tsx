@@ -128,9 +128,9 @@ export default function PlanBBlock({
         <p className="mt-3 text-xs text-ink-2" data-testid="plan-b-ranking">
           {planB.ranking}
         </p>
-        {/* Origin of the figures, in a sentence (the trust-status ledger
-            lists this block as NOT_YET: no per-figure status word). The
-            elevation credit is repeated here because a page whose OWN
+        {/* Origin of the figures, in a sentence beside the per-figure
+            status words (the block is COVERED in the trust-status ledger).
+            The elevation credit is repeated here because a page whose OWN
             surroundings carry no height still prints other places'. */}
         <p className="mt-1 text-xs text-ink-2" data-testid="plan-b-origin">
           Distances are straight lines between points in our OpenStreetMap-based

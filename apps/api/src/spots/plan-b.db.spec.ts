@@ -12,24 +12,28 @@ import {
  * 🔴 ФІКСТУРА ПОБУДОВАНА ТАК, ЩОБ КОЖЕН КРИТЕРІЙ І КОЖЕН ФІЛЬТР МАВ
  * ВЛАСНОГО СВІДКА: без нього результат був би іншим, а тест — червоним.
  *
- * Поточний кемпінг «here»: paid, 5 м висоти, море за 500 м (узбережжя).
+ * Поточний кемпінг «here»: paid, 5 м висоти.
  *
  *   character — «paid-near» (1 км, найближчий, вище за «here») стояв би
  *               першим без правила про характер місця;
- *   inland    — «camper-coastal» (3 км, вище, camper_stop) стояв би
- *               першим серед своїх без правила про узбережжя;
  *   higher    — «aire-lower» (6 км) стояв би перед «farm-higher» (9 км)
- *               без правила про висоту, бо ближче;
- *   nearer    — «z-paid-near» і «a-paid-far» мають однакові три ключі, а
- *               за алфавітом перший «a-»: без відстані вони поміняються;
- *   radius    — «aire-20km» (camper_stop, 20 км) зайшов би за радіуса 50;
- *               «edge-15100» ледь за межею, «edge-14900» ледь у межах;
- *   дублі     — «dup-same-name» (та сама назва, 60 м, інше джерело, БЕЗ
- *               запису в spot_links) лишається без правила `decide`;
- *               «linked-copy» (інша назва, 100 м, але є запис у
- *               spot_links) — без умови на spot_links; «hidden-secondary»
- *               належить ІНШОМУ кемпінгові, і її знімає `notSecondarySql`;
- *               «sec-primary» — коли сторінка сама secondary.
+ *               без правила про висоту, бо ближче; «same-height» (рівно
+ *               5 м, як «here», 500 м) стоїть ПІСЛЯ вищих: `>` не `>=`;
+ *   nearer    — «z-paid-near» і «a-paid-far» мають однакові ключі, а за
+ *               алфавітом перший «a-»: без відстані вони поміняються;
+ *   radius    — «aire-20km» зайшов би за радіуса 50 км; «edge-14990» на
+ *               ВІДСТАНІ 14 990 м (географія, не градуси) у межах, а
+ *               «edge-15010» на 15 010 м поза: радіус 15→15,02 чи
+ *               15→14,98 км міняє результат;
+ *   дублі     — «dup-same-name» (та сама назва, 60 м, БЕЗ spot_links)
+ *               лишається без правила `decide` проти поточного;
+ *               «linked-copy» (інша назва, 100 м, запис у spot_links) —
+ *               без умови на spot_links; «hidden-secondary» належить
+ *               ІНШОМУ кемпінгові, її знімає `notSecondarySql`;
+ *               «sec-primary» — коли сторінка сама secondary;
+ *               «twin-b» — ДРУГА копія «twin-a» (142 м, спільне ядро
+ *               назви «bellevue»), обидві в трійці: без правила `decide`
+ *               МІЖ кандидатами обидві були б у виданій трійці.
  */
 
 const ADMIN_URL =
@@ -60,6 +64,8 @@ type Seed = {
   east?: number;
   ele?: number;
   sea?: number;
+  /** Точка на справжній відстані в метрах (географія) і азимуті, рад. */
+  proj?: { m: number; az: number };
   missing?: boolean;
   region?: string | null;
 };
@@ -74,7 +80,10 @@ async function put(s: Seed) {
     `INSERT INTO camping_spots (osm_ref, name, country, region, slug, type, context,
                                 location, missing_since)
      VALUES ($1, $2, $3, $4, $1, $5, $6,
-             ST_SetSRID(ST_MakePoint($7, $8), 4326), $9)
+             CASE WHEN $10::float8 IS NULL
+                  THEN ST_SetSRID(ST_MakePoint($7, $8), 4326)
+                  ELSE ST_Project(ST_SetSRID(ST_MakePoint($7, $8), 4326)::geography,
+                                  $10::float8, $11::float8)::geometry END, $9)
      RETURNING id`,
     [
       s.slug,
@@ -86,6 +95,8 @@ async function put(s: Seed) {
       LON + (s.east ?? 0) / M_LON,
       LAT + (s.north ?? 0) / M_LAT,
       s.missing ? new Date() : null,
+      s.proj?.m ?? null,
+      s.proj?.az ?? null,
     ],
   );
   ids[s.slug] = r.rows[0].id;
@@ -158,10 +169,26 @@ beforeAll(async () => {
   });
   await put({ slug: 'no-height', name: 'Camping Nod', east: 13_000 });
   await put({
-    slug: 'edge-14900',
+    slug: 'edge-14990',
     name: 'Camping Edge In',
-    east: -14_900,
     ele: 60,
+    proj: { m: 14_990, az: -Math.PI / 2 },
+  });
+  await put({ slug: 'same-height', name: 'Camping Flat', north: 500, ele: 5 });
+  // Одне місце під двома іменами, обидва — другий-третій у виданні.
+  await put({
+    slug: 'twin-a',
+    name: 'Domaine Bellevue',
+    type: 'camper_stop',
+    east: 2_000,
+    ele: 50,
+  });
+  await put({
+    slug: 'twin-b',
+    name: 'Camping Bellevue',
+    type: 'camper_stop',
+    east: 2_142,
+    ele: 50,
   });
 
   // Не мають потрапити.
@@ -172,10 +199,10 @@ beforeAll(async () => {
     ele: 400,
   });
   await put({
-    slug: 'edge-15100',
+    slug: 'edge-15010',
     type: 'camper_stop',
-    north: -15_100,
     ele: 400,
+    proj: { m: 15_010, az: Math.PI },
   });
   await put({
     slug: 'dup-same-name',
@@ -232,6 +259,25 @@ beforeAll(async () => {
   });
   await link('sec-primary', 'sec-here');
 
+  // Два кандидати, повʼязані в spot_links між собою (різні імена): первинний
+  // «pair-a» і вторинний «pair-b», обидва публікуються (primary видимий).
+  await put({ slug: 'link-here', name: 'Camping Ici', north: 60_000 });
+  await put({
+    slug: 'pair-a',
+    name: 'Aire Nord',
+    type: 'camper_stop',
+    north: 62_000,
+    ele: 9,
+  });
+  await put({
+    slug: 'pair-b',
+    name: 'Parking Sud',
+    type: 'camper_stop',
+    north: 62_050,
+    ele: 9,
+  });
+  await link('pair-a', 'pair-b');
+
   await put({ slug: 'lonely', name: 'Camping Seul', north: 500_000 });
 });
 
@@ -244,13 +290,15 @@ afterAll(async () => {
 });
 
 const FULL_ORDER = [
+  'twin-a',
+  'camper-coastal',
   'farm-higher',
   'aire-lower',
-  'camper-coastal',
   'paid-near',
   'z-paid-near',
   'a-paid-far',
-  'edge-14900',
+  'edge-14990',
+  'same-height',
   'no-height',
 ];
 
@@ -287,7 +335,8 @@ describe('План Б: вибір', () => {
     for (const absent of [
       'here',
       'aire-20km',
-      'edge-15100',
+      'edge-15010',
+      'twin-b',
       'dup-same-name',
       'linked-copy',
       'gone',
@@ -297,6 +346,19 @@ describe('План Б: вибір', () => {
     ]) {
       expect(slugs).not.toContain(absent);
     }
+  });
+
+  it('дві альтернативи — одне місце: у виданні лишається краще ранжована', async () => {
+    const view = await planB(q, 'here');
+    const slugs = view!.items.map((i) => i.slug);
+    expect(slugs).toContain('twin-a');
+    expect(slugs).not.toContain('twin-b');
+    expect(slugs).toHaveLength(3);
+  });
+
+  it('два кандидати, повʼязані в spot_links між собою, не йдуть удвох (знімає SQL)', async () => {
+    const view = await planB(q, 'link-here', 20);
+    expect(view!.items.map((i) => i.slug)).toEqual(['pair-a']);
   });
 
   it('сторінка, що сама є secondary, не пропонує свого primary', async () => {
@@ -313,7 +375,6 @@ describe('План Б: вибір', () => {
   it('речення про ранжування — рівно таке, і воно називає кожен крок', () => {
     expect(PLAN_B_RANKING).toBe(
       'Ranked by, in this order: camper stops, free and wild places before paid campsites; ' +
-        'places not on the coast (sea within 2 km) before coastal ones; ' +
         'places higher than this campsite (where both heights are known) before the rest; ' +
         'then the nearest first. Nothing else moves a place up.',
     );

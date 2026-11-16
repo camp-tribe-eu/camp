@@ -13,8 +13,7 @@ import { decide } from '../datatourisme/match';
 // 🔴 NOT A SECOND «CAMPSITES NEARBY». That list is "the six closest
 // rows". This one answers a different question — "where would I go if
 // this is full" — so it prefers places of a DIFFERENT character (camper
-// stops, free and wild sites) and ground away from the coast or higher
-// up, which is where the July–August crowd is not. Nothing here is
+// stops, free and wild sites) and higher ground, which is cooler. Nothing here is
 // popularity: we hold no such metric and invent none.
 //
 // 🔴 THE ORDER IS DISCLOSED (Dir. 2005/29/EC art. 7(4a)). `PLAN_B_RANKING`
@@ -35,14 +34,11 @@ export const PLAN_B_LIMIT = 3;
  * cluster of second copies of one site (the fold files measured 2–3).
  */
 const OVERFETCH = 30;
-/** A water body this close, and it is the sea, makes a place coastal. */
-export const COASTAL_M = 2_000;
-
 /** Types that are a different character from a classic paid campsite. */
 export const OTHER_CHARACTER_TYPES = ['camper_stop', 'free', 'wild'] as const;
 
 interface Criterion {
-  key: 'character' | 'inland' | 'higher' | 'nearer';
+  key: 'character' | 'higher' | 'nearer';
   /** The words the reader gets for this step. */
   words: string;
   /** ORDER BY fragment over the columns of the inner select. */
@@ -58,11 +54,6 @@ export const PLAN_B_CRITERIA: readonly Criterion[] = [
     key: 'character',
     words: 'camper stops, free and wild places before paid campsites',
     order: `(CASE WHEN type IN (${OTHER_CHARACTER_TYPES.map((t) => `'${t}'`).join(', ')}) THEN 0 ELSE 1 END)`,
-  },
-  {
-    key: 'inland',
-    words: `places not on the coast (sea within ${COASTAL_M / 1000} km) before coastal ones`,
-    order: '(CASE WHEN coastal THEN 1 ELSE 0 END)',
   },
   {
     key: 'higher',
@@ -112,11 +103,6 @@ const ELE = (col: string): string =>
   `(CASE WHEN jsonb_typeof(${col}.context->'elevation') = 'number'
          THEN round((${col}.context->>'elevation')::numeric)::int END)`;
 
-const COASTAL = (col: string): string =>
-  `(coalesce(${col}.context->'water'->>'kind' = 'sea'
-        AND jsonb_typeof(${col}.context->'water'->'m') = 'number'
-        AND (${col}.context->'water'->>'m')::numeric <= ${COASTAL_M}, false))`;
-
 /**
  * `$1` slug, `$2` radius in metres, `$3` rows to read.
  *
@@ -134,11 +120,10 @@ export const PLAN_B_SQL = `
       FROM camping_spots s
      WHERE s.slug = $1 AND ${publishedCountrySql('s')}
   ), found AS (
-    SELECT c.slug, c.name, c.country, c.region, c.type::text AS type,
+    SELECT c.id, c.slug, c.name, c.country, c.region, c.type::text AS type,
            round(ST_Distance(c.location::geography, me.location::geography))::int AS metres,
            ${ELE('c')} AS elevation,
            me.elevation AS here_elevation,
-           ${COASTAL('c')} AS coastal,
            me.name AS here_name, me.lat AS here_lat, me.lon AS here_lon,
            ST_Y(c.location) AS lat, ST_X(c.location) AS lon
       FROM me
@@ -166,6 +151,7 @@ export const PLAN_B_SQL = `
    LIMIT $3`;
 
 interface Row {
+  id: string;
   slug: string;
   name: string | null;
   country: string;
@@ -182,37 +168,53 @@ interface Row {
 }
 
 /**
- * Is this row a second copy of the campsite being viewed?
- *
- * 🔴 The rule is `decide` from datatourisme/match.ts — the one that
- * merges records across sources (same core name, within 150 m; identical
- * name within 300 m). Anything it does not call `new` is dropped: an
- * "alternative" that might be the same place is worse than none, and
- * dropping a doubtful one costs one candidate out of up to thirty.
+ * Do these two records look like ONE place (same core name, close — the
+ * `decide` rule from datatourisme/match.ts: same name within 150 m,
+ * identical name within 300 m)? Anything `decide` does not call `new` is
+ * treated as the same place: an "alternative" that might be the campsite
+ * itself — or the same alternative twice — is worse than none, and
+ * dropping a doubtful one costs one candidate out of many.
  */
-export function isSecondCopy(row: Row): boolean {
-  const verdict = decide(
-    { name: row.here_name ?? '', lat: row.here_lat, lon: row.here_lon },
-    [{ id: row.slug, name: row.name, lat: row.lat, lon: row.lon }],
+export function samePlace(
+  a: { name: string | null; lat: number; lon: number },
+  b: { slug: string; name: string | null; lat: number; lon: number },
+): boolean {
+  return (
+    decide({ name: a.name ?? '', lat: a.lat, lon: a.lon }, [
+      { id: b.slug, name: b.name, lat: b.lat, lon: b.lon },
+    ]).verdict !== 'new'
   );
-  return verdict.verdict !== 'new';
 }
 
 export async function planB(
   db: Queryable,
   slug: string,
   limit = PLAN_B_LIMIT,
+  overfetch = OVERFETCH,
 ): Promise<PlanBView | null> {
   const rows = (await db.query(PLAN_B_SQL, [
     slug,
     PLAN_B_RADIUS_M,
-    OVERFETCH,
+    overfetch,
   ])) as Row[];
   const items: PlanBItem[] = [];
+  const taken: Row[] = [];
   for (const r of rows) {
-    if (isSecondCopy(r)) continue;
+    // Not the campsite being viewed (a second copy of it) ...
+    if (samePlace({ name: r.here_name, lat: r.here_lat, lon: r.here_lon }, r)) {
+      continue;
+    }
+    // ... and not the same place as one already taken, greedily in
+    // ranking order: the better-ranked copy stays. (Two candidates joined
+    // by a recorded link never meet here: `notSecondarySql` in the query
+    // already hides the secondary whenever its primary is a candidate,
+    // because both conditions on the primary are the candidate conditions.)
+    if (taken.some((t) => samePlace(t, r))) {
+      continue;
+    }
     const path = canonicalPath(r.country, r.region, r.slug);
     if (!path) continue;
+    taken.push(r);
     const delta =
       r.elevation !== null && r.here_elevation !== null
         ? r.elevation - r.here_elevation
