@@ -48,7 +48,7 @@ import { ForecastNote } from '@/components/forecast-panel';
 import { FORECAST_STATUS } from '@/lib/forecast';
 import { ButtonLink } from '@/components/button';
 import { CampsiteMedia, type Photo } from '@/components/campsite-media';
-import { ScaleTrack, SpotFactsLine } from '@/components/spot-facts';
+import { ScaleTrack, SpotFactsLine, glueUnit } from '@/components/spot-facts';
 import { aroundRows, cleanContext, spotFacts } from '@/lib/spot-facts';
 import ReportProblem from '@/components/report-problem';
 import SpotEvents from '@/components/spot-events';
@@ -864,11 +864,13 @@ function Around({ spot }: { spot: Spot }) {
   const c = cleanContext(spot.context);
   const rows = aroundRows(c);
   const usedElevation = c.elevation !== undefined || c.terrain !== undefined;
-  const scaled = rows.some((r) => r.scale);
+  const scaledRows = rows.filter((r) => r.scale);
+  const plainRows = rows.filter((r) => !r.scale);
+  const scaled = scaledRows.length > 0;
 
   if (rows.length === 0) {
     return (
-      <Section title="What&rsquo;s around it">
+      <Section title="What&rsquo;s around it" card>
         <Block as="p" measure="read" className="text-sm text-ink-2">
           The surroundings of this site have not been calculated yet.
         </Block>
@@ -877,30 +879,54 @@ function Around({ spot }: { spot: Spot }) {
   }
 
   return (
-    <Section title="What&rsquo;s around it">
+    <Section title="What&rsquo;s around it" card>
       <Block as="p" measure="read">{summarise({ ...spot, context: c })}</Block>
       {/* 🔴 EACH TRACK IS A FIXED SCALE, written at its right-hand end,
           and never the farthest of the other rows: normalised to its
           neighbours a bar would say "far" in a village and "near" in a
           remote valley. A row with no distance has no track and no row.
           Constants and why: `SCALE_MAX_M` in `lib/spot-facts.ts`. */}
-      <dl className="mt-4 grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-2 lg:grid-cols-3">
-        {rows.map((r) => (
+      <dl
+        data-testid="around-rows"
+        className="mt-4 grid grid-cols-1 gap-x-8 gap-y-5 sm:grid-cols-2 lg:grid-cols-3"
+      >
+        {scaledRows.map((r) => (
+          // dt/dd must be DIRECT children of the row div (axe
+          // `definition-list`): the track is a second <dd> of the same term.
           <div
             key={r.key}
             data-row={r.key}
-            className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 gap-y-1.5 border-b border-line-2 py-2 text-sm"
+            className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3"
           >
-            <dt className="text-ink-2">{r.label}</dt>
-            <dd className="tabular-nums text-heading">{r.value}</dd>
-            {r.scale && (
-              <dd className="col-span-2">
-                <ScaleTrack row={r} />
-              </dd>
-            )}
+            <dt className="min-w-0 break-words text-sm text-ink">{r.label}</dt>
+            <dd className="text-base font-bold tabular-nums text-heading">
+              {glueUnit(r.value)}
+            </dd>
+            <dd className="col-span-2 mt-2">
+              <ScaleTrack row={r} />
+            </dd>
           </div>
         ))}
       </dl>
+      {plainRows.length > 0 && (
+        <dl
+          data-testid="around-plain"
+          className="mt-5 grid grid-cols-1 gap-x-8 gap-y-2 border-t border-line-2 pt-4 sm:grid-cols-2 lg:grid-cols-3"
+        >
+          {plainRows.map((r) => (
+            <div
+              key={r.key}
+              data-row={r.key}
+              className="flex min-w-0 items-baseline justify-between gap-3"
+            >
+              <dt className="text-sm text-ink">{r.label}</dt>
+              <dd className="text-base font-bold tabular-nums text-heading">
+                {glueUnit(r.value)}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
       {scaled && (
         <p className="mt-2 text-xs text-ink-2" data-testid="scale-legend">
           Each bar runs from 0 to the distance at its right-hand end; a full

@@ -208,12 +208,32 @@ export function scaleFill(key: ScaleKey, m: number | undefined | null): number |
   return Math.round(pct * 100) / 100;
 }
 
+/**
+ * The marks written under a track: 0, the middle and the end of the
+ * scale, each with its unit ("2.5 km"). Constants like the ends they
+ * come from, so a mark says the same on every page.
+ */
+export interface ScaleTick {
+  /** Position along the track, in percent. */
+  at: number;
+  label: string;
+}
+export function scaleTicks(key: ScaleKey): ScaleTick[] {
+  const max = SCALE_MAX_M[key];
+  const km = (m: number) => `${m / 1000} km`;
+  return [
+    { at: 0, label: '0' },
+    { at: 50, label: km(max / 2) },
+    { at: 100, label: km(max) },
+  ];
+}
+
 export interface AroundRow {
   key: ScaleKey | 'elevation' | 'terrain';
   label: string;
   value: string;
   /** Present only where there is a distance to draw. */
-  scale?: { fill: number; end: string };
+  scale?: { fill: number; end: string; ticks: ScaleTick[] };
 }
 
 /**
@@ -233,7 +253,7 @@ export function aroundRows(ctx: SpotContext | undefined): AroundRow[] {
       key,
       label,
       value: formatDistance(f.m),
-      scale: { fill: scaleFill(key, f.m) as number, end: scaleEnd(key) },
+      scale: { fill: scaleFill(key, f.m) as number, end: scaleEnd(key), ticks: scaleTicks(key) },
     });
   };
 
