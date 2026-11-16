@@ -21,10 +21,21 @@
  * that described the class said "alpha 90" — and nothing could tell the two
  * apart.
  */
-export const DROUGHT_RASTER_OPACITY = 0.76;
+export const DROUGHT_RASTER_OPACITY = 0.5;
 
 /**
- * How each class is drawn: THE SOURCE'S OWN COLOURS, with two classes that are
+ * 🔴 CAMP-529, 16.11.2026 — THE TABLE BELOW IS NO LONGER THE SOURCE'S OWN COLOURS,
+ * AND THE OPACITY IS 0.50, NOT 0.76. Read this paragraph before the history under it.
+ * At 0.76 the layer hid the basemap and the town labels. The guard would not let
+ * the opacity fall with EDO's colours (0.70: 25 violations, 0.55: 30 — Watch/Warning
+ * and the two recovery classes merge, ΔE 15-17 against 25), and the bar was not
+ * lowered: the seven colours were re-chosen, the same hue families and the same
+ * order (0 → 1 → 2 → 3 lighter to darker), deeper and more saturated, so that
+ * after blending at 0.50 every rule still holds. The record of what EDO publishes
+ * and what we draw instead is `EDO_SOURCE` in the guard (`colours`, `drawn`).
+ * Hexes in the history below that differ from this table are the PREVIOUS palette.
+ *
+ * How each class WAS drawn, until CAMP-529: THE SOURCE'S OWN COLOURS, with two classes that are
  * ours. The legend and the pixels both read this one table, so they cannot
  * drift apart.
  *
@@ -109,13 +120,13 @@ export const DROUGHT_RASTER_OPACITY = 0.76;
  * over every class's pixel.
  */
 export const DROUGHT_COLOURS: Readonly<Record<number, { hex: string; alpha: number }>> = {
-  0: { hex: '#9CFE84', alpha: 255 },
-  1: { hex: '#F0E442', alpha: 255 },
-  2: { hex: '#E69F00', alpha: 255 },
-  3: { hex: '#DC050C', alpha: 255 },
-  4: { hex: '#757591', alpha: 255 },
-  5: { hex: '#CC79A7', alpha: 255 },
-  6: { hex: '#009E73', alpha: 255 },
+  0: { hex: '#2CB82A', alpha: 255 },
+  1: { hex: '#E3CF00', alpha: 255 },
+  2: { hex: '#E27802', alpha: 255 },
+  3: { hex: '#9E0F14', alpha: 255 },
+  4: { hex: '#3039A5', alpha: 255 },
+  5: { hex: '#CB2392', alpha: 255 },
+  6: { hex: '#008663', alpha: 255 },
 };
 
 export const hexRgb = (hex: string): [number, number, number] => [

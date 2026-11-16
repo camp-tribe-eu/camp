@@ -672,15 +672,15 @@ test.describe('the picture', () => {
     const away = (v: number) => Math.abs(v - Math.round(v)) > MARGIN;
     const BASE = 232;
     const blend = (hex: string, alpha: number): number[] => {
-      const eff = (0.76 * alpha) / 255;
+      const eff = (0.5 * alpha) / 255;
       return [0, 2, 4].map((i) => Math.round(eff * parseInt(hex.slice(1 + i, 3 + i), 16) + (1 - eff) * BASE));
     };
     const want = (lat: number, lon: number) => {
       if (lon < 14.5) return { name: 'bare', rgb: [BASE, BASE, BASE] };
-      if (inBlock(lat, lon)) return { name: 'class 0, tinted', rgb: blend('#9CFE84', 255) };
+      if (inBlock(lat, lon)) return { name: 'class 0, tinted', rgb: blend('#2CB82A', 255) };
       return (Math.floor(lat) + Math.floor(lon)) % 2 === 0
-        ? { name: 'class 1', rgb: blend('#F0E442', 255) }
-        : { name: 'class 3', rgb: blend('#DC050C', 255) };
+        ? { name: 'class 1', rgb: blend('#E3CF00', 255) }
+        : { name: 'class 3', rgb: blend('#9E0F14', 255) };
     };
 
     const spots: { at: [number, number]; name: string; rgb: number[] }[] = [];
@@ -730,8 +730,8 @@ test.describe('the picture', () => {
     // colours. With `raster-resampling: nearest` it is one of them.
     // Mutation: put `"raster-resampling": "nearest"` back in `attachDrought`
     // (campsite-map.tsx) — the pixel on the line is pure, and this fails.
-    const pure1 = blend('#F0E442', 255);
-    const pure3 = blend('#DC050C', 255);
+    const pure1 = blend('#E3CF00', 255);
+    const pure3 = blend('#9E0F14', 255);
     const x15 = Math.round(((15 - west) / (east - west)) * box.width);
     const edgeSpots: [number, number][] = [];
     for (let y = 40; y < box.height - 60; y += 29) {
@@ -882,11 +882,13 @@ test.describe('the picture', () => {
 // This is the only place it is held against what a browser PAINTS: the
 // marker's own pixels against the layer's, on a canvas.
 //
-// 🔴 IT PINS A KNOWN BAD STATE, ON PURPOSE. It does not say the markers are
-// fine. It says they are exactly as bad as the guard says, and that the
-// guard's arithmetic is the picture's. The day someone fixes the markers (a
-// lighter `wild`, a ring that cuts the fill off, a halo) it goes red and says
-// so; the answer is to close CAMP-319 and rewrite this, not to widen it.
+// 🔴 CAMP-319 IS CLOSED (16.11.2026, CAMP-529). This used to pin the bad
+// state — ΔE 6.9, the fill merging with class 3. The new layer palette
+// (`drawn` colours at 0.5 in `drought-colours.ts`) moved class 3 away from
+// `wild`: the guard now gives ΔE 34.8 on its worst surface and 46.8 on the
+// stub's land. The test now holds the FIXED state: both the guard's number
+// and the painted one must stay at or above the floor, and agree. If a
+// palette change brings them back under, that is CAMP-319 reopening.
 //
 // 🔴 THE EXPECTATION IS WORKED OUT BY THE GUARD, IN ITS OWN PROCESS, NOT BY
 // THIS FILE. "The colour maths the pixel checks use" above is a second
@@ -936,7 +938,7 @@ function guardWildOverAlert(): { rows: GuardRow[]; fill: string | null } {
 }
 
 /**
- * 🔴 THE TOLERANCE: 1.7 ΔE, AND WHERE IT COMES FROM.
+ * 🔴 THE TOLERANCE: 1.8 ΔE, AND WHERE IT COMES FROM.
  *
  * It is the error of the instrument, and nothing else. The browser composites
  * the layer at `raster-opacity` on the GPU and the guard rounds the same blend
@@ -946,8 +948,9 @@ function guardWildOverAlert(): { rows: GuardRow[]; fill: string | null } {
  * and layer are both near red — so one step matters: the worst ΔE moves when
  * every one of the six channels (the marker's pixel AND the layer's) is off by
  * one is 1.49 on the guard's worst surface and 1.64 on the stub's land, found
- * by trying all 3⁶ = 729 combinations. 1.64 rounded up to a tenth is 1.7, and
- * the test below recomputes that, so the number cannot drift from its reason.
+ * by trying all 3⁶ = 729 combinations. 1.64 rounded up to a tenth was 1.7 with
+ * the old palette; with the CAMP-529 palette the same sweep gives 1.760, so
+ * 1.8. The test below recomputes it, so the number cannot drift from its reason.
  *
  * On the machine this was written on (macOS, Chromium, Firefox and WebKit,
  * device pixel ratios 1, 2 and 2.625) the browser and the guard agreed to the
@@ -955,11 +958,11 @@ function guardWildOverAlert(): { rows: GuardRow[]; fill: string | null } {
  * guard's blend — so the tolerance is headroom for other GPUs, not a
  * correction for this one.
  *
- * 🔴 WHAT 1.7 DOES NOT SEPARATE: a marker drawn at 90% opacity reads about
+ * 🔴 WHAT 1.8 DOES NOT SEPARATE: a marker drawn at 90% opacity reads about
  * 0.7 ΔE from the guard's number here, inside the tolerance. What it does
  * separate is a different colour: white reads 91, `paid` 40.
  */
-const PIXEL_TOLERANCE = 1.7;
+const PIXEL_TOLERANCE = 1.8;
 
 /** The middle value of each channel over a block of RGBA readings. */
 function medianPixel(block: number[][]): Rgb {
@@ -1075,15 +1078,15 @@ test.describe('a marker’s fill over the Alert class (CAMP-319)', () => {
           `the guard computes ΔE ${pair.deltaE.toFixed(2)} for the fill ${fill} on the pixel ${pair.pixel}`,
       ).toBeLessThanOrEqual(PIXEL_TOLERANCE);
 
-      // 🔴 THE KNOWN STATE. Both numbers — the guard's and the picture's — are
-      // under the floor, so a marker's fill and the layer under it read as one
-      // colour. When this fails the markers were fixed: close CAMP-319.
+      // 🔴 THE FIXED STATE (CAMP-319 closed by CAMP-529). Both numbers — the
+      // guard's and the picture's — are at or above the floor, so a marker's
+      // fill reads apart from the layer under it. When this fails, CAMP-319
+      // has come back: fix the palette, do not lower the floor.
       expect(
         pair.deltaE,
-        `the guard no longer reports a wild marker as merging with class 3 on ${pair.where} (ΔE ${pair.deltaE.toFixed(1)}, floor ${MIN_DELTA_E}): ` +
-          `the markers were changed — update CAMP-319, and rewrite or delete this test`,
-      ).toBeLessThan(MIN_DELTA_E);
-      expect(measured, `the browser paints a wild marker apart from class 3 (ΔE ${measured.toFixed(1)}, floor ${MIN_DELTA_E}): CAMP-319 is fixed`).toBeLessThan(MIN_DELTA_E);
+        `the guard reports a wild marker merging with class 3 on ${pair.where} again (ΔE ${pair.deltaE.toFixed(1)}, floor ${MIN_DELTA_E}): CAMP-319 reopened`,
+      ).toBeGreaterThanOrEqual(MIN_DELTA_E);
+      expect(measured, `the browser paints a wild marker into class 3 (ΔE ${measured.toFixed(1)}, floor ${MIN_DELTA_E}): CAMP-319 reopened`).toBeGreaterThanOrEqual(MIN_DELTA_E);
     });
   }
 });

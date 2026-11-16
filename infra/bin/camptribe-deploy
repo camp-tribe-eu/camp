@@ -59,6 +59,9 @@ SELF="${BASH_SOURCE[0]:-$0}"
 
 LOG=""
 LOCK_DIR=""
+# Чи ЦЕЙ запуск тримає замок. `cleanup` прибирає лише своє: хто замка не взяв,
+# той не чіпає ні порт збірки, ні релізи (див. lock_take і cleanup).
+LOCK_OWNED=""
 TEMP_API_PID=""
 PARTIAL_REL=""
 KEEP_PREV=""
@@ -534,6 +537,7 @@ lock_take() {
     rm -rf "$LOCK_DIR"; mkdir "$LOCK_DIR" || { LOCK_DIR=""; die "не можу взяти замок"; }
   fi
   echo $$ > "$LOCK_DIR/pid"
+  LOCK_OWNED=1
 }
 
 stop_temp_api() {
@@ -550,6 +554,11 @@ stop_temp_api() {
 
 cleanup() {
   local rc=$?
+  # 🔴 16.11.2026: нічний запуск упав на замку ручного деплою, і цей `cleanup`
+  # убив слухача порту збірки — ЧУЖУ тимчасову API, проти якої той саме збирав
+  # веб. Викладка c3c8a64 провалилась на ECONNREFUSED :3002. Без замка — нічого
+  # не прибираємо: усе, що є на порту й у releases/, належить власникові замка.
+  [ -n "$LOCK_OWNED" ] || return "$rc"
   stop_temp_api
   if [ -n "$PARTIAL_REL" ]; then safe_rm_release "$PARTIAL_REL" "$KEEP_PREV" || true; fi
   if [ -n "$LOCK_DIR" ]; then rm -rf "$LOCK_DIR"; fi
