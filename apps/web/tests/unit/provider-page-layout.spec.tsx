@@ -138,7 +138,8 @@ test.describe("сингл провайдера за зразком сторін�
   // дивились. Машину могли продати наступного тижня.
   test("🔴 рядок парку несе дату прочитання", async () => {
     const html = await render();
-    const rows = html.match(/<li[^>]*>(?:(?!<\/li>)[\s\S])*<\/li>/g) ?? [];
+    const rows =
+      html.match(/<li(?:\s[^>]*)?>(?:(?!<\/li>)[\s\S])*<\/li>/g) ?? [];
     const fleet = rows.filter((r) => r.includes(FULL.vehicles[0].name));
     // Щоб порожнє читання не пройшло за збіг: рядок справді знайдено.
     expect(fleet.length).toBe(1);
@@ -166,7 +167,8 @@ test.describe("сингл провайдера за зразком сторін�
   // червоніє саме цей випадок.
   test("🔴 рядок парку несе тип, слова прокатника і ВЛАСНУ дату", async () => {
     const html = await render();
-    const rows = html.match(/<li[^>]*>(?:(?!<\/li>)[\s\S])*<\/li>/g) ?? [];
+    const rows =
+      html.match(/<li(?:\s[^>]*)?>(?:(?!<\/li>)[\s\S])*<\/li>/g) ?? [];
     const fleet = rows.filter((r) => r.includes(FULL.vehicles[0].name));
     expect(fleet.length).toBe(1);
     expect(fleet[0]).toContain('data-testid="vehicle-type"');
