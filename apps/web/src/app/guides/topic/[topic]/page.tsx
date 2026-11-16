@@ -4,6 +4,7 @@ import { byTopic, isTopic, TOPICS } from "@/lib/guide-facets";
 import { getGuides } from "@/lib/guides";
 import { alternatesFor } from "@/lib/i18n";
 import GuideTopicView from "@/components/guide-topic-view";
+import { bannerBackground } from "@/lib/photo-slot";
 
 // CAMP-210 — the other facet. See `country/[cc]/page.tsx` for why these
 // live under a static segment rather than beside the articles.
@@ -54,5 +55,12 @@ export default async function GuidesByTopic(props: {
   if (!entry) notFound();
 
   // CAMP-443/6: перша сторінка; решта — `page/[n]/page.tsx`.
-  return <GuideTopicView topic={topic} guides={entry.guides} page={1} />;
+  return (
+    <GuideTopicView
+      topic={topic}
+      guides={entry.guides}
+      page={1}
+      background={await bannerBackground("guide-topic-hero", "/banners/guides.webp")}
+    />
+  );
 }

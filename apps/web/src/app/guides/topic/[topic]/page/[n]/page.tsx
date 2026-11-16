@@ -9,6 +9,7 @@ import {
 } from "@/lib/guide-pages";
 import { alternatesFor } from "@/lib/i18n";
 import GuideTopicView from "@/components/guide-topic-view";
+import { bannerBackground } from "@/lib/photo-slot";
 
 // CAMP-443/6 — друга й далі сторінки тематичного переліку гайдів.
 //
@@ -52,5 +53,12 @@ export default async function GuidesByTopicPage(props: {
   if (!isTopic(topic) || page === null) notFound();
   const entry = byTopic(await getGuides()).find((t) => t.topic === topic);
   if (!entry || page > guidePageCount(entry.guides.length)) notFound();
-  return <GuideTopicView topic={topic} guides={entry.guides} page={page} />;
+  return (
+    <GuideTopicView
+      topic={topic}
+      guides={entry.guides}
+      page={page}
+      background={await bannerBackground("guide-topic-hero", "/banners/guides.webp")}
+    />
+  );
 }
