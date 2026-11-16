@@ -8,6 +8,7 @@ import { cardProvenanceLabel, getGuides } from '@/lib/guides';
 import { breadcrumbList, collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
 import { Block } from '@/components/layout';
+import { PhotoSlot } from '@/components/photo-slot';
 
 // CAMP-210 — the other facet. See `country/[cc]/page.tsx` for why these
 // live under a static segment rather than beside the articles.
@@ -109,6 +110,10 @@ export default async function GuidesByTopic(props: {
       <h1 className="mt-4 text-3xl leading-tight md:text-[42px]">
         {TOPICS[topic]}
       </h1>
+
+      <div className="mt-5">
+        <PhotoSlot slot="guide-topic-hero" />
+      </div>
 
       <CatalogueProvenance guides={entry.guides} />
       <Block as="p" measure="read" className="mt-3 text-ink-2">

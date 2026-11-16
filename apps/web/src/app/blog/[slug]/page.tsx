@@ -12,6 +12,7 @@ import {
 import { PageSections } from '@/components/page-sections';
 import PostCards from '@/components/post-cards';
 import Breadcrumbs from '@/components/breadcrumbs';
+import { PhotoFrame } from '@/components/photo-frame';
 
 // CAMP-364 — сторінка допису.
 //
@@ -161,7 +162,7 @@ export default async function BlogPost({
           </p>
         </header>
 
-        {summary.coverUrl && (
+        {summary.coverUrl ? (
           <figure className="mt-3" data-testid="post-cover">
             {/* eslint-disable-next-line @next/next/no-img-element -- `images.unoptimized: true` у next.config. */}
             <img
@@ -170,6 +171,12 @@ export default async function BlogPost({
               className="aspect-[16/9] w-full rounded-card object-cover md:aspect-[21/9]"
             />
           </figure>
+        ) : (
+          // Обкладинку ставить власник (`pages.banner_image_url` допису);
+          // поки її немає — заглушка теми, а не порожнеча.
+          <div className="mt-3" data-testid="post-cover-placeholder">
+            <PhotoFrame image={null} hero slot="post-cover" />
+          </div>
         )}
 
         <div className="mt-3 rounded-card bg-surface p-5 md:p-10">

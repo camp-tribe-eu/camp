@@ -35,6 +35,7 @@ import { pageContent } from '@/lib/page-content';
 import { PERSONA_PAGE } from '@/lib/persona';
 import { personaSection } from '@/lib/persona-labels';
 import { publishableCountries } from '@/lib/rental';
+import { PhotoSlot } from '@/components/photo-slot';
 
 // CAMP-3 / CAMP-45 — one curated route.
 //
@@ -176,6 +177,10 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
           {route.summary}
         </Block>
       </header>
+
+      <div className="mt-6">
+        <PhotoSlot slot="route-hero" />
+      </div>
 
       <RouteFigures
         days={route.days}

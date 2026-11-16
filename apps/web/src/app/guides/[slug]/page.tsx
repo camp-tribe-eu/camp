@@ -9,6 +9,7 @@ import {
 import { abs, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
 import GuideArticle from '@/components/guide-article';
+import { PhotoSlot } from '@/components/photo-slot';
 
 // CAMP-66 — one guide.
 //
@@ -82,7 +83,7 @@ export default async function GuidePage(props: { params: Promise<Params> }) {
 
       {/* 🔴 Один вміст на два шляхи — сторінку й шухляду
           (CAMP-460). Чому саме так, див. `components/guide-article.tsx`. */}
-      <GuideArticle guide={guide} />
+      <GuideArticle guide={guide} hero={<PhotoSlot slot="guide-hero" />} />
     </main>
   );
 }

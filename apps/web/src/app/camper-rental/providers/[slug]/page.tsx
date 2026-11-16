@@ -12,6 +12,7 @@ import {
 } from "@/lib/rental-providers";
 import Day from "@/components/day";
 import { Block } from "@/components/layout";
+import { PhotoSlot } from "@/components/photo-slot";
 
 // CAMP-427 — сторінка однієї компанії, за зразком single product page.
 
@@ -74,6 +75,10 @@ export default async function ProviderPageView({
       <h1 className="mt-4 text-3xl leading-tight text-heading md:text-[42px]">
         {p.name}
       </h1>
+
+      <div className="mt-5">
+        <PhotoSlot slot="provider-hero" />
+      </div>
 
       {/* 🔴 ДВІ КОЛОНКИ — ЦЕ НЕ СМАК, А ЧИСЛА З ТЕМИ FUSE.
           `assets/product.build.css`, сторінка товару:

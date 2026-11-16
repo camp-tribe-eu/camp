@@ -1,4 +1,5 @@
 import { needsAiDisclosure, PROVENANCE_LABEL, type Guide } from '@/lib/guides';
+import type { ReactNode } from 'react';
 import { Block } from '@/components/layout';
 
 /**
@@ -20,13 +21,22 @@ import { Block } from '@/components/layout';
  * Act просить маркувати машинний текст; позначка, яку читач зустрічає
  * після того, як прочитав і повірив, є позначкою лише за формою.
  */
-export default function GuideArticle({ guide }: { guide: Guide }) {
+export default function GuideArticle({
+  guide,
+  hero,
+}: {
+  guide: Guide;
+  /** Фото під заголовком (слот власника); шухляда його не передає. */
+  hero?: ReactNode;
+}) {
   const label = PROVENANCE_LABEL[guide.provenance];
   return (
     <>
     <h1 className="mt-3 max-w-[22ch] text-3xl leading-tight md:text-[42px]">
       {guide.title}
     </h1>
+
+    {hero ? <div className="mt-5">{hero}</div> : null}
 
     {/* 🔴 Before the text, always. */}
     <aside
