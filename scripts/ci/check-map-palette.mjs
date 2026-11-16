@@ -462,6 +462,34 @@ export const EDO_SOURCE = {
     5: '#CC79A7', // Temporary Soil Moisture recovery
     6: '#009E73', // Temporary vegetation recovery
   },
+  /**
+   * 🔴 CAMP-529, 16.11.2026. WHAT WE ACTUALLY DRAW for the source's five classes.
+   *
+   * The map laid the picture on at `raster-opacity` 0.76 and hid the basemap
+   * and the town labels under it. Going lower with EDO's own colours is
+   * impossible and this guard is why: at 0.70 it gave 25 violations, at 0.55
+   * 30 — Watch/Warning and Recovery/Soil-moisture-recovery merge once the
+   * basemap shows through (ΔE 15-17 against the bar of 25). The bar was NOT
+   * lowered. The colours were re-chosen instead: deeper and more saturated, so
+   * that after blending at 0.50 they still clear it.
+   *
+   * Rule 1 keeps its teeth: a class must equal THIS record, byte for byte, so
+   * a nudged colour still fails. What changed is what the record says: not
+   * "equals the source" but "is the source's colour, deliberately adapted for
+   * our basemaps, same hue family and same order". `colours` above stays the
+   * source's own, so the distance from it is still on the page.
+   */
+  drawn: {
+    1: '#E3CF00', // Watch: yellow, as the source, deeper
+    2: '#E27802', // Warning: orange
+    3: '#9E0F14', // Alert: dark red (the markers' ring carries them over it, see rule 3)
+    5: '#CB2392', // Temporary Soil Moisture recovery: magenta-pink
+    6: '#008663', // Temporary vegetation recovery: green-teal
+  },
+  drawnDecided: '2026-11-16',
+  drawnReason:
+    'EDO\'s colours were made for its own white map and force raster-opacity 0.76 here, which hides the basemap ' +
+    'and town labels (CAMP-529); these are the same hues, deeper, and hold every rule at 0.50',
   /** The classes that are OURS: not required to equal anything, required to clear rules 2 and 3. */
   own: {
     0: {
@@ -500,6 +528,17 @@ export function sourceRecordProblems(source = EDO_SOURCE) {
     out.push(`the source record has no date it was measured on (${source.measured})`);
   for (const [v, hex] of Object.entries(source.colours ?? {}))
     if (!HEX.test(hex)) out.push(`source class ${v}: ${hex} is not a six-digit hex`);
+  for (const [v, hex] of Object.entries(source.drawn ?? {})) {
+    if (source.colours?.[v] === undefined) out.push(`drawn class ${v} is not a class the source publishes`);
+    if (!HEX.test(hex)) out.push(`drawn class ${v}: ${hex} is not a six-digit hex`);
+  }
+  if (source.drawn) {
+    for (const v of Object.keys(source.colours ?? {}))
+      if (source.drawn[v] === undefined) out.push(`source class ${v} is adapted for some classes but has no drawn colour`);
+    if (typeof source.drawnReason !== 'string' || source.drawnReason.trim().length < 20)
+      out.push('the adapted colours have no reason');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(source.drawnDecided ?? '')) out.push('the adapted colours have no date');
+  }
   for (const [v, own] of Object.entries(source.own ?? {})) {
     if (source.colours?.[v] !== undefined)
       out.push(`class ${v} is both a source colour and a named exception`);
@@ -524,10 +563,11 @@ export function sourceProblems(colours, source = EDO_SOURCE) {
       out.push(`class ${v}: the source publishes ${hex} and the table has no colour for it`);
       continue;
     }
-    if (!sameHex(mine.hex, hex))
+    const want = source.drawn?.[v] ?? hex;
+    if (!sameHex(mine.hex, want))
       out.push(
-        `class ${v} is drawn ${mine.hex} but the source publishes ${hex} (${source.indicator}, measured ${source.measured}, ` +
-          `${source.factsheet}): a class that is not a named exception must equal it`
+        `class ${v} is drawn ${mine.hex} but it is recorded as drawn ${want} (the source publishes ${hex}; ${source.indicator}, ` +
+          `measured ${source.measured}, ${source.factsheet}): a class that is not a named exception must equal the record`
       );
     if (mine.alpha !== 255)
       out.push(`class ${v} is drawn at alpha ${mine.alpha}: the source's colour is opaque, and the layer's opacity is the one place ours is applied`);
@@ -706,7 +746,7 @@ export function droughtWorst(
   const out = {};
   for (const [v, { hex, alpha }] of Object.entries(colours)) {
     const worst = {
-      matches: source?.colours?.[v] === undefined ? null : sameHex(hex, source.colours[v]) && alpha === 255,
+      matches: source?.colours?.[v] === undefined ? null : sameHex(hex, source.drawn?.[v] ?? source.colours[v]) && alpha === 255,
       basemap: { deltaE: Infinity, where: null },
       other: { deltaE: Infinity, where: null },
       markers: { seen: Infinity, where: null },
@@ -921,16 +961,27 @@ function selfTest() {
   // of class 4 that are ours — at the opacity measured, so the rehearsal does not
   // move when the shipped table does. Every case below is ONE thing wrong with
   // it, or the one thing it is allowed.
-  const OPACITY = 0.76;
-  const edo = EDO_SOURCE.colours;
+  const OPACITY = 0.5;
+  const edo = EDO_SOURCE.drawn;
   const GOOD = {
-    0: { hex: '#9CFE84', alpha: 255 },
+    0: { hex: '#2CB82A', alpha: 255 },
     1: { hex: edo[1], alpha: 255 },
     2: { hex: edo[2], alpha: 255 },
     3: { hex: edo[3], alpha: 255 },
-    4: { hex: '#757591', alpha: 255 },
+    4: { hex: '#3039A5', alpha: 255 },
     5: { hex: edo[5], alpha: 255 },
     6: { hex: edo[6], alpha: 255 },
+  };
+  // 🔴 CAMP-529 MUTATION, kept as a standing case: the colours that were shipped
+  // before (EDO's own, 0 and 4 ours) at the new opacity. The guard must refuse.
+  const OLD = {
+    0: { hex: '#9CFE84', alpha: 255 },
+    1: { hex: '#F0E442', alpha: 255 },
+    2: { hex: '#E69F00', alpha: 255 },
+    3: { hex: '#DC050C', alpha: 255 },
+    4: { hex: '#757591', alpha: 255 },
+    5: { hex: '#CC79A7', alpha: 255 },
+    6: { hex: '#009E73', alpha: 255 },
   };
   const ALL = [0, 1, 2, 3, 4, 5, 6];
   const three = (table, opacity = OPACITY, held = ALL, fills = undefined, stroke = ring) =>
@@ -939,7 +990,10 @@ function selfTest() {
   // a check that refused every table would "catch" every case below.
   cases++;
   if (three(GOOD).length !== 0)
-    fails.push('the right table (EDO\'s five colours, ours for 0 and 4, opacity 0.76) was refused by one of the three rules');
+    fails.push('the right table (the recorded adaptation of EDO\'s five colours, ours for 0 and 4, opacity 0.50) was refused by one of the three rules');
+  cases++;
+  if (droughtProblems(OLD, OPACITY, BASEMAP, ALL, undefined, ring, null).length === 0)
+    fails.push('the previous palette at the new opacity 0.50 was accepted: the opacity is not what the guard measures');
   // RULE 1: each of the five equals the source — one step off in one channel is a different colour.
   const nudge = (hex) => {
     const n = parseInt(hex.slice(1, 3), 16);
@@ -948,11 +1002,11 @@ function selfTest() {
   for (const v of [1, 2, 3, 5, 6])
     if (
       cases++,
-      !has(three({ ...GOOD, [v]: { hex: nudge(edo[v]), alpha: 255 } }, OPACITY, []), new RegExp(`class ${v} is drawn #\\w+ but the source publishes ${edo[v]}`))
+      !has(three({ ...GOOD, [v]: { hex: nudge(edo[v]), alpha: 255 } }, OPACITY, []), new RegExp(`class ${v} is drawn #\\w+ but it is recorded as drawn ${edo[v]}`))
     )
       fails.push(`class ${v} drawn one step off the source's ${edo[v]} was accepted`);
   cases++;
-  if (!has(three({ ...GOOD, 2: { hex: '#D95F02', alpha: 255 } }, OPACITY, []), /class 2 is drawn #D95F02 but the source publishes #E69F00/))
+  if (!has(three({ ...GOOD, 2: { hex: '#D95F02', alpha: 255 } }, OPACITY, []), /class 2 is drawn #D95F02 but it is recorded as drawn #E27802/))
     fails.push('class 2 swapped for another colour altogether was accepted');
   cases++;
   if (!has(three({ ...GOOD, 3: { hex: edo[3], alpha: 254 } }, OPACITY, []), /class 3 is drawn at alpha 254/))
@@ -989,7 +1043,7 @@ function selfTest() {
   // RULE 2, the opacity: the EDO palette at the layer's old 0.65 has Watch and
   // Warning at ΔE 21.3 from each other — the reason the opacity is what it is.
   cases++;
-  if (!has(three(GOOD, 0.65), /classes 1 and 2 read alike on .*ΔE 2[01]\./))
+  if (!has(droughtProblems(OLD, 0.65, BASEMAP, ALL, undefined, ring, null), /classes 1 and 2 read alike on .*ΔE 2[01]\./))
     fails.push('the EDO palette at opacity 0.65, Watch and Warning ΔE 21 apart, was accepted');
   // RULE 3: the markers over EDO's Alert red. A ring too light to carry them is lost over it.
   cases++;
@@ -1084,7 +1138,7 @@ function selfTest() {
   // 🔴 CAMP-286: counted, because "13 cases" was prose. An assertion
   // that stopped being reached printed exactly what a passing one
   // printed, and the sentence below went on claiming thirteen.
-  const EXPECTED_CASES = 61;
+  const EXPECTED_CASES = 62;
   if (cases !== EXPECTED_CASES) {
     fails.push(`${cases} assertions ran, expected ${EXPECTED_CASES}`);
   }
@@ -1170,7 +1224,7 @@ if (invokedDirectly) {
     console.log(
       `  drought ${value}`.padEnd(14) +
         ` ${hex}  ${(effectiveOpacity(alpha) * 100).toFixed(1)}% drawn   ` +
-        `EDO ${w.matches === null ? 'named exception' : w.matches ? 'yes' : 'NO'}`.padEnd(24) +
+        `record ${w.matches === null ? 'named exception' : w.matches ? 'yes' : 'NO'}`.padEnd(28) +
         `ΔE ${w.basemap.deltaE.toFixed(1)} basemap (${w.basemap.where})   ` +
         `ΔE ${w.other.deltaE.toFixed(1)} other (${w.other.where})   ` +
         `markers ${w.markers.seen.toFixed(2)}:1 (${w.markers.where})`
@@ -1207,7 +1261,7 @@ if (invokedDirectly) {
   );
   console.log(
     `${Object.keys(DROUGHT_COLOURS).length} drought classes at raster-opacity ${DROUGHT_RASTER_OPACITY}: ` +
-      `classes ${Object.keys(EDO_SOURCE.colours).join(', ')} equal ${EDO_SOURCE.indicator}'s colours, ` +
+      `classes ${Object.keys(EDO_SOURCE.colours).join(', ')} equal the recorded adaptation of ${EDO_SOURCE.indicator}'s colours, ` +
       `classes ${Object.keys(EDO_SOURCE.own).join(' and ')} are named exceptions; every class is >= ΔE ${MIN_DELTA_E} ` +
       `from every basemap colour and from every other class, and leaves every marker >= ${MIN_CONTRAST}:1`
   );

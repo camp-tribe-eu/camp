@@ -259,17 +259,18 @@ function tinyState(opts: {
 
 /**
  * The colours the picture must use, written out here and not read from the table.
- * 1, 2, 3, 5 and 6 are EDO's (CDI v4.1.1, measured 14.10.2026); 0 and 4 are ours
+ * since CAMP-529 (16.11.2026) all seven are ours: 1, 2, 3, 5 and 6 are EDO's CDI v4.1.1 hues
+ * deepened to hold the palette guard at raster-opacity 0.5, 0 and 4 were ours before
  * (`lib/drought-colours.ts` says why) — and 4, 5, 6 are three colours, as EDO draws them.
  */
 const WANT: Record<number, [number, number, number, number]> = {
-  0: [0x9c, 0xfe, 0x84, 255],
-  1: [0xf0, 0xe4, 0x42, 255],
-  2: [0xe6, 0x9f, 0x00, 255],
-  3: [0xdc, 0x05, 0x0c, 255],
-  4: [0x75, 0x75, 0x91, 255],
-  5: [0xcc, 0x79, 0xa7, 255],
-  6: [0x00, 0x9e, 0x73, 255],
+  0: [0x2c, 0xb8, 0x2a, 255],
+  1: [0xe3, 0xcf, 0x00, 255],
+  2: [0xe2, 0x78, 0x02, 255],
+  3: [0x9e, 0x0f, 0x14, 255],
+  4: [0x30, 0x39, 0xa5, 255],
+  5: [0xcb, 0x23, 0x92, 255],
+  6: [0x00, 0x86, 0x63, 255],
 };
 const BARE: [number, number, number, number] = [0, 0, 0, 0];
 
@@ -392,7 +393,7 @@ test.describe("paintOverlay", () => {
     expect(
       px(3),
       "covered, and the indicator measured normal conditions",
-    ).toEqual([0x9c, 0xfe, 0x84, 255]);
+    ).toEqual([0x2c, 0xb8, 0x2a, 255]);
   });
 
   test("no source row is skipped: every row of the grid is the answer for at least one output row", () => {
@@ -482,9 +483,9 @@ test.describe("the legend", () => {
     // basemaps, so changing either number is a decision that changes what a
     // reader can tell apart — it should cost an edit here, and a re-run of
     // that check, not nothing.
-    expect(DROUGHT_RASTER_OPACITY).toBe(0.76);
-    expect(effectiveOpacity(255)).toBeCloseTo(0.76, 10);
-    expect(effectiveOpacity(90)).toBeCloseTo((90 / 255) * 0.76, 10);
+    expect(DROUGHT_RASTER_OPACITY).toBe(0.5);
+    expect(effectiveOpacity(255)).toBeCloseTo(0.5, 10);
+    expect(effectiveOpacity(90)).toBeCloseTo((90 / 255) * 0.5, 10);
     expect(effectiveOpacity(0)).toBe(0);
   });
 
@@ -619,19 +620,19 @@ test.describe("the legend", () => {
       0: { hex: "#336699", alpha: 90 },
       1: { hex: "#CC9933", alpha: 128 },
     };
-    // Mutation: ignore the alpha in `droughtLegend` — class 0 reads 0.76
-    // where the pixel is 0.2682, and this fails.
+    // Mutation: ignore the alpha in `droughtLegend` — class 0 reads 0.5
+    // where the pixel is 0.1765, and this fails.
     const rows = droughtLegend(FILE.meta, table);
     const pixel = pixelsPerClass(table);
     const byLabel = (label: string) =>
       rows.find((r) => r.label.includes(label))!;
-    expect(byLabel("no drought").opacity).toBeCloseTo(0.2682, 3);
-    expect(byLabel("less rain than normal").opacity).toBeCloseTo(0.3815, 3);
-    expect(byLabel("dry ground").opacity).toBeCloseTo(0.76, 10);
-    expect(byLabel("no drought").swatch).toBe("rgba(51, 102, 153, 0.2682)");
-    expect(pixel[0][3]).toBeCloseTo(0.2682, 3);
-    expect(pixel[1][3]).toBeCloseTo(0.3815, 3);
-    expect(pixel[2][3]).toBeCloseTo(0.76, 10);
+    expect(byLabel("no drought").opacity).toBeCloseTo(0.1765, 3);
+    expect(byLabel("less rain than normal").opacity).toBeCloseTo(0.251, 3);
+    expect(byLabel("dry ground").opacity).toBeCloseTo(0.5, 10);
+    expect(byLabel("no drought").swatch).toBe("rgba(51, 102, 153, 0.1765)");
+    expect(pixel[0][3]).toBeCloseTo(0.1765, 3);
+    expect(pixel[1][3]).toBeCloseTo(0.251, 3);
+    expect(pixel[2][3]).toBeCloseTo(0.5, 10);
   });
 
   test("the dashed row says what bare means, and carries no colour", () => {
@@ -667,7 +668,7 @@ test.describe("the legend", () => {
         WANT[c.value].slice(0, 3),
       );
       expect(a, `class ${c.value} is drawn at the layer's opacity`).toBeCloseTo(
-        0.76,
+        0.5,
         3,
       );
     });

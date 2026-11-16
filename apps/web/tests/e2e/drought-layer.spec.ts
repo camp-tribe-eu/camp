@@ -672,15 +672,15 @@ test.describe('the picture', () => {
     const away = (v: number) => Math.abs(v - Math.round(v)) > MARGIN;
     const BASE = 232;
     const blend = (hex: string, alpha: number): number[] => {
-      const eff = (0.76 * alpha) / 255;
+      const eff = (0.5 * alpha) / 255;
       return [0, 2, 4].map((i) => Math.round(eff * parseInt(hex.slice(1 + i, 3 + i), 16) + (1 - eff) * BASE));
     };
     const want = (lat: number, lon: number) => {
       if (lon < 14.5) return { name: 'bare', rgb: [BASE, BASE, BASE] };
-      if (inBlock(lat, lon)) return { name: 'class 0, tinted', rgb: blend('#9CFE84', 255) };
+      if (inBlock(lat, lon)) return { name: 'class 0, tinted', rgb: blend('#2CB82A', 255) };
       return (Math.floor(lat) + Math.floor(lon)) % 2 === 0
-        ? { name: 'class 1', rgb: blend('#F0E442', 255) }
-        : { name: 'class 3', rgb: blend('#DC050C', 255) };
+        ? { name: 'class 1', rgb: blend('#E3CF00', 255) }
+        : { name: 'class 3', rgb: blend('#9E0F14', 255) };
     };
 
     const spots: { at: [number, number]; name: string; rgb: number[] }[] = [];
@@ -730,8 +730,8 @@ test.describe('the picture', () => {
     // colours. With `raster-resampling: nearest` it is one of them.
     // Mutation: put `"raster-resampling": "nearest"` back in `attachDrought`
     // (campsite-map.tsx) — the pixel on the line is pure, and this fails.
-    const pure1 = blend('#F0E442', 255);
-    const pure3 = blend('#DC050C', 255);
+    const pure1 = blend('#E3CF00', 255);
+    const pure3 = blend('#9E0F14', 255);
     const x15 = Math.round(((15 - west) / (east - west)) * box.width);
     const edgeSpots: [number, number][] = [];
     for (let y = 40; y < box.height - 60; y += 29) {
