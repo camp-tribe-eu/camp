@@ -50,6 +50,8 @@ import {
 import { LayerChip } from "./layer-chip";
 import { WildfirePanel } from "./wildfire-panel";
 import { droughtBeforeId, underBaseLabels } from "@/lib/map-layer-order";
+import { PaintAborted, paintOffThread, type Painter } from "@/lib/drought-offthread";
+import { makeDroughtWorker } from "@/lib/drought-worker-factory";
 import { DroughtLayerPanel } from "./drought-layer-panel";
 import { WarningPanel } from "./warning-panel";
 import { canCountSpots, levelByZone, levelForSpot } from "@/lib/map-hazard";
@@ -86,7 +88,6 @@ import {
 import {
   DROUGHT_RASTER_OPACITY,
   DROUGHT_URL,
-  paintOverlay,
   readDroughtPayload,
   type DroughtLayerState,
   type DroughtOverlay,
@@ -365,6 +366,10 @@ interface DroughtImage {
 /**
  * CAMP-200: paint the grid onto a canvas and hand MapLibre the canvas.
  *
+ * 🔴 CAMP-530: the picture is `paintSmoothOverlay`'s — smoothed for the eye.
+ * Nothing reads it back: a campsite's class comes from `readingAt` on the
+ * raw arrays (the page and the popup), never from these pixels.
+ *
  * 🔴 Built from the SAME state the campsite page's panel reads — every
  * pixel is asked of `readingAt`, the function that applies the coverage
  * mask — and once per arrival of the data, not once per switch.
@@ -378,10 +383,7 @@ interface DroughtImage {
  * would be the wrong repair. A canvas source reads the canvas directly and
  * makes no request at all.
  */
-function buildDroughtImage(
-  state: Extract<DroughtState, { kind: "current" }>,
-): DroughtImage | null {
-  const overlay = paintOverlay(state);
+function buildDroughtImage(overlay: DroughtOverlay): DroughtImage | null {
   const canvas = document.createElement("canvas");
   canvas.width = overlay.width;
   canvas.height = overlay.height;
@@ -397,6 +399,22 @@ function buildDroughtImage(
     0,
   );
   return { canvas, coordinates: overlay.coordinates };
+}
+
+/**
+ * CAMP-530: the picture is painted in a Web Worker (`drought-worker.ts`) and
+ * comes back as a transferable buffer, so a phone is not frozen for seconds
+ * when the layer is switched on. Any failure of the worker falls back to the
+ * same painter on this thread (`paintOffThread`).
+ */
+async function buildDroughtImageOffThread(
+  state: Extract<DroughtState, { kind: "current" }>,
+  signal: AbortSignal,
+): Promise<{ image: DroughtImage | null; painter: Painter }> {
+  const { overlay, painter } = await paintOffThread(state, makeDroughtWorker, { signal });
+  // 🔴 The page may have gone while the worker worked: no canvas for it.
+  if (signal.aborted) throw new PaintAborted();
+  return { image: buildDroughtImage(overlay), painter };
 }
 
 /**
@@ -442,6 +460,11 @@ function attachDrought(
           // красиво і плавно». `linear` інтерполює між центрами клітинок;
           // у самому центрі колір той самий, що в легенді, тож контракт
           // палітри (check-map-palette.mjs) стоїть на центрах, а не на краях.
+          // 🔴 CAMP-530: `linear` ЛИШАЄТЬСЯ, але тепер він робить інше. Межі
+          // класів згладжено в самій картинці (`paintSmoothOverlay`: ×2, кожен
+          // піксель одного класу), тож GPU розмиває лише шов в один піксель —
+          // антиаліасинг, а не сходинки клітинок. Піксельні тести CAMP-319 і
+          // «у правильному місці» проходять без зміни допусків.
           "raster-resampling": "linear",
           "raster-fade-duration": 0,
         },
@@ -864,6 +887,10 @@ export default function CampsiteMap() {
     kind: "loading",
   });
   const droughtImage = useRef<DroughtImage | null>(null);
+  const droughtBuilding = useRef(false);
+  const droughtAbort = useRef<AbortController | null>(null);
+  // The picture is on the canvas source: the panel may show its key only then.
+  const [droughtPictureReady, setDroughtPictureReady] = useState(false);
   /** Whether the picture should be showing — read by `attach`, which runs on every styledata. */
   const droughtShown = useRef(false);
   const droughtAsked = useRef(false);
@@ -2163,22 +2190,42 @@ export default function CampsiteMap() {
     const shown = droughtOn && droughtStateNow.kind === "current";
     droughtShown.current = shown;
     if (shown && !droughtImage.current && droughtStateNow.kind === "current") {
-      let built: DroughtImage | null = null;
-      try {
-        built = buildDroughtImage(droughtStateNow);
-      } catch {
-        built = null; // a canvas this size that the browser will not give us
+      // 🔴 CAMP-530: built off the main thread, so this returns at once and
+      // `drawDrought` runs again when the picture arrives. `droughtBuilding`
+      // keeps a second call (a re-render) from starting a second worker.
+      if (!droughtBuilding.current) {
+        droughtBuilding.current = true;
+        const abort = new AbortController();
+        droughtAbort.current = abort;
+        buildDroughtImageOffThread(droughtStateNow, abort.signal)
+          .then(
+            (r) => r,
+            (e) => (e instanceof PaintAborted ? null : { image: null, painter: "main" as Painter }),
+          )
+          .then((r) => {
+            droughtBuilding.current = false;
+            // 🔴 Gone, or abandoned: nothing is drawn, nothing is said.
+            if (!r && !mounted.current) return;
+            if (!mounted.current || abort.signal.aborted) return;
+            if (!r || !r.image) {
+              // 🔴 A panel that describes a drawn layer over a map it could not
+              // draw on is the blank that reads as an all-clear. `missing` is
+              // the honest state for "we hold it and cannot show it".
+              droughtShown.current = false;
+              const e2 = container.current;
+              if (e2) e2.dataset.droughtDrawn = "0";
+              setDroughtStateNow({ kind: "missing" });
+              return;
+            }
+            droughtImage.current = r.image;
+            // 🔴 Which path painted it, for the test that must see the worker
+            // work in a production build (and not the fallback quietly doing it).
+            const e3 = container.current;
+            if (e3) e3.dataset.droughtPainter = r.painter;
+            setDroughtPictureReady(true);
+            drawDroughtRef.current();
+          });
       }
-      if (!built) {
-        // 🔴 A panel that describes a drawn layer over a map it could not
-        // draw on is the blank that reads as an all-clear. `missing` is
-        // the honest state for "we hold it and cannot show it".
-        droughtShown.current = false;
-        if (el) el.dataset.droughtDrawn = "0";
-        setDroughtStateNow({ kind: "missing" });
-        return;
-      }
-      droughtImage.current = built;
     }
     if (m) tryAttachDrought(m, droughtImage.current, shown);
     if (el) {
@@ -2193,6 +2240,8 @@ export default function CampsiteMap() {
     mounted.current = true;
     return () => {
       mounted.current = false;
+      // 🔴 CAMP-530: the page is gone — terminate the worker, build nothing.
+      droughtAbort.current?.abort();
     };
   }, []);
 
@@ -2750,7 +2799,9 @@ export default function CampsiteMap() {
       {/* CAMP-200, CAMP-162. The drought layer's own note: the period, the
           key to the colours and the credit beside the data. Mounted only
           while the layer is on — see the component for why. */}
-      {droughtOn && <DroughtLayerPanel state={droughtStateNow} />}
+      {droughtOn && (
+        <DroughtLayerPanel state={droughtStateNow} pictureReady={droughtPictureReady} />
+      )}
       {/* CAMP-112. 🔴 ТА САМА ПАНЕЛЬ, ЩО НА СТОРІНЦІ КЕМПІНГА, і це не
           економія: вона вже несе всі сім умов клаузули 5 — службу,
           час випуску, посилання, дисклеймер дослівно — і кожну з них
