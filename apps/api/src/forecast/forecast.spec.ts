@@ -437,8 +437,11 @@ describe('where the forecast code may reach', () => {
         .filter((l) => !/^\s*\/\//.test(l))
         .join('\n');
       expect(
-        // Substring search over source tokens, not a URL check (CodeQL js/regex/missing-regexp-anchor).
-        `${f}: ${code.split(/[^\w./-]+/).filter((t) => t.includes('open-meteo.com'))}`,
+        // Every host-shaped piece of every token, matched exactly (CodeQL:
+        // js/regex/missing-regexp-anchor, js/incomplete-url-substring-sanitization).
+        `${f}: ${code
+          .split(/[^\w./:-]+/)
+          .filter((t) => t.split('/').some((h) => h === 'open-meteo.com' || h.endsWith('.open-meteo.com')))}`,
       ).toBe(`${f}: `);
     }
   });
