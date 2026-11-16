@@ -97,7 +97,7 @@ test.describe('🔴 порожні стани: макет, крім обіцян
       // макет: «Сердечко на будь-якому кемпінгу — і він тут. Список
       // синхронізується між пристроями.» — ні сердечка, ні списку немає.
       body:
-        'Saving a campsite to your account is not built yet, so nothing can land here. ' +
+        'Nothing is saved to your account, so there is nothing to list here. ' +
         'The site does not yet let you save a trip, a place, a photograph or a review.',
       // «Відкрити мапу»
       buttons: [{ href: '/map', text: 'Open the map' }],

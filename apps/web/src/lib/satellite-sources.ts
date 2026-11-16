@@ -151,54 +151,17 @@ export function whySatelliteUnavailable(countries: readonly string[]): string {
     );
   }
   if (missing.length > 1) {
-    const named = (list: string[]) =>
-      list.map((c) => c.toUpperCase()).join(", ");
-    const researched = missing.filter((c) =>
-      SATELLITE_NOT_YET.some((n) => n.country === c),
-    );
-    const unlooked = missing.filter(
-      (c) => !SATELLITE_NOT_YET.some((n) => n.country === c),
-    );
-    const parts: string[] = [];
-    if (researched.length) {
-      parts.push(
-        `No orthophoto service we can use covers ${named(researched)} yet.`,
-      );
-    }
-    if (unlooked.length) {
-      parts.push(
-        `We have not yet looked for an open orthophoto service in ${named(unlooked)}.`,
-      );
-    }
-    return (
-      parts.join(" ") +
-      " Esri, Bing and Google are closed to us by licence, so this layer is " +
-      "national or it is nothing."
-    );
+    const named = missing.map((c) => c.toUpperCase()).join(", ");
+    return `Satellite imagery is not available in ${named}.`;
   }
   const [only] = missing.length === 1 ? missing : seen;
   if (SATELLITE_SOURCES.some((s) => s.country === only)) {
     return "Satellite imagery is available here.";
   }
-  // 🔴 "WE LOOKED AND THERE IS NONE" AND "WE HAVE NOT LOOKED" ARE
-  // DIFFERENT SENTENCES, and the first version printed the first one for
-  // both. It said "No open orthophoto service we can use covers HR, SI
-  // yet" for every country without a source — twenty-five of them — when
-  // exactly one country had actually been researched. Claiming a negative
-  // result nobody measured is the same fault this repository keeps
-  // finding in its own guards, moved to the page.
-  const researched = SATELLITE_NOT_YET.find((n) => n.country === only);
-  if (researched) {
-    return (
-      `No orthophoto service we can use covers ${only.toUpperCase()} yet. ` +
-      `${researched.whyNotEnabled} ` +
-      "Esri, Bing and Google are closed to us by licence, so this layer is " +
-      "national or it is nothing."
-    );
-  }
-  return (
-    `We have not yet looked for an open orthophoto service in ${only.toUpperCase()}. ` +
-    "Esri, Bing and Google are closed to us by licence, so this layer is " +
-    "national or it is nothing."
-  );
+  // 🔴 ONE NEUTRAL SENTENCE FOR EVERY COUNTRY WITHOUT A SOURCE. The earlier
+  // wording told the reader whether we had looked, and that the big
+  // providers were "closed to us by licence": our own backlog, not
+  // something a reader can act on. The research record (`SATELLITE_NOT_YET`)
+  // stays in the data file; it is just not printed on the page.
+  return `Satellite imagery is not available in ${only.toUpperCase()}.`;
 }

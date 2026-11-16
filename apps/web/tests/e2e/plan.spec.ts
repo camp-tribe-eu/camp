@@ -138,7 +138,8 @@ test.describe('the page', () => {
     expect(said.indexOf('Your trip')).toBeGreaterThan(said.indexOf(VERDICT));
     // Чого він не знає — до форми, а не під нею.
     expect(said).toContain('every distance is a straight line and there are no driving times');
-    expect(said).toContain('we hold no data on pitch sizes');
+    expect(said).toContain('the size of your vehicle, so the height');
+    expect(said).not.toContain('pitch sizes');
     expect(said).toContain('Place names are looked up in our own data only, as they are written locally.');
     // І старого речення немає.
     expect(said).not.toMatch(/does not calculate routes yet/i);

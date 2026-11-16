@@ -62,10 +62,12 @@ test("🔴 усі слайди лежать у відданій розмітці
   }
 });
 
-test("заголовок слайда — `h2`, а `h1` сторінки не чіпає", () => {
+test("🔴 h1 головної — рівно перший слайд, решта слайдів — `h2`", () => {
   const html = slidesHtml();
-  expect((html.match(/<h2 /g) ?? []).length).toBe(3);
-  expect(html).not.toContain("<h1");
+  expect((html.match(/<h1[ >]/g) ?? []).length).toBe(1);
+  expect((html.match(/<h2 /g) ?? []).length).toBe(2);
+  expect(html).toMatch(/<h1 class="ct-slide__heading">Heading 1<\/h1>/);
+  expect(html).toMatch(/<h2 class="ct-slide__heading">Heading 2<\/h2>/);
 });
 
 test("перша картинка вантажиться першою, решта — ліниво", () => {

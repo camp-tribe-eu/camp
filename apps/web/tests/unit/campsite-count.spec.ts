@@ -252,7 +252,9 @@ test.describe("поверхні справді кличуть помічники
         expect(text, `головна: «${text.slice(0, 140)}»`).not.toMatch(
           /\d+ campsites/,
         );
-        expect(text).toContain("Campsites and motorhome parks");
+        // Вступний абзац головної прибрано разом зі старим h1-блоком:
+        // жодного речення з числом там більше немає.
+        expect(text).not.toContain("Campsites and motorhome parks");
       },
     );
   });
@@ -291,9 +293,10 @@ test.describe("поверхні справді кличуть помічники
       async () => {
         const homeTree = await (Home as unknown as () => Promise<unknown>)();
         const home = visibleText(renderComponent(() => homeTree, {}));
-        expect(home).toContain(
-          "52,501 campsites and motorhome parks across 800 regions",
-        );
+        // Головна більше не друкує вступу з числом (старий h1-блок
+        // прибрано): сире `summary.spots` теж не має вилізти на сторінку.
+        expect(home).not.toContain("52,501 campsites and motorhome parks");
+        expect(home).not.toMatch(/\b52,?501\b/);
 
         const searchTree = await (
           SearchPage as unknown as () => Promise<unknown>

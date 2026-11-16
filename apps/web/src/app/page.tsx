@@ -164,7 +164,7 @@ export default async function Home() {
   // 🔴 Зайва секція не зникає мовчки: головна розкладає макет сама,
   // тож рендер не побачить того, чого їй не передали.
   assertHomeSectionsUsed(page.sections);
-  const steps = findSection(page.sections, HOME_SECTIONS[1]);
+  const steps = findSection(page.sections, HOME_SECTIONS[0]);
   // Три підписи перед динамічними блоками — тепер із CMS, адресовані
   // слотом, а не типом: `prose` їх три, і типом вони не розрізняються.
   const stay = sectionBySlot(page.sections, HOME_SLOTS[0]);
@@ -179,7 +179,7 @@ export default async function Home() {
   // називається в `/internal/content-stamp`.
   const allValues = { ...PAGE_VALUES, ...values };
   const slides = slidesOf(sectionsOfType(page.sections, 'slide'), allValues);
-  const searchSection = findSection(page.sections, HOME_SECTIONS[2]);
+  const searchSection = findSection(page.sections, HOME_SECTIONS[1]);
   const features = sectionsOfType(page.sections, 'image-text');
 
   return (
@@ -218,8 +218,6 @@ export default async function Home() {
         stay={stay}
         drive={drive}
         driveLinks={driveLinks}
-        section={findSection(page.sections, HOME_SECTIONS[0])}
-        values={values}
         countries={countries}
       />
       {steps && <PageSections sections={[steps]} values={values} />}
@@ -233,32 +231,25 @@ export default async function Home() {
 }
 
 function Hero({
-  section,
   stay,
   drive,
   driveLinks,
-  values,
   countries,
 }: {
-  section: SectionView | null;
   stay: SectionView | null;
   drive: SectionView | null;
   driveLinks: SectionView | null;
-  values: Readonly<Record<string, string>>;
   countries: Awaited<ReturnType<typeof getCountries>>;
 }) {
   return (
     <section className="border-b border-line-2 bg-surface">
       <div className="mx-auto max-w-wrap px-4 py-12 md:py-16 xl:px-6">
-        {/* Заголовок і вступ — із CMS. Решта блоку нижче — макет. */}
-        {section && <PageSections sections={[section]} values={values} />}
-
         {/* 🔴 The two funnels as separate cards, not tabs. A tab hides one
             of them behind a click, and the mock-up's own note (CAMP-81) is
             that an inactive tab is not an entrance. */}
         <div
           data-persona-group
-          className="mt-8 grid grid-cols-1 items-start gap-4 md:grid-cols-2"
+          className="grid grid-cols-1 items-start gap-4 md:grid-cols-2"
         >
           <div
             data-persona-first="owner"

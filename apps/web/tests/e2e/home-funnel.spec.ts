@@ -38,7 +38,8 @@ test.describe("🔴 CAMP-488 — слайдер головної", () => {
 
     for (const [i, row] of SLIDES.entries()) {
       const slide = slides.nth(i);
-      await expect(slide.locator("h2"), `слайд ${i + 1}: заголовок`).toHaveText(
+      // Перший слайд — h1 сторінки, решта — h2.
+      await expect(slide.locator(i === 0 ? "h1" : "h2"), `слайд ${i + 1}: заголовок`).toHaveText(
         row.heading,
       );
       await expect(slide, `слайд ${i + 1}: текст`).toContainText(row.body!);
@@ -82,7 +83,7 @@ test.describe("🔴 CAMP-488 — слайдер головної", () => {
   }) => {
     await page.goto("/");
     await expect(
-      page.getByTestId("home-slide").first().locator("h2"),
+      page.getByTestId("home-slide").first().locator("h1"),
     ).toBeInViewport();
     // Доріжка слайдера гортається всередині себе; якщо вона розпирає
     // сторінку, на телефоні зʼявляється горизонтальна прокрутка.

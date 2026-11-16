@@ -18,38 +18,22 @@ import { HOME_H1, HOME_LEAD, HOME_STEPS } from "../unit/home-cms";
 const LEAD_TAIL = HOME_LEAD.replace("{{lead}}", "");
 
 test.describe("🔴 CAMP-365 — головна", () => {
-  test("заголовок і вступ — ті самі рядки, що в базі", async ({ page }) => {
+  // 🔴 ОДИН h1 НА ГОЛОВНІЙ — ПЕРШИЙ СЛАЙД. Старий блок «Every campsite, and
+  // what is around it» + вступ під слайдером був дублем заголовка й прибраний
+  // (міграція ховає секцію, код її не малює). Тест читає ВИДАНУ сторінку.
+  test("рівно один h1, він у слайдері, а старого блоку немає", async ({ page }) => {
     await page.goto("/");
 
     const h1 = page.locator("main h1");
-    await expect(h1, "заголовка немає або їх кілька").toHaveCount(1);
-    await expect(h1).toHaveText(HOME_H1);
+    await expect(h1, "h1 немає або їх кілька").toHaveCount(1);
+    await expect(
+      page.getByTestId("home-slide").first().locator("h1"),
+      "h1 має бути заголовком першого слайда",
+    ).toHaveCount(1);
+    await expect(h1).not.toHaveText(HOME_H1);
 
-    // 🔴 CAMP-488: над вступом тепер стоїть слайдер, і його абзаци ідуть
-    // у розмітці РАНІШЕ. `main p` `.first()` більше не вступ — шукаємо його
-    // за змістом, а не за позицією.
-    const lead = await page
-      .locator("main p", { hasText: LEAD_TAIL })
-      .first()
-      .innerText();
-    expect(lead, "вступ не закінчується рядком із бази").toContain(LEAD_TAIL);
-
-    // 🔴 Початок вступу РАХУЄТЬСЯ (`heroLead`), і він має ЧОТИРИ форми,
-    // не дві. Перша редакція цього взірця приймала рівно одну з них, а
-    // коментар обіцяв, що приймає й вироджену — заміряно рецензією: усі
-    // три вироджені гілки падали. Тобто при 500 від API сторінка
-    // надрукувала б правильно, а сторож почервонів би з хибним
-    // діагнозом.
-    //
-    // Форми `heroLead`, дослівно з `lib/campsite-count.ts`:
-    //   Campsites and motorhome parks across Europe        (обидва нулі)
-    //   N campsites and motorhome parks                    (немає регіонів)
-    //   Campsites and motorhome parks across N regions     (немає місць)
-    //   N campsites and motorhome parks across N regions   (усе є)
-    expect(lead, "вступ друкує нуль як число").not.toMatch(/\b0 campsites\b/);
-    expect(lead).toMatch(
-      /^(?:[\d,]+ campsites|Campsites) and motorhome parks(?: across (?:Europe|[\d,]+ regions))?,/,
-    );
+    const text = await page.locator("main").innerText();
+    expect(text, "старий вступ під слайдером лишився").not.toContain(LEAD_TAIL);
   });
 
   test("три кроки — назви й тексти з бази, у порядку з бази", async ({
@@ -75,27 +59,6 @@ test.describe("🔴 CAMP-365 — головна", () => {
     await page.goto("/");
     const text = await page.locator("main").innerText();
     expect(text, "у видимому тексті лишилось {{…}}").not.toMatch(/\{\{|\}\}/);
-  });
-
-  // 🔴 ВИГЛЯД, А НЕ ЛИШЕ ТЕКСТ. Переїзд у CMS уже одного разу забрав
-  // класи, лишивши текст на місці.
-  test("🔴 заголовок і вступ лишились тих самих класів", async ({ page }) => {
-    await page.goto("/");
-    await expect(page.locator("main h1")).toHaveClass(
-      /max-w-\[18ch\].*text-3xl/,
-    );
-    // 🔴 ВАГА ПЕРЕВІРЯЄТЬСЯ ОБЧИСЛЕНОЮ, А НЕ КЛАСОМ (CAMP-467). Раніше тут
-    // стояло `font-bold` у тому ж регулярному виразі, і це було слабше
-    // твердження, ніж здається: клас на місці ще не означає, що правило
-    // доїхало. Тепер вагу всіх h1…h6 задає одне правило в globals.css
-    // (700, як у темі), класів ваги на заголовках немає взагалі, і
-    // перевірка тут питає браузер, а не розмітку — тобто ловить і
-    // загублений клас, і загублене правило.
-    await expect(page.locator("main h1")).toHaveCSS("font-weight", "700");
-    // CAMP-447: ширину дає `<Block measure="read">`, і її клас стоїть першим.
-    await expect(
-      page.locator("main p", { hasText: LEAD_TAIL }).first(),
-    ).toHaveClass(/max-w-read.*mt-4.*text-ink-2/);
   });
 
   // 🔴 І ТЕ, ЩО НАВМИСНО ЛИШИЛОСЬ У КОДІ. Блок двох лійок — перелік
