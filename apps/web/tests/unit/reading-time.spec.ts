@@ -47,11 +47,12 @@ test.describe("час читання", () => {
     expect(readingMinutes([section({ body: words(201) })])).toBe(2);
   });
 
-  // 🔴 Головна властивість: текст лежить у ЧОТИРЬОХ полях, і пропуск
+  // 🔴 Головна властивість: текст лежить у ПʼЯТИ полях, і пропуск
   // будь-якого з них дає «1 хв» на довгому дописі.
-  test("лічаться всі чотири місця, де живе текст", () => {
+  test("лічаться всі пʼять місць, де живе текст", () => {
     const parts: Array<Partial<SectionView>> = [
       { heading: words(300) },
+      { subheading: words(300) },
       { ctaLabel: words(300) },
       { body: words(300) },
       { items: [{ text: words(300) }] },
@@ -61,7 +62,7 @@ test.describe("час читання", () => {
         300,
       );
     }
-    expect(visibleWords([section(Object.assign({}, ...parts))])).toBe(1200);
+    expect(visibleWords([section(Object.assign({}, ...parts))])).toBe(1500);
   });
 
   test("вкладені items теж читаються", () => {

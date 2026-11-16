@@ -12,15 +12,17 @@ import {
 import { SiteHeader } from "@/components/site-chrome";
 import { AMENITY_LABEL } from "@/lib/api";
 import {
+  checkDraft,
   EMPTY_DRAFT,
   EXAMPLE,
-  FIELD_ORDER,
+  fieldOrder,
   MAX_DAYS,
+  MAX_VIA,
   type PlanDraft,
   type PlanErrors,
   type PlanOutcome,
-  type PlanRequest,
   type PlanRun,
+  type TripRequest,
 } from "@/lib/plan";
 import { readPlan } from "@/lib/plan-source";
 import { STRAIGHT_LINE_LABEL } from "@/lib/routes";
@@ -49,20 +51,27 @@ import { visibleText } from "./rendered-text";
 // ── Читання HTML ──────────────────────────────────────────────────────
 
 const GOOD: PlanDraft = {
+  ...EMPTY_DRAFT,
   from: "46.0569, 14.5058",
   to: "43.5081, 16.4402",
   days: "7",
 };
-const REQUEST: PlanRequest = {
-  from: { lat: 45.764, lon: 4.8357 },
-  to: { lat: 41.3874, lon: 2.1686 },
-  days: 7,
+
+/** Поїздка, з якою зняті файли відповідей API: Ліон → Барселона на сім днів. */
+const tripOf = (draft: Partial<PlanDraft>): TripRequest => {
+  const r = checkDraft({ ...EMPTY_DRAFT, ...draft });
+  if (!r.ok) throw new Error("fixture trip is invalid");
+  return r.trip;
 };
+const REQUEST = tripOf({ from: "45.764, 4.8357", to: "41.3874, 2.1686", days: "7" });
+
+// Тексти помилок виписані в plan.spec.ts; тут важить, ЩО ОЗВУЧЕНО ПОРУЧ ІЗ ПОЛЕМ, а не слова.
 const ALL_BAD: PlanErrors = {
-  from: "Enter where the trip starts, as latitude and longitude, for example 46.0569, 14.5058.",
-  to: "Enter where the trip ends, as latitude and longitude, for example 43.5081, 16.4402.",
+  from: "Enter where the trip starts: type a place name and pick it from the list, or write latitude and longitude, for example 46.0569, 14.5058.",
+  to: "Enter where the trip ends: type a place name and pick it from the list, or write latitude and longitude, for example 46.0569, 14.5058.",
   days: "Enter how many days the trip lasts.",
 };
+const REQUIRED = ["from", "to", "days"] as const;
 
 /** Відповідь API, знята з сервера, і те, що з неї виходить після `readPlan`. */
 const captured = (name: string): { status: number; body: unknown } =>
@@ -77,13 +86,20 @@ const PLAN = outcomeOf("plan-ok");
 
 const noop = () => {};
 const form = (
-  over: { draft?: PlanDraft; errors?: PlanErrors; ready?: boolean } = {},
+  over: { draft?: PlanDraft; errors?: PlanErrors; ready?: boolean; notice?: string | null } = {},
 ) =>
   renderComponent(PlanFormView, {
     draft: over.draft ?? EMPTY_DRAFT,
     errors: over.errors ?? {},
     ready: over.ready ?? true,
+    notice: over.notice ?? null,
     onEdit: noop,
+    onPick: noop,
+    onVehicleType: noop,
+    onRoundTrip: noop,
+    onAddVia: noop,
+    onRemoveVia: noop,
+    onMoveVia: noop,
     onSubmit: noop,
     onJump: noop,
   });
@@ -120,8 +136,12 @@ function textOfId(html: string, id: string): string | null {
   return visibleText(rest.slice(0, close < 0 ? undefined : close));
 }
 
+// Чекбокс підписаний обгорткою `<label>`, а не `for` (checkbox.tsx): його читає
+// окремий тест; решту полів — цей перелік.
 const fieldControls = (html: string) =>
-  controls(html).filter((c) => c.tag === "input" || c.tag === "select");
+  controls(html).filter(
+    (c) => (c.tag === "input" || c.tag === "select") && c.attrs.type !== "checkbox",
+  );
 
 // ── Форма ─────────────────────────────────────────────────────────────
 
@@ -130,7 +150,15 @@ test.describe("форма", () => {
     const html = form();
     const fields = fieldControls(html);
     expect(fields.map((f) => f.attrs.id).sort()).toEqual(
-      ["plan-days", "plan-from", "plan-to"].sort(),
+      [
+        "plan-days",
+        "plan-from",
+        "plan-height",
+        "plan-length",
+        "plan-to",
+        "plan-vehicle-type",
+        "plan-weight",
+      ].sort(),
     );
     for (const f of fields) {
       const label = new RegExp(
@@ -144,10 +172,13 @@ test.describe("форма", () => {
     }
   });
 
-  test("🔴 усі три поля обовʼязкові для читача екрана, і форма не покладається на браузерні бульбашки", () => {
+  test("🔴 три поля обовʼязкові для читача екрана (габарити — ні), і форма не покладається на браузерні бульбашки", () => {
     const html = form();
-    for (const f of fieldControls(html))
-      expect(f.attrs, f.attrs.id).toHaveProperty("required");
+    for (const f of fieldControls(html)) {
+      const mustHave = ["plan-from", "plan-to", "plan-days"].includes(f.attrs.id);
+      if (mustHave) expect(f.attrs, f.attrs.id).toHaveProperty("required");
+      else expect(f.attrs, f.attrs.id).not.toHaveProperty("required");
+    }
     // React віддає `noValidate` у статичній розмітці як є; HTML до
     // регістру імені атрибута байдужий, тож порівняння — без нього.
     expect(
@@ -156,11 +187,100 @@ test.describe("форма", () => {
     ).toBe(true);
   });
 
-  test("🔴 транспорту в формі немає: алгоритм його не читає, і поле, що нічого не міняє, обіцяло б план «під ваш кемпер»", () => {
+  test("🔴 габарити в формі є, і ТУТ ЖЕ сказано, що план від них не залежить: поле, що нічого не міняє, не обіцяє план «під ваш кемпер»", () => {
     const html = form();
-    expect(controls(html).filter((c) => c.tag === "select")).toEqual([]);
-    expect(html).not.toMatch(/vehicle/i);
-    expect(visibleText(html)).not.toMatch(/vehicle|motorhome|campervan|caravan/i);
+    const hint = textOfId(html, "plan-vehicle-hint")!;
+    expect(hint).toContain("Saved with your trip and kept in the link, but the planner does not use them yet");
+    expect(hint).toContain("the plan is the same whatever you enter here");
+    // Підказка прикріплена до кожного з трьох полів, а не стоїть осторонь.
+    for (const id of ["plan-height", "plan-length", "plan-weight"]) {
+      const f = fieldControls(html).find((c) => c.attrs.id === id)!;
+      expect(f.attrs["aria-describedby"], id).toContain("plan-vehicle-hint");
+    }
+    // Ні слова про те, що план «підбирається під» транспорт.
+    expect(visibleText(html)).not.toMatch(/fits your (vehicle|camper)|suitable for your|will not fit/i);
+  });
+
+  test("🔴 селект: власний шеврон у розмітці, а типів транспорту — рівно чотири і «не вказано»", () => {
+    const html = form();
+    const select = controls(html).filter((c) => c.tag === "select");
+    expect(select).toHaveLength(1);
+    expect(select[0].attrs.id).toBe("plan-vehicle-type");
+    // Шеврон — вбудований SVG поряд із селектом (computed-style 40px — у e2e).
+    expect(html).toMatch(/<select\b[\s\S]*?<\/select>\s*<svg\b[^>]*data-testid="select-chevron"/);
+    const options = [...html.matchAll(/<option\b[^>]*>([\s\S]*?)<\/option>/g)].map((m) => visibleText(m[1]));
+    expect(options).toEqual(["Not specified", "Motorhome", "Campervan", "Car with a caravan", "Car with a tent"]);
+  });
+
+  test("🔴 проміжні точки: кожна — рядок із полем, «вгору/вниз/прибрати», і кнопки називають її номер", () => {
+    const draft: PlanDraft = {
+      ...GOOD,
+      via: [
+        { id: "7", text: "Bled", place: null },
+        { id: "9", text: "", place: null },
+      ],
+    };
+    const html = form({ draft });
+    expect([...html.matchAll(/data-testid="via-row"/g)]).toHaveLength(2);
+    const labels = fieldControls(html).map((f) => f.attrs.id);
+    expect(labels).toContain("plan-via-7");
+    expect(labels).toContain("plan-via-9");
+    const said = visibleText(html);
+    expect(said).toContain("Stop 1");
+    expect(said).toContain("Stop 2");
+    const names = controls(html)
+      .filter((c) => c.tag === "button")
+      .map((c) => c.attrs["aria-label"])
+      .filter(Boolean);
+    expect(names).toEqual([
+      "Move stop 1 up",
+      "Move stop 1 down",
+      "Remove stop 1",
+      "Move stop 2 up",
+      "Move stop 2 down",
+      "Remove stop 2",
+    ]);
+    // Крайні кнопки вимкнено: першу нікуди «вгору», останню нікуди «вниз».
+    const byName = Object.fromEntries(
+      controls(html)
+        .filter((c) => c.attrs["aria-label"])
+        .map((c) => [c.attrs["aria-label"], c.attrs]),
+    );
+    expect(byName["Move stop 1 up"]).toHaveProperty("disabled");
+    expect(byName["Move stop 2 down"]).toHaveProperty("disabled");
+    expect(byName["Move stop 1 down"]).not.toHaveProperty("disabled");
+    // Значення проміжної точки повертається в її поле.
+    expect(fieldControls(html).find((f) => f.attrs.id === "plan-via-7")!.attrs.value).toBe("Bled");
+    // Без проміжних точок списку немає взагалі.
+    expect(form()).not.toContain('data-testid="via-list"');
+  });
+
+  test("🔴 «додати зупинку» вимикається на межі, і сказано чому", () => {
+    const many = Array.from({ length: MAX_VIA }, (_, i) => ({ id: String(i + 1), text: "", place: null }));
+    const full = form({ draft: { ...GOOD, via: many } });
+    const add = controls(full).find((c) => c.attrs["data-testid"] === "add-via")!;
+    expect(add.attrs).toHaveProperty("disabled");
+    expect(visibleText(full)).toContain(`up to ${MAX_VIA} stops between the start and the destination`);
+    const room = controls(form({ draft: { ...GOOD, via: many.slice(1) } })).find(
+      (c) => c.attrs["data-testid"] === "add-via",
+    )!;
+    expect(room.attrs).not.toHaveProperty("disabled");
+  });
+
+  test("🔴 «Return to the start» — справжній чекбокс зі станом із чернетки", () => {
+    const off = form({ draft: GOOD });
+    const on = form({ draft: { ...GOOD, roundTrip: true } });
+    const box = (html: string) => /<input\b[^>]*type="checkbox"[^>]*>/.exec(html)![0];
+    expect(attrsOf(box(off))).not.toHaveProperty("checked");
+    expect(attrsOf(box(on))).toHaveProperty("checked");
+    expect(visibleText(off)).toContain("Return to the start");
+  });
+
+  test("повідомлення про `?to=` чи посилання — над формою, і лише коли воно є", () => {
+    expect(form()).not.toContain("plan-notice");
+    const html = form({ notice: "Destination set to Camping Bled." });
+    expect(visibleText(html)).toContain("Destination set to Camping Bled.");
+    expect(html).toContain('role="status"');
   });
 
   test("🔴 до гідратації все вимкнено і сказано чому; після — нічого не вимкнено", () => {
@@ -203,7 +323,7 @@ test.describe("форма", () => {
 
     // Порядок на екрані, а не порядок перевірки в коді.
     expect(links.map((l) => l.text)).toEqual(
-      FIELD_ORDER.map((f) => ALL_BAD[f]),
+      REQUIRED.map((f) => ALL_BAD[f]),
     );
 
     // Кожне посилання веде на існуючий елемент, і це поле форми.
@@ -220,7 +340,7 @@ test.describe("форма", () => {
   test("🔴 хибне поле помічене, а повідомлення до нього прикріплене й видиме", () => {
     const html = form({ errors: ALL_BAD });
     const present = ids(html);
-    for (const f of fieldControls(html)) {
+    for (const f of fieldControls(html).filter((c) => ["plan-from", "plan-to", "plan-days"].includes(c.attrs.id))) {
       expect(f.attrs["aria-invalid"], f.attrs.id).toBe("true");
       const described = (f.attrs["aria-describedby"] ?? "")
         .split(/\s+/)
@@ -231,7 +351,7 @@ test.describe("форма", () => {
           true,
         );
       // Серед описів — саме повідомлення про помилку цього поля, словами.
-      const key = FIELD_ORDER.find((k) => `plan-${k}` === f.attrs.id)!;
+      const key = fieldOrder(EMPTY_DRAFT).find((k) => `plan-${k}` === f.attrs.id)! as (typeof REQUIRED)[number];
       const spoken = described.map((d) => textOfId(html, d)).join(" | ");
       expect(spoken, `${f.attrs.id}: помилку не озвучено`).toContain(
         ALL_BAD[key],
@@ -289,24 +409,30 @@ test.describe("форма", () => {
     expect(byId["plan-days"].value).toBe("7");
   });
 
-  test("🔴 підписи кажуть, що це координати, а підказка — що назва не спрацює, і дає справжній приклад", () => {
+  test("🔴 підказка до полів місць: пошук за назвою — лише з нашої бази й у місцевому написанні; координати теж годяться; приклад справжній", () => {
     const html = form();
-    const said = visibleText(html);
-    expect(said).toContain("Starting point (latitude, longitude)");
-    expect(said).toContain("Destination (latitude, longitude)");
-    // Підказка прикріплена до обох полів, і вона не обіцяє пошуку.
-    expect(textOfId(html, "plan-places-hint")).toBe(
-      `Latitude first, then longitude, in degrees: Ljubljana is ${EXAMPLE.from}. Copy the numbers from a map. Place names are not looked up yet, so a name will not work.`,
+    const hint = textOfId(html, "plan-places-hint")!;
+    expect(hint).toBe(
+      `Type at least three letters of a city, town, village, region or campsite and pick it from the list. Names are matched as they are written locally (München, not Munich). Or write latitude, then longitude, in degrees: Ljubljana is ${EXAMPLE.from}.`,
     );
+    // Підказка прикріплена до обох полів і не обіцяє того, чого пошук не вміє.
     for (const id of ["plan-from", "plan-to"]) {
       const f = fieldControls(html).find((c) => c.attrs.id === id)!;
       expect(f.attrs["aria-describedby"]).toContain("plan-places-hint");
+      expect(f.attrs.role, id).toBe("combobox");
     }
-    expect(said).not.toMatch(/search for a place|type a place|city name/i);
+    const said = visibleText(html);
+    expect(said).not.toContain("will not work");
+    expect(said).not.toContain("not looked up yet");
+    expect(said).not.toMatch(/anywhere in the world|street address/i);
+    expect(said).toContain("Starting point");
+    expect(said).toContain("Destination");
   });
 
   test("підказка про дні називає ту межу, яку справді перевіряє код", () => {
-    expect(visibleText(form())).toContain(`Whole days, 1 to ${MAX_DAYS}.`);
+    expect(visibleText(form())).toContain(
+      `Whole days, 1 to ${MAX_DAYS}, and at least one per leg of the trip.`,
+    );
   });
 });
 
@@ -317,7 +443,7 @@ test.describe("панель відповіді", () => {
     phase: "done",
     id: 1,
     request,
-    outcome,
+    legs: request.legs.map((leg) => ({ leg, outcome })),
   });
   const planHtml = () => panel(done(PLAN));
   const nightsOf = () => {
@@ -558,7 +684,7 @@ test.describe("панель відповіді", () => {
 
   test("🔴 «ми це не зберігаємо» — лише в плані, де запит справді дійшов і де це відомо", () => {
     expect(visibleText(planHtml())).toContain(
-      "your two points and the number of days were sent to our server. We do not store them.",
+      "the points of each leg of your trip and its number of days were sent to our server. We do not store them. The trip is kept in this browser only if you press Save this trip.",
     );
     // Коли джерело ВПАЛО, ми не знаємо, чи воно щось отримало, і не кажемо.
     const failed = visibleText(panel(done({ status: "failed" })));
@@ -692,7 +818,26 @@ test.describe("сторінка /plan", () => {
     expect(said).toContain("the roads, so every distance is a straight line and there are no driving times");
     expect(said).toContain("the size of your vehicle, because we hold no data on pitch sizes");
     expect(said).toContain("whether a campsite is open on your dates");
-    expect(said).toContain("It takes coordinates, not place names, because nothing looks names up yet.");
+    expect(said).toContain("Place names are looked up in our own data only, as they are written locally.");
+    expect(said).toContain("the height, length and weight you enter are saved with the trip and change nothing in the plan");
+    expect(said).not.toContain("nothing looks names up yet");
+  });
+
+  test("🔴 застереження («лише для інформації, не навігація, на власний ризик») — у виданому HTML, ПЕРЕД формою, і з посиланням на правову сторінку", () => {
+    const html = page();
+    const node = /<p\b[^>]*data-testid="plan-disclaimer"[^>]*>([\s\S]*?)<\/p>/.exec(html);
+    expect(node, "вузла застереження немає в виданому HTML").not.toBeNull();
+    const said = visibleText(node![1]);
+    expect(said).toContain("For your information only.");
+    expect(said).toContain("Everything here may differ from real conditions.");
+    expect(said).toContain("CampTribe is not a navigation app.");
+    expect(said).toContain("can be wrong or out of date");
+    expect(said).toContain("you use this at your own discretion and risk");
+    expect(node![1]).toContain('href="/legal/disclaimer"');
+    // Перед формою, а не після неї й не в підвалі.
+    const all = visibleText(html);
+    expect(all.indexOf("For your information only.")).toBeGreaterThanOrEqual(0);
+    expect(all.indexOf("For your information only.")).toBeLessThan(all.indexOf("Your trip"));
   });
 
   test("🔴 і не каже старого: що не рахує й що «зʼявиться, коли запрацює»", () => {
@@ -700,17 +845,23 @@ test.describe("сторінка /plan", () => {
     expect(said).not.toMatch(/does not calculate|not calculate routes|when it works|route drawn on a map/i);
   });
 
-  test("🔴 єдина дія на сторінці — «Check my trip»; кабінету й конверсійних дій немає", () => {
+  test("🔴 дії на сторінці — лише ті, що названі: форма, проміжні точки, збереження; акаунта й конверсійних дій немає", () => {
     // Картка просить мапу й зупинки. «Зберегти в кабінет» і «поділитись»
     // — окремі дії, яким потрібен кабінет, якого немає. Перевіряється
     // властивість («які дії є»), а не список слів, які сторінка могла б
     // сказати: будь-яка нова кнопка чи посилання червонить цей тест,
     // хоч би яким словом її підписано.
     const html = page();
-    const buttons = controls(html).filter((c) => c.tag === "button");
-    expect(buttons).toHaveLength(1);
-    expect(buttons[0].attrs.type).toBe("submit");
-    expect(visibleText(/<button\b[\s\S]*?<\/button>/.exec(html)![0])).toBe(
+    const buttons = controls(html)
+      .filter((c) => c.tag === "button")
+      .map((c) => ({ type: c.attrs.type, id: c.attrs["data-testid"] ?? null }));
+    expect(buttons).toEqual([
+      { type: "button", id: "add-via" },
+      { type: "submit", id: null },
+      { type: "button", id: "save-trip" },
+      { type: "button", id: "share-trip" },
+    ]);
+    expect(visibleText(/<button\b[^>]*type="submit"[\s\S]*?<\/button>/.exec(html)![0])).toBe(
       "Check my trip",
     );
 
@@ -718,7 +869,7 @@ test.describe("сторінка /plan", () => {
     const hrefs = [...html.matchAll(/<a\b([^>]*)>/g)]
       .map((m) => attrsOf(m[1]).href)
       .sort();
-    expect(hrefs).toEqual(["/map", "/routes", "/tools/camper-trip-cost"]);
+    expect(hrefs).toEqual(["/legal/disclaimer", "/map", "/routes", "/tools/camper-trip-cost"]);
   });
 
   test("«на сайті ще» веде в три справжні місця, а не в порожнечу", () => {

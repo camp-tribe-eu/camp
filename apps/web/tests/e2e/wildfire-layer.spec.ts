@@ -3,7 +3,7 @@ import { MAP_DRAWN, waitForMapState } from '../map-ready';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test, type Page } from './api-request';
-import { openMapRetryingThrottle } from './open-map';
+import { openMapRetryingThrottle, photographMap } from './open-map';
 import { INITIAL_VIEW } from '@/lib/map-sources';
 
 // CAMP-153, in a browser, because the two things that matter here are
@@ -413,13 +413,12 @@ test.describe('the wildfire layer', () => {
     expect((await page.locator(NOTE).innerText()).replace(/\s+/g, ' ')).toContain(
       '1 is in this view',
     );
-    const map = page.locator('[data-testid="map"]');
-    const on = await map.screenshot();
+    const on = await photographMap(page);
 
     await page.locator('[data-layer="wildfire"]').click();
     await expect(page.locator(NOTE)).toHaveAttribute('data-state', 'off');
     await page.waitForTimeout(1500);
-    const off = await map.screenshot();
+    const off = await photographMap(page);
 
     expect(
       Buffer.compare(on, off) === 0,
@@ -776,13 +775,12 @@ test.describe('the wildfire layer', () => {
     await openMap(page);
     await settle(page);
     await expect(page.locator(NOTE)).toHaveAttribute('data-state', 'stale');
-    const map = page.locator('[data-testid="map"]');
-    const stale = await map.screenshot();
+    const stale = await photographMap(page);
 
     await page.locator('[data-layer="wildfire"]').click();
     await expect(page.locator(NOTE)).toHaveAttribute('data-state', 'off');
     await page.waitForTimeout(1500);
-    const off = await map.screenshot();
+    const off = await photographMap(page);
 
     // 🔴 This one is only as good as its control: two blank frames are
     // equal too. The control is the test named "a burnt area really

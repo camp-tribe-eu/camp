@@ -72,8 +72,17 @@ test.describe("the rental hub", () => {
       page.getByText("Every number on these pages is either a count"),
     ).toBeVisible();
     await expect(page.getByText("no prices and no vehicles")).toHaveCount(0);
-    await expect(page.getByTestId("rental-thresholds")).toBeVisible();
-    await expect(page.getByTestId("rental-checklist")).toBeVisible();
+    // 🔴 CAMP-461: довідка переїхала в акордеон (власник: «все інше можна
+    // вниз у FAQ»). Закрита — не видна; відкрита — видна.
+    for (const [q, id] of [
+      ["Which four numbers on the contract decide the trip?", "rental-thresholds"],
+      ["Which eight questions should I ask before I sign?", "rental-checklist"],
+    ] as const) {
+      const item = page.locator("details", { hasText: q });
+      await expect(page.getByTestId(id)).toBeHidden();
+      await item.locator("summary").click();
+      await expect(page.getByTestId(id)).toBeVisible();
+    }
   });
 
   test("says nothing about how it is funded while it has no commission link", async ({

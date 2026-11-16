@@ -204,6 +204,14 @@
     },
     {
       "collection": "pages",
+      "field": "tags",
+      "interface": "tags",
+      "special": "cast-json",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "pages",
       "field": "type",
       "interface": "select-dropdown",
       "special": "",

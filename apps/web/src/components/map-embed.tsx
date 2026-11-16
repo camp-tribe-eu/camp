@@ -19,7 +19,7 @@ import dynamic from 'next/dynamic';
 const CampsiteMap = dynamic(() => import('@/components/campsite-map'), {
   ssr: false,
   loading: () => (
-    <div className="mt-3 flex h-[60vh] min-h-[360px] w-full items-center justify-center rounded-card border border-line-2 bg-surface text-sm text-ink-2">
+    <div className="flex h-[60vh] min-h-[360px] w-full max-lg:order-3 lg:col-start-2 lg:row-span-3 lg:row-start-1 lg:h-full items-center justify-center rounded-card border border-line-2 bg-surface text-sm text-ink-2">
       Loading the map…
     </div>
   ),

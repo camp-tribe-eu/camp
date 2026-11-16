@@ -72,7 +72,9 @@ const render = (providers: Provider[], initial?: CatalogueFilters) =>
 /** Назви рядків у тому порядку, у якому їх віддає розмітка. */
 function rowsIn(html: string): string[] {
   return [...html.matchAll(/data-testid="provider-row"[\s\S]*?<\/li>/g)]
-    .map((m) => m[0].match(/>([A-Z]+)<\/a>/)?.[1] ?? "")
+    // 🔴 CAMP-461: назва компанії — заголовок єдиної картки, а не посилання;
+    // посилання тепер кнопка «View NAME». Читаємо заголовок.
+    .map((m) => m[0].match(/class="ct-mc__title">([A-Z]+)</)?.[1] ?? "")
     .filter(Boolean);
 }
 

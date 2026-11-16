@@ -1,5 +1,10 @@
 import { DataSource, type QueryRunner } from 'typeorm';
-import { PagesService } from './pages.service';
+import {
+  MAX_TAGS,
+  MAX_TAG_LENGTH,
+  PagesService,
+  cleanTags,
+} from './pages.service';
 
 /**
  * 🔴 CAMP-364 — «ВИДИМИЙ ЧИТАЧЕВІ» ПЕРЕВІРЯЄТЬСЯ НА БАЗІ, А НЕ НА ТЕКСТІ
@@ -188,5 +193,63 @@ describe('PagesService.posts: що саме видно читачеві', () => 
     );
     const post = await pages.bySlug('camp364-past', 'en', 'post');
     expect(post?.title).toBe('Заголовок past');
+  });
+
+  /**
+   * 🔴 CAMP-464 — ОБКЛАДИНКА Й ТЕГИ ЧИТАЮТЬСЯ З БАЗИ, не з тексту запиту.
+   */
+  it('обкладинка, її alt і теги доходять у переліку', async () => {
+    await qr.query(
+      `UPDATE pages SET banner_image_url = '/banners/lake.webp', tags = '["A","B"]'::jsonb WHERE id = $1`,
+      [ids.past],
+    );
+    await qr.query(
+      `UPDATE page_translations SET banner_image_alt = 'Озеро' WHERE page_id = $1`,
+      [ids.past],
+    );
+    const row = (await pages.posts('en')).find(
+      (p) => p.slug === 'camp364-past',
+    );
+    expect(row?.coverUrl).toBe('/banners/lake.webp');
+    expect(row?.coverAlt).toBe('Озеро');
+    expect(row?.tags).toEqual(['A', 'B']);
+  });
+
+  it('🔴 порожня й пробільна обкладинка — це «немає», а не рядок', async () => {
+    await qr.query(`UPDATE pages SET banner_image_url = '   ' WHERE id = $1`, [
+      ids.past,
+    ]);
+    const row = (await pages.posts('en')).find(
+      (p) => p.slug === 'camp364-past',
+    );
+    expect(row?.coverUrl).toBeNull();
+    expect(row?.tags).toEqual([]);
+  });
+
+  it('🔴 база не пускає не-масив у теги', async () => {
+    await expect(
+      qr.query(`UPDATE pages SET tags = '{"0":"x"}'::jsonb WHERE id = $1`, [
+        ids.past,
+      ]),
+    ).rejects.toThrow(/pages_tags_is_array/);
+  });
+});
+
+describe('cleanTags: один зіпсований запис — один запис', () => {
+  it('не-масив → порожньо, а не виняток', () => {
+    expect(cleanTags({ 0: 'x' })).toEqual([]);
+    expect(cleanTags(null)).toEqual([]);
+    expect(cleanTags('x')).toEqual([]);
+  });
+  it('не-рядки, порожні й задовгі відкидаються, решта лишається', () => {
+    expect(
+      cleanTags(['ok', 5, null, '  ', 'x'.repeat(MAX_TAG_LENGTH + 1), ' two ']),
+    ).toEqual(['ok', 'two']);
+  });
+  it('дублі зливаються, більше за MAX_TAGS не віддається', () => {
+    expect(cleanTags(['a', 'a', 'b'])).toEqual(['a', 'b']);
+    const many = ['1', '2', '3', '4', '5', '6'];
+    expect(cleanTags(many)).toHaveLength(MAX_TAGS);
+    expect(cleanTags(many)).toEqual(many.slice(0, MAX_TAGS));
   });
 });

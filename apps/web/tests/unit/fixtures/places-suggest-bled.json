@@ -1,0 +1,71 @@
+{
+  "status": 200,
+  "body": {
+    "items": [
+      {
+        "kind": "town",
+        "name": "Bled",
+        "country": "si",
+        "lat": 46.3684202,
+        "lon": 14.1100595
+      },
+      {
+        "kind": "region",
+        "name": "Bled",
+        "country": "si",
+        "lat": 46.36937927908045,
+        "lon": 14.006340472205416
+      },
+      {
+        "kind": "village",
+        "name": "Błędno",
+        "country": "pl",
+        "lat": 53.70283,
+        "lon": 18.34554
+      },
+      {
+        "kind": "village",
+        "name": "Błędów",
+        "country": "pl",
+        "lat": 52.1873525,
+        "lon": 19.9611687
+      },
+      {
+        "kind": "campsite",
+        "name": "Bledzew",
+        "country": "pl",
+        "lat": 52.5132208,
+        "lon": 15.4429258,
+        "slug": "bledzew",
+        "path": "/camping/pl/lubusz/bledzew"
+      },
+      {
+        "kind": "campsite",
+        "name": "Bledno 1",
+        "country": "pl",
+        "lat": 53.7006065,
+        "lon": 18.346607753730474,
+        "slug": "bledno-1",
+        "path": "/camping/pl/pomeranian/bledno-1"
+      },
+      {
+        "kind": "campsite",
+        "name": "Bledno 2",
+        "country": "pl",
+        "lat": 53.6999634,
+        "lon": 18.351433727988486,
+        "slug": "bledno-2",
+        "path": "/camping/pl/pomeranian/bledno-2"
+      },
+      {
+        "kind": "campsite",
+        "name": "PZA Bled",
+        "country": "si",
+        "lat": 46.37027285,
+        "lon": 14.118569061909003,
+        "slug": "pza-bled",
+        "path": "/camping/si/bled/pza-bled"
+      }
+    ]
+  }
+}

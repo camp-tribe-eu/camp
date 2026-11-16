@@ -124,7 +124,7 @@ async function pageText(extra: Record<string, unknown>): Promise<string> {
  * is read separately.
  */
 const recordLine = (text: string): string | null => {
-  const m = /Record last edited: .*?(?= This is the last time| We hold no edit date| Getting there|$)/s.exec(text);
+  const m = /Record last edited: .*?(?= This is the last time| We hold no edit date| Staying the night| What it costs| Getting there|$)/s.exec(text);
   return m ? m[0].trim() : null;
 };
 
@@ -139,7 +139,11 @@ const recordLine = (text: string): string | null => {
  * part of what the test compares.
  */
 const recordBlock = (text: string): string | null => {
-  const m = /Record last edited: .*?(?= Getting there|$)/s.exec(text);
+  // 🔴 CAMP-453: після блоку дати йде заголовок СЛІДУЮЧОЇ картки колонки.
+  // Раніше це був «Getting there»; тепер колонка PDP йде Facilities →
+  // (ціна) → «Staying the night…» → … → «Getting there». Блок кінчається на
+  // першому з них, що є на сторінці.
+  const m = /Record last edited: .*?(?= Staying the night| What it costs| Getting there|$)/s.exec(text);
   return m ? m[0].trim() : null;
 };
 
@@ -307,7 +311,9 @@ test.describe('the campsite page says when its record was last edited', () => {
   test('anchor for the two above: the block really is found, and the next heading really ends it', async () => {
     const text = await pageText({ osmRecordEditedAt: daysAgo(400) });
     expect(recordBlock(text)?.length).toBeGreaterThan(200);
+    expect(recordBlock(text)).not.toContain('Staying the night');
     expect(recordBlock(text)).not.toContain('Getting there');
+    expect(text).toContain('Staying the night');
     expect(text).toContain('Getting there');
   });
 

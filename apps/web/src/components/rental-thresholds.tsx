@@ -13,23 +13,15 @@ import { Block } from '@/components/layout';
 
 export function RentalThresholds() {
   return (
-    <section
-      data-testid="rental-thresholds"
-      aria-labelledby="thresholds-heading"
-      className="mt-12"
-    >
-      <h2 id="thresholds-heading" className="text-2xl text-heading">
-        The four numbers on the contract that decide the trip
-      </h2>
-      <Block as="p" measure="read" className="mt-3 text-ink-2">
-        We cannot tell you what a particular camper weighs or measures — we
-        hold no vehicles and no fleet data, and we are not going to guess.
-        The rental company can, and the figures are on the paperwork. What
-        follows is what each of those figures costs you if you do not read
-        it, and who decided the limit.
+    <div data-testid="rental-thresholds">
+      <Block as="p" measure="read" className="text-ink-2">
+        What a particular camper weighs and measures is on the rental
+        company&rsquo;s paperwork. These are the four figures to look for
+        there, what each one costs you if you do not read it, and who set
+        the limit.
       </Block>
 
-      <ul className="mt-6 space-y-6">
+      <ul className="mt-4 space-y-4">
         {THRESHOLDS.map((t) => (
           <li
             key={t.id}
@@ -58,29 +50,22 @@ export function RentalThresholds() {
           </li>
         ))}
       </ul>
-    </section>
+    </div>
   );
 }
 
 export function RentalShapes() {
   return (
-    <section
-      data-testid="rental-shapes"
-      aria-labelledby="shapes-heading"
-      className="mt-12"
-    >
-      <h2 id="shapes-heading" className="text-2xl text-heading">
-        The shapes you will be offered
-      </h2>
-      <Block as="p" measure="read" className="mt-3 text-ink-2">
+    <div data-testid="rental-shapes">
+      <Block as="p" measure="read" className="text-ink-2">
         Each of these is defined by how it is built, which is the only thing
         about a camper that is true of every example of it. Dimensions and
-        masses vary between builds and between model years, so they are on
-        the contract rather than here — the column that matters is which of
-        the four numbers above to read first.
+        masses vary between builds and model years, so they are on the
+        contract. The line to read is which of the four figures above to
+        check first.
       </Block>
 
-      <ul className="mt-6 grid gap-4 md:grid-cols-2">
+      <ul className="mt-4 grid gap-4 md:grid-cols-2">
         {SHAPES.map((s) => (
           <li
             key={s.id}
@@ -97,6 +82,6 @@ export function RentalShapes() {
           </li>
         ))}
       </ul>
-    </section>
+    </div>
   );
 }

@@ -41,8 +41,17 @@ function capabilities(): Record<'trip' | 'place' | 'photo' | 'review' | 'save', 
   // Він не може: заявка не кладе місце в список, вона кладе ГРАНТ на
   // акаунт. Політика каже про неї окремо (реєстр §11), і саме тому тут
   // маршрути заявки виключені, а не враховані «про всяк випадок».
+  // 🔴 ПІДКАЗКА МІСЦЯ — НЕ «ЗБЕРЕЖЕНЕ МІСЦЕ» (CAMP-456). `POST /places/suggest`
+  // — POST лише для того, щоб набраний текст не потрапив в адресу й журнал
+  // доступу; він читає тіло й нічого не пише (транзакція READ ONLY, і
+  // places.db.spec.ts показує першим рядком BEGIN … READ ONLY). Слово `places`
+  // у назві маршруту змусило б правило вирішити, що сайт навчився зберігати
+  // місця. Виняток — саме `suggest`, а не будь-що з `places`: новий write-маршрут
+  // під цим префіксом знову впаде в правило.
   const savesPlace = (r: { label: string }) =>
-    /place|spot|favou?rite|saved/i.test(r.label) && !/claim/i.test(r.label);
+    /place|spot|favou?rite|saved/i.test(r.label) &&
+    !/claim/i.test(r.label) &&
+    !/places\/suggest/i.test(r.label);
   const place = writing.some(savesPlace);
   const photo = any(/photo|upload|image|picture/i);
   const review = any(/review|rating/i);

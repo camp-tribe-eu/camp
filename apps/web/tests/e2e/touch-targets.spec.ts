@@ -1,4 +1,5 @@
 import { test, expect } from './api-request';
+import { openSettings } from './open-map';
 
 /**
  * CAMP-345 — зона натискання на ширині, на якій збудований мобільний макет.
@@ -180,6 +181,9 @@ async function collectAll(page: import('@playwright/test').Page) {
     await openForLayout(page, spec.path);
     if (spec.needsWebGL) {
       if (!(await hasWebGL(page))) continue;
+      // CAMP-454: на 375 px перемикачі лежать у шухляді — відкриваємо її,
+      // як читач, і міряємо кнопки там, де їх натискають.
+      await openSettings(page);
       await page.locator('[data-source]').first().waitFor();
       await page.locator('[data-layer]').first().waitFor();
     } else {
