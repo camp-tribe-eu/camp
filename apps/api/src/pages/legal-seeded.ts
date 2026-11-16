@@ -21,6 +21,7 @@ import { PrivacyOwnerVerifyLink1797810000000 } from '../migrations/1797810000000
 import { PrivacyTripStorage1797850000000 } from '../migrations/1797850000000-PrivacyTripStorage';
 import { TripStorageCookies1797850100000 } from '../migrations/1797850100000-TripStorageCookies';
 import { AttributionBannerImages1796600000000 } from '../migrations/1796600000000-AttributionBannerImages';
+import { AttributionWeatherForecast1797930000000 } from '../migrations/1797930000000-AttributionWeatherForecast';
 
 /**
  * Правові документи такими, якими їх лишають у базі ВСІ міграції разом.
@@ -83,6 +84,8 @@ const UPDATES: ReadonlyArray<SeededLegalPage> = [
   // CAMP-456: шостий запис у сховищі браузера — збережені поїздки; підказки місць; перегони.
   new TripStorageCookies1797850100000().page,
   new PrivacyTripStorage1797850000000().page,
+  // CAMP-477: прогноз погоди з відра Open-Meteo (ECMWF IFS), через наш сервер.
+  new AttributionWeatherForecast1797930000000().page,
 ];
 
 export function seededLegalPages(): SeededLegalPage[] {

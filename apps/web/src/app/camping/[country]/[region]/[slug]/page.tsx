@@ -43,6 +43,7 @@ import { WarningsForSpot } from '@/components/warnings-for-spot';
 import { settingParagraph } from '@/lib/setting';
 import { droughtAtBuild } from '@/lib/drought-build';
 import { WebcamNote } from '@/components/webcam-panel';
+import { ForecastNote } from '@/components/forecast-panel';
 import { ButtonLink } from '@/components/button';
 import { CampsiteMedia, type Photo } from '@/components/campsite-media';
 import { ScaleTrack, SpotFactsLine } from '@/components/spot-facts';
@@ -763,6 +764,12 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
         <DroughtPanel state={droughtAtBuild()} lat={spot.lat} lon={spot.lon} />
         {!hasWebcamTab && <WebcamNote webcams={spot.webcams} renderedAt={renderedAt} />}
       </div>
+
+      {/* CAMP-477: сім днів прогнозу. Клієнтський компонент: сторінка
+          збирається наперед і живе днями, прогноз у ній постарів би разом
+          зі збіркою. Дані приходять із НАШОГО API (відро Open-Meteo на AWS
+          читає сервер, не браузер). Немає даних — не малює нічого. */}
+      <ForecastNote lat={spot.lat} lon={spot.lon} country={spot.country} />
 
       {data.nearby.length > 0 && (
         <Section title="Campsites nearby">
