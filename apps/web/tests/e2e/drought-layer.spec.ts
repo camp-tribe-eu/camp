@@ -316,6 +316,11 @@ test.describe('the note under the map', () => {
     const note = page.locator(NOTE);
     await expect(note).toHaveAttribute('data-state', 'current');
     await expect(note).toHaveAttribute('data-tone', 'quiet');
+    // 🔴 CAMP-530: the key is printed only once the picture is on the canvas
+    // (before that the note says "Drawing the drought layer…"). The picture is
+    // painted in a worker, so reading the text straight away raced it — this
+    // test passed only on a retry on PR #595.
+    await expect(note).toHaveAttribute('data-drawn', 'yes');
     const text = await said(page);
 
     expect(text).toContain(`ten-day period beginning ${dayLabel(SHIPPED.meta.dekad)}`);
