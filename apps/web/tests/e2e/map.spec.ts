@@ -981,7 +981,7 @@ test.describe('/map', () => {
     const context = await browser.newContext({ javaScriptEnabled: false });
     const page = await context.newPage();
     await page.goto('/map');
-    await openSettings(page);
+    // Без JS шухляду не відкрити, і не треба: перелік країн лежить поза нею.
 
     await expect(
       page.getByRole('heading', { name: 'Campsite map' }),
