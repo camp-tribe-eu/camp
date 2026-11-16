@@ -19,6 +19,9 @@ import { readRegionCard, readRegionCards, RegionTiles } from '@/components/regio
 import { GridBanner } from '@/components/grid-banner';
 import { BoxBanner } from '@/components/box-banner';
 import CountryMap from '@/components/country-map';
+import { CountryPanel } from '@/components/country-panel';
+import { dotMap, type DotMap } from '@/lib/mini-map';
+import { mapLimit, regionPoints } from '@/lib/region-points';
 import { getCountryBanner } from '@/lib/country-banner';
 
 // CAMP-71, level 1: the country hub.
@@ -37,9 +40,13 @@ import { getCountryBanner } from '@/lib/country-banner';
 // action, one loud and one quiet → overnight coverage → region cards →
 // two banners → the box banner about us.
 //
-// 🔴 THE REGION CARDS CARRY THE COUNTRY'S FLAG, NOT A PHOTO. There is no
-// region photography in this repository (zero images), and a placeholder
-// would be a promise of one. Same decision as the country tiles.
+// 🔴 THE REGION CARDS CARRY A MAP OF THEIR OWN CAMPSITES, NOT A PHOTO AND
+// NOT THE COUNTRY'S FLAG (CAMP-441). There is no region photography in
+// this repository, and a hundred and two cards with one flag were the
+// most visible thing on the second screen. The picture is the cloud of the
+// region's campsites, drawn at build time from our own coordinates
+// (lib/mini-map.ts); a region whose coordinates cannot be read gets a card
+// without a picture, and the rest are unaffected.
 //
 // 🔴 ONE BAD ROW COSTS ONE ROW. `readRegionCards` drops a row that cannot
 // become a card (no name, no slug) and keeps a row whose count did not
@@ -110,6 +117,15 @@ export default async function CountryHub(props: { params: Promise<Params> }) {
   // `spots += r.spots` — a `null` row would throw and a `spots: "many"`
   // would concatenate, and either would take the whole page down for
   // one bad record.
+  // Мінікарти: по шість запитів одночасно (102 регіони Франції — це не
+  // «все одразу»). Регіон, чиї точки не прочиталися, лишається без картинки.
+  const art = new Map<string, DotMap | null>();
+  const clouds = await mapLimit(regions, 6, async (r) => ({
+    slug: r.slug,
+    map: dotMap(await regionPoints(params.country, r.slug)),
+  }));
+  for (const c of clouds) art.set(c.slug, c.map);
+
   const countedRows = rows.filter((r) => {
     const c = readRegionCard(r);
     return c !== null && c.spots !== null;
@@ -200,12 +216,17 @@ export default async function CountryHub(props: { params: Promise<Params> }) {
 
       {/* 4. Two ways on, with a hierarchy: the map is the main action
           (filled), planning a trip the quiet one (outlined). */}
+      {/* CAMP-441 (52): the old labels, «Open on map» and «Plan a trip»,
+          did not say of what or for whom. Neither page takes a country
+          (/map and /plan are the whole-Europe tools), so the labels name
+          what each one opens and do not pretend to be scoped to this
+          country. */}
       <div className="mt-5 flex flex-wrap gap-2">
         <ButtonLink href="/map" variant="primary">
-          Open on map
+          Open the campsite map
         </ButtonLink>
         <ButtonLink href="/plan" variant="secondary">
-          Plan a trip
+          Plan a route
         </ButtonLink>
       </div>
 
@@ -226,7 +247,8 @@ export default async function CountryHub(props: { params: Promise<Params> }) {
         <div className="mt-4">
           <CountryMap country={params.country} countryName={name} regions={mapRows} />
         </div>
-        <RegionTiles country={params.country} regions={regions} className="mt-4" />
+        <RegionTiles country={params.country} regions={regions} art={art} className="mt-4" />
+        <CountryPanel />
       </section>
 
       {/* 6. Питання, на які сторінка вже має відповідь у своїх числах

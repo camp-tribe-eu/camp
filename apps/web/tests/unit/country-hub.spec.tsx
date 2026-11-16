@@ -127,8 +127,13 @@ const MAP_INDEX = [
 /** Скільки кемпінгів мапа має назвати: сума ЛИШЕ словенських рядків. */
 const MAP_SPOTS = REGIONS.reduce((n, r) => n + r.spots, 0);
 
-function api(regions: unknown = REGIONS): Fetcher {
+/** Marker rows as `/spots/map/region/si/{slug}` hands them over (more fields than we read). */
+type Points = Record<string, unknown>;
+
+function api(regions: unknown = REGIONS, points: Points = {}): Fetcher {
   return (url) => {
+    const m2 = /\/spots\/map\/region\/si\/([^/?]+)$/.exec(url);
+    if (m2) return m2[1] in points ? json(points[m2[1]]) : json({}, 404);
     if (url.endsWith('/spots/si/regions')) return json(regions);
     if (url.endsWith('/spots/map/regions')) return json(MAP_INDEX);
     if (url.endsWith('/spots/hub-stats/si')) return json(STATS);
@@ -138,9 +143,9 @@ function api(regions: unknown = REGIONS): Fetcher {
   };
 }
 
-async function countryHtml(regions: unknown = REGIONS): Promise<string> {
+async function countryHtml(regions: unknown = REGIONS, points: Points = {}): Promise<string> {
   let html = '';
-  await withFetch(api(regions), async () => {
+  await withFetch(api(regions, points), async () => {
     html = await renderAsyncComponent(CountryHub, {
       params: Promise.resolve({ country: 'si' }),
     });
@@ -220,10 +225,8 @@ test('картки — всі регіони, і кожна веде на сто
   for (const r of REGIONS) {
     expect(cardLinkAt(html, r.slug), `картки /camping/si/${r.slug} немає`).toBeGreaterThan(-1);
   }
-  // Прапор країни — зображенням кожної картки, і це файл, що лежить у public/.
-  expect(html.match(/<img class="ct-flag" src="\/flags\/si\.svg"/g)?.length).toBeGreaterThanOrEqual(
-    REGIONS.length,
-  );
+  // CAMP-441: прапор країни більше НЕ зображення картки регіону.
+  expect(html).not.toContain('/flags/si.svg');
 });
 
 test('RegionTiles без жодного регіону не малює нічого; readRegionCards обрізає пробіли', () => {
@@ -256,14 +259,14 @@ test('🔴 склад: h1 у банері → тікер → лічильник�
   expect(html.match(/<h1\b/g)?.length, 'h1 має бути рівно один').toBe(1);
 });
 
-test('CTA з ієрархією: «Open on map» — головна (primary), «Plan a trip» — тиха (secondary)', async () => {
+test('CTA з ієрархією: «Open the campsite map» — головна (primary), «Plan a route» — тиха (secondary)', async () => {
   const html = await countryHtml();
   const anchors = [...html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/g)].map((m) => ({
     attrs: m[1],
     text: visibleText(m[2]).trim(),
   }));
-  const map = anchors.find((a) => a.text === 'Open on map');
-  const plan = anchors.find((a) => a.text === 'Plan a trip');
+  const map = anchors.find((a) => a.text === 'Open the campsite map');
+  const plan = anchors.find((a) => a.text === 'Plan a route');
   expect(map?.attrs).toContain('data-ct-button="primary"');
   expect(plan?.attrs).toContain('data-ct-button="secondary"');
   expect(html).toContain('href="#regions"');
@@ -496,4 +499,104 @@ test.describe('CAMP-474: мапа країни', () => {
     expect(html).not.toContain('data-testid="country-map"');
   });
 
+});
+
+
+// ── CAMP-441: картинки карток регіонів і нижня панель ──────────────────────
+
+const marker = (lat: number, lon: number) => ({ slug: `m-${lat}-${lon}`, name: null, type: 'paid', lat, lon, amenities: null, path: null });
+
+/** Крапки Бледа й Боветса лежать у різних місцях — малюнки МУСЯТЬ відрізнятись. */
+const POINTS: Points = {
+  bled: [marker(46.36, 14.09), marker(46.38, 14.11), marker(46.41, 14.05), marker(46.3, 14.2)],
+  bovec: [marker(46.33, 13.55), marker(46.36, 13.6), marker(46.31, 13.5)],
+};
+
+const dotsOf = (html: string, slug: string): string | null =>
+  /<path class="ct-art__dots" d="([^"]*)"/.exec(cardHtml(html, slug))?.[1] ?? null;
+
+test('🔴 картка регіону має СВОЮ мінікарту з його координат; регіон без координат — картку без картинки, не прапор і не порожню рамку', async () => {
+  const html = await countryHtml(REGIONS, POINTS);
+  const bled = dotsOf(html, 'bled');
+  const bovec = dotsOf(html, 'bovec');
+  expect(bled, 'у Бледа немає мінікарти').toMatch(/^M\d+ \d+h0(m-?\d+ -?\d+h0)*$/);
+  expect(bovec, 'у Боветса немає мінікарти').not.toBeNull();
+  // Одна й та сама картинка на двох картках — це і був дефект (один прапор).
+  expect(bled).not.toBe(bovec);
+  // Бліда мінікарта має стільки крапок, скільки зайнято клітинок: чотири точки, чотири далекі клітинки.
+  expect(bled!.match(/h0/g)).toHaveLength(4);
+  // Решта п'ять регіонів: координат немає (404) — жодної картинки, жодного прапора.
+  for (const slug of ['kranj', 'ptuj', 'koper', 'maribor', 'celje']) {
+    const card = cardHtml(html, slug);
+    expect(card, slug).not.toContain('ct-art');
+    expect(card, slug).not.toContain('ct-rtile__image-wrapper');
+    expect(card, slug).toContain('See campsites');
+  }
+  expect(cardCount(html)).toBe(REGIONS.length);
+  expect(html).not.toContain('class="ct-flag"');
+});
+
+test('🔴 зіпсовані координати коштують одного регіону: нечислові точки пропущено, решта малюється, сторінка стоїть', async () => {
+  const html = await countryHtml(REGIONS, {
+    bled: [marker(46.36, 14.09), { lat: 'x', lon: null }, null, 'junk', marker(999, 14), marker(46.4, 14.1)],
+    bovec: 'not an array',
+    kranj: [],
+  });
+  expect(dotsOf(html, 'bled')!.match(/h0/g)).toHaveLength(2);
+  expect(cardHtml(html, 'bovec')).not.toContain('ct-art');
+  expect(cardHtml(html, 'kranj')).not.toContain('ct-art');
+  expect(cardCount(html)).toBe(REGIONS.length);
+});
+
+test('🔴 нижня панель країни: фільтр, сортування, густина 1-2-3 / 3-4-5, «вгору» — у відданому HTML', async () => {
+  const html = await countryHtml(REGIONS, POINTS);
+  const panel = /<nav aria-label="Filter, sort and view the regions"[\s\S]*?<\/nav>/.exec(html)?.[0] ?? '';
+  expect(panel, 'панелі немає').not.toBe('');
+  const text = visibleText(panel);
+  expect(text).toContain('Filters');
+  expect(text).toContain('Sort by');
+  expect(text).toContain('Most campsites');
+  expect(text).toContain('Regions with 2+ campsites');
+  // Густина: три радіо; за замовчуванням середнє (4 / 2).
+  const dens = [...panel.matchAll(/<input\b[^>]*>/g)]
+    .map((m) => m[0])
+    .filter((tag) => tag.includes('name="ct-density"'));
+  const idOf = (tag: string) => /\bid="ct-density-([abc])"/.exec(tag)?.[1];
+  expect(dens.map(idOf)).toEqual(['a', 'b', 'c']);
+  expect(dens.filter((tag) => /\bchecked\b/.test(tag)).map(idOf)).toEqual(['b']);
+  // Значок кнопки малює стільки смуг, скільки карток у ряду: на великому
+  // екрані 3/4/5, на телефоні 1/2/3 — рахуємо `<rect>` у відданій розмітці.
+  for (const [id, desktop, phone] of [['a', 3, 1], ['b', 4, 2], ['c', 5, 3]] as const) {
+    const label = new RegExp(`<label for="ct-density-${id}"[\\s\\S]*?</label>`).exec(panel)?.[0] ?? '';
+    const [d, m] = [/<span class="ct-dens__d">([\s\S]*?)<\/span><span class="ct-dens__m">/.exec(label)?.[1] ?? '', /<span class="ct-dens__m">([\s\S]*)/.exec(label)?.[1] ?? ''];
+    expect(d.match(/<rect\b/g)?.length, `густина ${id}, великий екран`).toBe(desktop);
+    expect(m.match(/<rect\b/g)?.length, `густина ${id}, телефон`).toBe(phone);
+  }
+  // «Вгору» — якір, який уже веде на `<body id="top">`, без скрипту.
+  expect(panel).toMatch(/<a href="#top"[^>]*aria-label="Back to top"/);
+  // Панель живе під картками в розмітці, а не в шапці сторінки.
+  expect(html.indexOf('data-testid="country-panel"')).toBeGreaterThan(html.indexOf('class="ct-rtiles__row"'));
+});
+
+test('🔴 сортування й фільтр регіонів: порядок записано в самих картках, і він збігається з ручним підрахунком', async () => {
+  const html = await countryHtml();
+  const rank = (slug: string) => {
+    const style = /style="([^"]*)"/.exec(cardHtml(html, slug).split('>')[0])?.[1] ?? '';
+    return {
+      name: Number(/--ct-name:(\d+)/.exec(style)?.[1]),
+      count: Number(/--ct-count:(\d+)/.exec(style)?.[1]),
+    };
+  };
+  // Рахунок вручну з фікстури: за кількістю — Bled 1250, Bovec 100, Kranj 40,
+  // Maribor 12, Celje 7, Ptuj 4, Koper 1; за назвою — A→Я.
+  expect(rank('bled')).toEqual({ name: 1, count: 1 });
+  expect(rank('bovec')).toEqual({ name: 2, count: 2 });
+  expect(rank('celje')).toEqual({ name: 3, count: 5 });
+  expect(rank('koper')).toEqual({ name: 4, count: 7 });
+  expect(rank('kranj')).toEqual({ name: 5, count: 3 });
+  expect(rank('maribor')).toEqual({ name: 6, count: 4 });
+  expect(rank('ptuj')).toEqual({ name: 7, count: 6 });
+  // Фільтр «2+» ховає ЛИШЕ регіон із одним кемпінгом — і не прибирає його з документа.
+  expect(html.match(/<li[^>]*class="ct-rtiles__col"[^>]*data-single=""/g)).toHaveLength(1);
+  expect(html.match(/<li[^>]*data-single=""[^>]*>[\s\S]*?<\/li>/)![0]).toContain('/camping/si/koper');
 });

@@ -105,6 +105,13 @@ beforeAll(async () => {
       ],
     );
   }
+  // CAMP-441: Alpha is the one campsite with a mapped outline (a 2 x 1
+  // millidegree rectangle around its point); the others are OSM points.
+  await db.query(
+    `UPDATE camping_spots
+        SET outline = ST_Multi(ST_SetSRID(ST_MakeEnvelope(14.099, 46.0995, 14.101, 46.1005), 4326))
+      WHERE slug = 'alpha'`,
+  );
   // A row in another region, so a count that forgot the region shows.
   await db.query(
     `INSERT INTO camping_spots (name, country, region, slug, type, amenities, location, osm_ref)
@@ -130,6 +137,34 @@ const q = (
 });
 
 const slugs = (items: { slug: string }[]) => items.map((i) => i.slug);
+
+describe('🔴 CAMP-441: the card carries what its picture is drawn from', () => {
+  it('Alpha has its outline as GeoJSON and its coordinates; Bravo has coordinates and NO outline', async () => {
+    const r = await listRegion(db, COUNTRY, REGION, q());
+    const alpha = r.items.find((i) => i.slug === 'alpha')!;
+    const bravo = r.items.find((i) => i.slug === 'bravo')!;
+    expect(alpha.lat).toBeCloseTo(46.1, 6);
+    expect(alpha.lon).toBeCloseTo(14.1, 6);
+    expect(alpha.outline).not.toBeNull();
+    expect(alpha.outline!.type).toBe('MultiPolygon');
+    // The ring of the envelope: five vertices, corners as seeded, at 5 decimals at most.
+    const ring = (alpha.outline!.coordinates as number[][][][])[0][0];
+    expect(ring).toHaveLength(5);
+    const xs = ring.map((c) => c[0]);
+    const ys = ring.map((c) => c[1]);
+    expect(Math.min(...xs)).toBeCloseTo(14.099, 6);
+    expect(Math.max(...xs)).toBeCloseTo(14.101, 6);
+    expect(Math.min(...ys)).toBeCloseTo(46.0995, 6);
+    expect(Math.max(...ys)).toBeCloseTo(46.1005, 6);
+    for (const [x, y] of ring) {
+      expect(String(x).split('.')[1]?.length ?? 0).toBeLessThanOrEqual(5);
+      expect(String(y).split('.')[1]?.length ?? 0).toBeLessThanOrEqual(5);
+    }
+    expect(bravo.outline).toBeNull();
+    expect(bravo.lat).toBeCloseTo(46.1, 6);
+    expect(bravo.lon).toBeCloseTo(14.1, 6);
+  });
+});
 
 describe('listRegion: a filter narrows the same region', () => {
   it('no filter: all 5 of the region, named first, nothing from next door', async () => {

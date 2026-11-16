@@ -248,11 +248,14 @@ test('🔴 styles=winter lists the four recorded sites and nothing else, and ask
   expect(cardLinks(html).join(' ')).not.toMatch(/no-|blank-/);
 
   // The style is a pill that removes itself, and the chip now unticks.
-  const bar = /<nav aria-label="Sort and current filters"[\s\S]*?<\/nav>/.exec(html)?.[0] ?? '';
+  // CAMP-441: the pills stay in the in-flow status row; the "Filters (N)"
+  // button moved to the bottom panel.
+  const bar = /<nav aria-label="Current filters"[\s\S]*?<\/nav>/.exec(html)?.[0] ?? '';
+  const bottom = /<nav aria-label="Filter, sort and view"[\s\S]*?<\/nav>/.exec(html)?.[0] ?? '';
   expect(links(bar).filter((l) => l.text === WINTER_LABEL)).toEqual([
     { href: BASE, rel: undefined, text: WINTER_LABEL },
   ]);
-  expect(visibleText(bar)).toContain('Filters (1)');
+  expect(visibleText(bottom)).toContain('Filters (1)');
   // The ticked chip's number predicts ITS click: unticking gives all 20.
   const panel = /<nav aria-label="Filter campsites"[\s\S]*?<\/nav>/.exec(html)?.[0] ?? '';
   expect(links(panel).filter((l) => l.text.startsWith(WINTER_LABEL))).toEqual([

@@ -583,6 +583,15 @@ export interface SpotCard {
   region: string | null;
   type: Spot['type'];
   amenities: Amenities;
+  /**
+   * CAMP-441, the region listing only, and optional because the API
+   * deploys separately: an API from before sends none, and the card then
+   * draws its region's cloud without a mark instead of an outline.
+   */
+  lat?: number;
+  lon?: number;
+  /** GeoJSON Polygon/MultiPolygon, or null where OSM holds a point. */
+  outline?: unknown;
 }
 
 export async function getCountries(): Promise<CountrySummary[]> {

@@ -66,18 +66,34 @@ const rect = (page: Page, selector: string) =>
   });
 
 /**
- * The theme's offset for a sticky block under the sticky header:
- * `top: calc(var(--header-height-sticky) + 24px)` (collection.build.css).
- * The header's height is read from the live header, not assumed.
+ * 🔴 CAMP-441 (50–53) — THE BOTTOM PANEL, MEASURED ON THE LIVE PAGE.
+ *
+ * Until 16.11.2026 the controls were a sticky bar under the header
+ * (CAMP-452), and the 15.11 review found the header island covering it.
+ * The owner's design — the theme's collection panel — is a bar fixed to the
+ * BOTTOM of the screen with filters, sort, the grid density and "up".
+ *
+ * Every claim is a measurement, not a reading of the CSS:
+ *   - it is where the CSS says (fixed, above the cookie banner), after a
+ *     real scroll, at 375 and 1280;
+ *   - nothing sideways: `scrollWidth` does not exceed the viewport at 375;
+ *   - the island never covers it, and it never covers the island, at five
+ *     widths (the 15.11 finding);
+ *   - the density buttons change the number of columns the browser lays
+ *     out, to 1/2/3 on a phone and 3/4/5 from 768px;
+ *   - at the end of the page the footer is clear of it.
+ *
+ * Mutations that turn these red: `position:fixed` → `sticky` in
+ * listing-panel.tsx (the panel scrolls away: bottom ≠ viewport bottom);
+ * deleting the `--consent-h` offset (the panel lies under the banner);
+ * deleting a `body:has(#ct-density-…)` rule (the column count stays).
  */
-const STICKY_GAP = 24;
-
-test.describe('🔴 CAMP-452 — the toolbar stays with the reader', () => {
+test.describe('🔴 CAMP-441 — the bottom panel', () => {
   for (const [name, width, height] of [
     ['телефон', 375, 812],
     ['десктоп', 1280, 800],
   ] as const) {
-    test(`${name}: scrolled past, the toolbar sits under the header; without position:sticky it would be gone`, async ({
+    test(`${name}: fixed to the bottom after a scroll, inside the viewport, no sideways scroll, footer clear`, async ({
       page,
       request,
     }) => {
@@ -85,129 +101,106 @@ test.describe('🔴 CAMP-452 — the toolbar stays with the reader', () => {
       await page.setViewportSize({ width, height });
       await page.goto(hubPath(hub), { waitUntil: 'domcontentloaded' });
       await page.evaluate(() => document.fonts.ready);
-      // 🔴 The header writes its own height into `--ct-header-h` once it
-      // has hydrated (site-header-frame.tsx); until then the toolbar sits
-      // on the 63px fallback, which is right from `sm` up and 10px short
-      // on a phone, where the row is 73px. Measured 09.11.2026: without
-      // this wait the phone run read 87 where the live header said 97.
-      // Waiting for the variable, not for `load` — with a map on the page
-      // `load` may never come (touch-targets.spec.ts).
-      await page.waitForFunction(
-        () => getComputedStyle(document.documentElement).getPropertyValue('--ct-header-h').trim() !== '',
-      );
-
-      const header = await rect(page, '[data-testid="site-header"]');
-      expect(header.top, 'the header is not at the top before scrolling').toBe(0);
-      const before = await rect(page, '[data-testid="region-toolbar"]');
-      // The toolbar starts below the header, in the flow, under the map.
-      expect(before.top).toBeGreaterThan(header.bottom + STICKY_GAP);
-
-      // Scroll so that the toolbar's natural place is 400px ABOVE the top
-      // of the viewport. The page must have that much room, or the claim
-      // below would be about nothing — the room is asserted, not hoped.
-      const target = Math.round(before.top - header.bottom - STICKY_GAP + 400);
-      const max = await page.evaluate(
-        () => document.documentElement.scrollHeight - window.innerHeight,
-      );
-      expect(max, `${hubPath(hub)} is too short to scroll ${target}px at ${width}px`).toBeGreaterThan(
-        target,
-      );
-      await page.evaluate((y) => window.scrollTo(0, y), target);
-      expect(await page.evaluate(() => window.scrollY), 'the page did not scroll').toBe(target);
-
-      // 🔴 CAMP-448. ПІСЛЯ ПРОКРУТКИ ШАПКА — ОСТРІВ, і мірити відступ треба від
-      // ВИДИМОГО низу капсули, а не від коробки `<header>`. Капсула зсунута
-      // вниз на 4px (від 1200 — на 12) через `position: relative; top`, який
-      // висоти коробки не міняє. Тест раніше мірив від коробки — і тим
-      // самим узаконював проміжок 12px під островом замість 24px теми,
-      // а біле світіння тіні капсули лягало на верх смуги. Читається
-      // жива капсула після того, як шапка перейшла в стан острова.
-      await expect(page.getByTestId('site-header')).toHaveAttribute('data-stacked', 'true');
+      const panel = '[data-testid="region-toolbar"]';
+      await page.evaluate(() => window.scrollTo(0, 600));
+      const gap = width >= 992 ? 32 : 4;
+      // 🔴 The consent banner arrives AFTER hydration and writes its height
+      // into `--consent-h`; the panel sits above it. So the expectation is
+      // recomputed on every poll from the live variable — a one-shot read
+      // raced the banner (measured: 0 before it, 149 after).
+      const expectedBottom = () =>
+        page.evaluate(
+          ([h, g]) =>
+            h -
+            (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--consent-h')) || 0) -
+            g,
+          [height, gap] as const,
+        );
+      // Fixed: its bottom is the viewport's bottom less the banner and the gap.
       await expect
-        .poll(
-          async () => {
-            const bar = await rect(page, '[data-testid="site-header-bar"]');
-            const t = await rect(page, '[data-testid="region-toolbar"]');
-            return Math.round(t.top - bar.bottom);
-          },
-          { message: 'the toolbar is not 24px below the island' },
-        )
-        .toBe(STICKY_GAP);
-      const island = await rect(page, '[data-testid="site-header-bar"]');
-      const after = await rect(page, '[data-testid="region-toolbar"]');
-      // 🔴 THE MEASUREMENT. Stuck under the island at the theme's gap:
-      // read off the live capsule rather than typed in. Mutation —
-      // `position:sticky` removed from `.ct-toolbar` in region-toolbar.tsx
-      // — puts this at about −400.
-      expect(Math.round(after.top)).toBe(Math.round(island.bottom + STICKY_GAP));
-      expect(after.bottom).toBeLessThanOrEqual(height);
-
-      // And it is really the thing under the cursor there, not covered by
-      // the header or by a card that scrolled over it.
-      const centre = [(after.left + after.right) / 2, after.top + 8] as const;
+        .poll(async () => Math.round((await rect(page, panel)).bottom) - Math.round(await expectedBottom()))
+        .toBe(0);
+      const r = await rect(page, panel);
+      expect(r.left).toBeGreaterThanOrEqual(0);
+      expect(r.right).toBeLessThanOrEqual(width);
+      // Still there after another scroll: it is not a block that was near.
+      await page.evaluate(() => window.scrollTo(0, 1400));
+      const r2 = await rect(page, panel);
+      expect(Math.round(r2.bottom)).toBe(Math.round(r.bottom));
+      // Nothing sideways — the 375 requirement of the card.
+      const sw = await page.evaluate(() => document.documentElement.scrollWidth);
+      expect(sw, `${hubPath(hub)} scrolls sideways at ${width}px`).toBeLessThanOrEqual(width);
+      // It is the thing under the finger there, not covered by a card.
       const onTop = await page.evaluate(
         ([x, y]) => !!document.elementFromPoint(x, y)?.closest('[data-testid="region-toolbar"]'),
-        centre,
+        [r.left + 24, r.top + r.height / 2] as const,
       );
-      expect(onTop, 'something else lies on top of the toolbar').toBe(true);
-      // The "Filters" link in the toolbar is reachable from here.
-      const filters = page.getByRole('link', { name: /^Filters/ });
-      const box = await filters.boundingBox();
-      expect(box).not.toBeNull();
-      expect(box!.y).toBeGreaterThanOrEqual(island.bottom);
-      expect(box!.y + box!.height).toBeLessThanOrEqual(height);
+      expect(onTop, 'something lies on top of the panel').toBe(true);
+      // The four controls are all inside it, and really drawn.
+      await expect(page.locator(panel).getByRole('link', { name: /^Filters/ })).toBeVisible();
+      await expect(page.locator(panel).locator('summary')).toBeVisible();
+      await expect(page.locator(panel).getByRole('link', { name: 'Back to top' })).toBeVisible();
+      await expect(page.locator(panel).getByRole('group', { name: 'Cards per row' })).toBeVisible();
+
+      // The end of the page: the footer is clear of the panel.
+      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+      // The page's own footer is the LAST `<footer>` in the document.
+      await expect
+        .poll(async () => {
+          // Scrolled again on every poll: the page can still be growing.
+          await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+          const foot = await page.locator('footer').last().evaluate((el) => el.getBoundingClientRect().bottom);
+          return foot - (await rect(page, panel)).top;
+        }, { message: 'the panel lies over the footer at the end of the page' })
+        .toBeLessThanOrEqual(0);
     });
   }
-});
 
-/**
- * 🔴 CAMP-448 — ОСТРІВ ШАПКИ НЕ НАКРИВАЄ СТІКІ-ПАНЕЛЬ.
- *
- * Звірка з ревю 15.11.2026: «при прокрутці острів хедера накриває
- * стікі-панель сортування». Заміряно на `/camping/hr/zadarska`, 1440 px:
- * капсула 12→75, смуга з 87 — розриву 12px замість 24px теми, а біле
- * світіння тіні капсули (`0 6px 16px`) сягає 97 і лягає на верх смуги.
- * Геометрично прямого перекриття не було, тож міряємо те, що читач бачить:
- * проміжок між ВИДИМИМ низом капсули й верхом смуги ≥ 24px на п'яти
- * ширинах, а не лише на двох, які брав попередній тест.
- *
- * Мутація: прибрати з `site-header-frame.tsx` врахування низу капсули у
- * `--ct-header-h` — проміжок стає 12px (від 1200) або 4px, тест червоніє.
- */
-test.describe('🔴 CAMP-448 — the island never covers the sticky toolbar', () => {
-  for (const width of [375, 768, 1024, 1200, 1440]) {
-    test(`${width}px: 24px of clear space between the island and the toolbar`, async ({
+  test('the island and the panel never cover each other, at five widths', async ({ page, request }) => {
+    const { hub } = await narrowable(request);
+    for (const width of [375, 768, 1024, 1200, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(hubPath(hub), { waitUntil: 'domcontentloaded' });
+      await page.evaluate(() => document.fonts.ready);
+      await page.evaluate(() => window.scrollTo(0, 900));
+      await expect(page.getByTestId('site-header')).toHaveAttribute('data-stacked', 'true');
+      const bar = await rect(page, '[data-testid="site-header-bar"]');
+      const p = await rect(page, '[data-testid="region-toolbar"]');
+      expect(p.top, `the panel is at the top at ${width}px`).toBeGreaterThan(bar.bottom + 24);
+      expect(p.bottom, `the panel is below the viewport at ${width}px`).toBeLessThanOrEqual(900);
+    }
+  });
+
+  for (const [name, width, expected] of [
+    ['телефон', 375, { a: 1, b: 2, c: 3 }],
+    ['десктоп', 1280, { a: 3, b: 4, c: 5 }],
+  ] as const) {
+    test(`${name}: the density buttons lay out ${expected.a}/${expected.b}/${expected.c} columns`, async ({
       page,
       request,
     }) => {
       const { hub } = await narrowable(request);
       await page.setViewportSize({ width, height: 900 });
       await page.goto(hubPath(hub), { waitUntil: 'domcontentloaded' });
-      await page.evaluate(() => document.fonts.ready);
-      await page.waitForFunction(
-        () => getComputedStyle(document.documentElement).getPropertyValue('--ct-header-h').trim() !== '',
-      );
-      const before = await rect(page, '[data-testid="region-toolbar"]');
-      await page.evaluate((y) => window.scrollTo(0, y), Math.round(before.top + 500));
-      await expect(page.getByTestId('site-header')).toHaveAttribute('data-stacked', 'true');
-
-      await expect
-        .poll(
-          async () => {
-            const bar = await rect(page, '[data-testid="site-header-bar"]');
-            const t = await rect(page, '[data-testid="region-toolbar"]');
-            return Math.round(t.top - bar.bottom);
-          },
-          { message: `no ${STICKY_GAP}px between the island and the toolbar at ${width}px` },
-        )
-        .toBeGreaterThanOrEqual(STICKY_GAP);
-
-      // The toolbar is really stuck there — otherwise the gap above is
-      // the gap of a block that is simply far away, which proves nothing.
-      const t = await rect(page, '[data-testid="region-toolbar"]');
-      expect(t.top, 'the toolbar is not stuck under the island').toBeLessThan(200);
+      const columns = () =>
+        page.locator('.ct-cards').evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(' ').length);
+      expect(await columns(), 'the default is the middle button').toBe(expected.b);
+      for (const k of ['c', 'a', 'b'] as const) {
+        await page.locator(`label[for="ct-density-${k}"]`).click();
+        expect(await columns(), `density ${k}`).toBe(expected[k]);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+      }
     });
   }
+
+  test('"Back to top" returns to the top of the page without a script', async ({ page, request }) => {
+    const { hub } = await narrowable(request);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(hubPath(hub), { waitUntil: 'domcontentloaded' });
+    await page.evaluate(() => window.scrollTo(0, 1500));
+    await page.getByRole('link', { name: 'Back to top' }).first().click();
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  });
 });
 
 test.describe('🔴 CAMP-452 — the map highlights what the list shows', () => {
