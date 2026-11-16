@@ -38,7 +38,7 @@ BASE="$(mktemp -d "${TMPDIR:-/tmp}/camptribe-deploy-selftest.XXXXXX")"
 cleanup_all() { stop_world; rm -rf "$BASE"; }
 trap cleanup_all EXIT
 trap 'exit 130' INT TERM
-EXPECTED=139
+EXPECTED=141
 PASSED=0
 FAILED=0
 pass() { echo "  ✓ $1"; PASSED=$((PASSED + 1)); }
@@ -841,11 +841,22 @@ new_world h4
 T_MIN_FREE=999999 X deploy --sha "$SHA1" --apply
 [ $RC -eq 1 ] && grep -q 'збірка може не вміститись' <<<"$OUT" && [ -z "$(mutating_calls)" ] && pass "місця на диску менше за поріг: відмова до будь-якої зміни" || fail "місця на диску менше за поріг: відмова до будь-якої зміни" "rc=$RC $OUT"
 
+# 🔴 16.11.2026 на проді: поріг 12 ГБ пропустив збірку релізу на 31 ГБ — ENOSPC посеред пререндера.
+# Поріг тепер рахується від розміру ЧИННОГО релізу (size_kb у маніфесті) × 1,2.
+new_world h4b
+X deploy --sha "$SHA1" --apply
+SZ=$(jq -r '.size_kb // 0' "$W/root/releases/$S1/RELEASE.json" 2>/dev/null)
+[ $RC -eq 0 ] && [ "${SZ:-0}" -gt 0 ] && pass "маніфест пише size_kb ($SZ КБ)" || fail "маніфест пише size_kb" "rc=$RC size_kb=$SZ"
+M="$W/root/releases/$S1/RELEASE.json"; chmod u+w "$M"; jq '.size_kb = 1000000000' "$M" > "$M.t" && mv "$M.t" "$M"
+X deploy --sha "$SHA2" --apply --migrate
+[ $RC -eq 1 ] && grep -q 'збірка може не вміститись' <<<"$OUT" && [ ! -d "$W/root/releases/$S2" ] && pass "чинний реліз ~954 ГБ: потрібно ×1,2 від нього, відмова до збірки навіть при порозі 0" || fail "чинний реліз ~954 ГБ: потрібно ×1,2 від нього, відмова до збірки навіть при порозі 0" "rc=$RC $OUT"
+
 new_world h5
 X deploy --sha "$SHA1" --apply >/dev/null; X deploy --sha "$SHA2" --apply --migrate >/dev/null; X deploy --sha "$SHA3" --apply >/dev/null
-if [ $RC -eq 0 ] && [ ! -d "$W/root/releases/$S0" ] && [ -d "$W/root/releases/$S1" ] && [ -d "$W/root/releases/$S2" ] && [ -d "$W/root/releases/$S3" ]; then
-  pass "після успіху прибрано найстарший ($S0); чинний $S3, ціль відкату $S2 і ще один ($S1) на місці"
-else fail "після успіху прибрано найстарший ($S0); чинний $S3, ціль відкату $S2 і ще один ($S1) на місці" "rc=$RC $(ls "$W/root/releases" | tr '\n' ' ')"; fi
+# 🔴 16.11.2026: KEEP_EXTRA за замовчуванням 0 — реліз 31 ГБ, «зайва» третя копія не вміщалась разом зі збіркою.
+if [ $RC -eq 0 ] && [ ! -d "$W/root/releases/$S0" ] && [ ! -d "$W/root/releases/$S1" ] && [ -d "$W/root/releases/$S2" ] && [ -d "$W/root/releases/$S3" ]; then
+  pass "після успіху лишаються лише чинний $S3 і ціль відкату $S2; $S0 і $S1 прибрано"
+else fail "після успіху лишаються лише чинний $S3 і ціль відкату $S2; $S0 і $S1 прибрано" "rc=$RC $(ls "$W/root/releases" | tr '\n' ' ')"; fi
 [ ! -d "$W/root/.deploy.lock" ] && pass "після деплою замок знято" || fail "після деплою замок знято"
 
 new_world h6
@@ -1249,6 +1260,8 @@ exit 0
 SH
   chmod +x "$BASE/wbin/ssh" "$BASE/wbin/scp"
   new_world g1
+  # Тут перевіряється, що обгортка доносить прапорці (--rollback --to на старший реліз), а не
+  # скільки релізів лишається: KEEP_EXTRA=1 явно, щоб старший реліз був на місці (H5 — про сам 0).
   # Обгортка працює над КЛОНОМ: їй потрібен git із origin, а виконавець лежить поруч за тим самим розташуванням, що й у репо.
   W_REPO="$BASE/wrapperclone"; git clone -q "$REPO" "$W_REPO"; git -C "$W_REPO" config user.email tester@example.test
   # 🔴 Разом зі скриптом їде й `lib/`: на машині він читає `.env` тим
@@ -1262,7 +1275,7 @@ SH
   WRAPX() {
     OUT=$(cd "$W_REPO" && env PATH="$BASE/wbin:$PATH" CAMPTRIBE_HOST=root@selftest.invalid CAMPTRIBE_KEY=/dev/null CAMPTRIBE_REMOTE_TMP="$BASE" \
           CAMPTRIBE_ROOT="$W/root" CAMPTRIBE_REPO="$REPO" CAMPTRIBE_API_PORT="$APIP" CAMPTRIBE_WEB_PORT="$WEBP" CAMPTRIBE_BUILD_API_PORT="$TPORT" \
-          CAMPTRIBE_READY_TRIES=20 CAMPTRIBE_READY_SLEEP=0.3 CAMPTRIBE_MIN_FREE_GB=0 CAMPTRIBE_USER=selftest-nobody CAMPTRIBE_UNIT_SRC="$W/unitsrc" CAMPTRIBE_UNIT_DIR="$W/unitdir" \
+          CAMPTRIBE_READY_TRIES=20 CAMPTRIBE_READY_SLEEP=0.3 CAMPTRIBE_MIN_FREE_GB=0 CAMPTRIBE_KEEP_EXTRA=1 CAMPTRIBE_USER=selftest-nobody CAMPTRIBE_UNIT_SRC="$W/unitsrc" CAMPTRIBE_UNIT_DIR="$W/unitdir" \
           CAMPTRIBE_REHEARSAL_ROOT="$W/rehearsal" CAMPTRIBE_REHEARSAL_WEB_PORT="$RWP" CAMPTRIBE_REHEARSAL_API_PORT="$RAP" \
           bash "$W_REPO/infra/deploy-app.sh" "$@" 2>&1)
     RC=$?

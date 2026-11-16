@@ -48,9 +48,15 @@ BUILD_API_PORT="${CAMPTRIBE_BUILD_API_PORT:-3002}"
 REPO="${CAMPTRIBE_REPO:-https://github.com/camp-tribe-eu/camp.git}"
 USER_="${CAMPTRIBE_USER:-camptribe}"
 # Скільки релізів тримати крім чинного й цілі відкату.
-KEEP_EXTRA="${CAMPTRIBE_KEEP_EXTRA:-1}"
+# 🔴 16.11.2026: було 1. Реліз виріс до 31 ГБ (65 тис. сторінок), а диск 150:
+# чинний + відкат + «зайвий» + новий у збірці = 124 ГБ, і збірка 8cf31f9 упала
+# на ENOSPC посеред пререндера. Відкат і далі є завжди (ціль відкату не
+# прибирається ніколи), а третю копію можна зібрати з git будь-коли.
+KEEP_EXTRA="${CAMPTRIBE_KEEP_EXTRA:-0}"
 READY_TRIES="${CAMPTRIBE_READY_TRIES:-30}"
 READY_SLEEP="${CAMPTRIBE_READY_SLEEP:-2}"
+# Нижня межа. Справжня вимога — розмір чинного релізу × 1,2 (див. need_gb):
+# 12 ГБ стояло, коли реліз був 8,6 ГБ, і пропустило збірку 31-гігабайтного.
 MIN_FREE_GB="${CAMPTRIBE_MIN_FREE_GB:-12}"
 REHEARSAL_ROOT="${CAMPTRIBE_REHEARSAL_ROOT:-/srv/camptribe-rehearsal}"
 UNIT_SRC="${CAMPTRIBE_UNIT_SRC:-/etc/systemd/system}"
@@ -526,6 +532,27 @@ preflight() {
 
 free_gb() { local k; k=$(df -Pk "$ROOT" | awk 'NR==2 {print $4}'); echo $((k / 1048576)); }
 
+# Розмір релізу в КБ: з маніфесту (size_kb пише write_manifest), а для
+# релізів, зібраних до цього поля, — заміром du. Порожньо, якщо нема що міряти.
+release_kb() { # реліз
+  local v; [ -n "$1" ] || return 0
+  v=$(mf "$1" size_kb)
+  if [ -n "$v" ]; then echo "$v"; return 0; fi
+  [ -d "$(rel_dir "$1")" ] && du -sk "$(rel_dir "$1")" 2>/dev/null | awk '{print $1}'
+}
+
+# Скільки ГБ треба вільними перед збіркою: новий реліз буде не меншим за
+# чинний, плюс 20 % запасу на зростання й тимчасові файли пререндера.
+need_gb() { # чинний реліз
+  local kb n; kb=$(release_kb "$1")
+  n=$MIN_FREE_GB
+  if [ -n "$kb" ] && [ "$kb" -gt 0 ] 2>/dev/null; then
+    kb=$(( (kb * 12 + 9) / 10 )); kb=$(( (kb + 1048575) / 1048576 ))
+    [ "$kb" -gt "$n" ] && n=$kb
+  fi
+  echo "$n"
+}
+
 lock_take() {
   LOCK_DIR="$ROOT/.deploy.lock"
   if ! mkdir "$LOCK_DIR" 2>/dev/null; then
@@ -643,10 +670,12 @@ apply_switch() { # реліз дія
 # ── збірка ───────────────────────────────────────────────────────────
 
 write_manifest() { # реліз sha ref
-  local rel="$1" dir mig mod dist out; dir=$(rel_dir "$1")
+  local rel="$1" dir mig mod dist out sz; dir=$(rel_dir "$1")
   mig=$(migration_files_in "$dir/apps/api/src/migrations" | jq -R . | jq -sc .)
   mod=$(rel_modified "$rel" | jq -R . | jq -sc 'map(select(. != ""))')
   dist=$(dist_hash "$dir")
+  # Розмір — для need_gb наступної викладки (замір du тут, а не перед збіркою).
+  sz=$(du -sk "$dir" 2>/dev/null | awk '{print $1+0}'); sz=${sz:-0}
   out=$(mktemp)
   jq -n --arg release "$rel" --arg sha "$2" --arg ref "${3:-}" \
         --arg subject "$(git_in "$dir" log -1 --format=%s)" \
@@ -655,11 +684,12 @@ write_manifest() { # реліз sha ref
         --arg build_id "$(cat "$dir/apps/web/.next/BUILD_ID")" \
         --arg env_sha256 "$(rel_env_hash "$rel")" --arg api_dist_sha256 "$dist" \
         --arg node "$(node -v 2>/dev/null || true)" \
+        --argjson size_kb "$sz" \
         --argjson modified "$mod" --argjson migrations "$mig" \
         '{schema:1, release:$release, sha:$sha, ref:$ref, subject:$subject, commit_time:$commit_time,
           built_at:$built_at, deployed_by:$deployed_by, build_id:$build_id,
           modified_tracked_files:$modified, migrations:$migrations,
-          env_sha256:$env_sha256, api_dist_sha256:$api_dist_sha256, node:$node}' > "$out"
+          env_sha256:$env_sha256, api_dist_sha256:$api_dist_sha256, node:$node, size_kb:$size_kb}' > "$out"
   cp "$out" "$dir/RELEASE.json"; chmod 444 "$dir/RELEASE.json"
   if [ "$(id -u)" = 0 ]; then chown "$USER_:$USER_" "$dir/RELEASE.json" 2>/dev/null || true; fi
   rm -f "$out"
@@ -917,7 +947,7 @@ cmd_rollback() { # to apply
 
 cmd_deploy() { # sha apply migrate migrations-від-ноутбука ref
   local sha="$1" apply="$2" migrate="$3" given="$4" ref="$5"
-  local rel dir cur reuse=no have gb known ap pend="" have_list=no pr
+  local rel dir cur reuse=no have gb need known ap pend="" have_list=no pr
   preflight
   [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || die "--sha має бути повним 40-символьним SHA (отримано '${sha:-<порожньо>}')"
   rel="${sha:0:7}"; dir=$(rel_dir "$rel"); cur=$(link_rel); KEEP_PREV="$cur"
@@ -938,9 +968,9 @@ cmd_deploy() { # sha apply migrate migrations-від-ноутбука ref
     fi
   fi
   if [ "$reuse" = no ]; then
-    gb=$(free_gb)
-    say "диск:    вільно $gb ГБ, потрібно ~9 (реліз ≈ 8.6 ГБ)"
-    [ "$gb" -ge "$MIN_FREE_GB" ] || die "вільно $gb ГБ < $MIN_FREE_GB: збірка може не вміститись"
+    gb=$(free_gb); need=$(need_gb "$cur")
+    say "диск:    вільно $gb ГБ, потрібно $need (чинний реліз × 1,2, не менше $MIN_FREE_GB)"
+    [ "$gb" -ge "$need" ] || die "вільно $gb ГБ < $need: збірка може не вміститись"
   fi
 
   # Міграції, які чекають. У сухому прогоні список може прийти від ноутбука
