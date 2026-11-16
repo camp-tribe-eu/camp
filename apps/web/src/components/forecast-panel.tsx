@@ -2,17 +2,20 @@
 
 import { useEffect, useRef, useState } from 'react';
 
+import { TrustMark } from '@/components/trust';
+import { trustOf } from '@/lib/trust';
 import {
   CC_BY_URL,
   CONDITION_LABEL,
   OPEN_METEO_URL,
   dayLabel,
   forecastUrl,
+  runLabel,
   formatDeg,
   formatMm,
   watchForForecast,
   type Condition,
-  type ForecastDay,
+  type Forecast,
 } from '@/lib/forecast';
 
 // CAMP-477 — a seven-day forecast for the campsite, or nothing.
@@ -49,7 +52,7 @@ export function ForecastNote({
   lon: number;
   country: string;
 }) {
-  const [days, setDays] = useState<ForecastDay[] | null>(null);
+  const [forecast, setDays] = useState<Forecast | null>(null);
   const sentinel = useRef<HTMLDivElement | null>(null);
   const url = forecastUrl(lat, lon, country);
 
@@ -75,7 +78,7 @@ export function ForecastNote({
     });
   }, [url]);
 
-  if (!days) {
+  if (!forecast) {
     return (
       <div
         ref={sentinel}
@@ -85,11 +88,16 @@ export function ForecastNote({
       />
     );
   }
-  return <ForecastPanel days={days} />;
+  return <ForecastPanel forecast={forecast} />;
 }
 
-export function ForecastPanel({ days }: { days: ForecastDay[] }) {
+export function ForecastPanel({ forecast }: { forecast: Forecast }) {
+  const { days, runAt } = forecast;
   if (days.length === 0) return null;
+  // 🔴 DERIVED, NOT TYPED: the word comes from `trustOf`, like every other
+  // status on the page. We work the daily figures out from an outside
+  // model, which the trust vocabulary calls `derived` → "Imported".
+  const status = trustOf({ kind: 'derived', sourceId: 'open-meteo-forecast' });
   return (
     <section
       data-testid="forecast"
@@ -155,6 +163,14 @@ export function ForecastPanel({ days }: { days: ForecastDay[] }) {
             ))}
           </tbody>
         </table>
+
+        <p className="mt-3 border-t border-line-2 pt-3 text-xs leading-5 text-ink-2" data-testid="forecast-trust">
+          <TrustMark status={status} className="font-semibold text-heading" />
+          {' · '}
+          Model: ECMWF IFS, via Open-Meteo.
+          {runAt ? ` Model run ${runLabel(runAt)}.` : ''} Updated about every 6
+          hours. A forecast for the area (about 25 km), not for the pitch.
+        </p>
 
         <p
           className="mt-3 border-t border-line-2 pt-3 text-xs leading-5 text-ink-2"

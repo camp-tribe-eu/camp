@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import CampsitePage from '@/app/camping/[country]/[region]/[slug]/page';
 import { TRUST_LABEL, TRUST_STATUSES, trustOf } from '@/lib/trust';
-import { renderAsyncComponent } from './render-component';
+import { ForecastPanel } from '@/components/forecast-panel';
+import { renderAsyncComponent, renderComponent } from './render-component';
 import { visibleText } from './rendered-text';
 import { CLIENT_ISLANDS } from './client-islands';
 import {
@@ -369,7 +370,7 @@ test('міграція сіє речення для кожного з восьм
  * origin in their own sentences. A block added to the page and to neither
  * list fails here, so "no status" is always somebody's written decision.
  */
-const COVERED = ['SpotFactsLine', 'AmenityList', 'TrustLegend'];
+const COVERED = ['SpotFactsLine', 'AmenityList', 'TrustLegend', 'ForecastNote'];
 
 const NOT_YET = [
   'Around',
@@ -386,11 +387,6 @@ const NOT_YET = [
   'WarningsForSpot',
   'WebcamNote',
   'AirQualityNote',
-  // CAMP-477: сім днів прогнозу. Показує цифри про довкілля, а не про
-  // кемпінг, тому восьми слів довіри на них немає — так само, як на
-  // повітрі, воді, посусі й камерах вище; походження названо в самій
-  // секції (ECMWF, Open-Meteo, «area around the campsite, not the pitch»).
-  'ForecastNote',
 ];
 
 /** Blocks that hold no figure about the place: layout, links, forms, media. */
@@ -399,6 +395,17 @@ const NO_FIGURES = [
   'Link', 'MissingNotice', 'NearbyCard', 'NoPhotos', 'ReportProblem',
   'ScaleTrack', 'Section', 'SourceNote', 'SpotTabs', 'TravelNotice',
 ];
+
+// CAMP-477: ForecastNote is in COVERED, so it must print a trust word.
+test('🔴 прогноз несе слово довіри, виведене з походження, а не набране', async () => {
+  const days = Array.from({ length: 5 }, (_, i) => ({
+    date: `2026-11-${16 + i}`, tMax: 10, tMin: 5, precipMm: 0, condition: 'clear' as const,
+  }));
+  const h = await renderComponent(ForecastPanel, { forecast: { days, runAt: null } });
+  const word = TRUST_LABEL[trustOf({ kind: 'derived', sourceId: 'open-meteo-forecast' })];
+  expect(h).toContain(`data-trust-status="imported"`);
+  expect(visibleText(h)).toContain(word);
+});
 
 test('🔴 кожен блок сторінки кемпінгу або має статус, або названий серед тих, що ще ні', () => {
   const src = readFileSync(
@@ -414,5 +421,5 @@ test('🔴 кожен блок сторінки кемпінгу або має �
   // but it makes the debt look larger or smaller than it is.
   expect([...known].filter((k) => !used.includes(k)).sort()).toEqual([]);
   // 🔴 The debt, as a number. It may go down. It may not go up.
-  expect(NOT_YET.length).toBe(15);
+  expect(NOT_YET.length).toBe(14);
 });

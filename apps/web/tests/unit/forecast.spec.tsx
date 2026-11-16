@@ -10,6 +10,7 @@ import {
   formatMm,
   parseForecast,
   watchForForecast,
+  type Forecast,
   type ForecastDay,
 } from '@/lib/forecast';
 import { renderComponent } from './render-component';
@@ -30,9 +31,10 @@ const VENDEE: ForecastDay[] = [
   { date: '2026-11-21', tMax: 12, tMin: 7, precipMm: 1.5, condition: 'rain' },
   { date: '2026-11-22', tMax: 14, tMin: 11, precipMm: 0, condition: 'cloudy' },
 ];
-const body = (days: unknown[]) => ({ model: 'ecmwf_ifs025', runAt: 'x', days });
+const body = (days: unknown[]) => ({ model: 'ecmwf_ifs025', runAt: '2026-11-16T00:00:00.000Z', days });
 
-const html = (days: ForecastDay[]) => renderComponent(ForecastPanel, { days });
+const html = (days: ForecastDay[], runAt: string | null = '2026-11-16T00:00:00.000Z') =>
+  renderComponent(ForecastPanel, { forecast: { days, runAt } });
 
 test.describe('the panel, as served', () => {
   test('seven days: heading, a row per day, and the words a reader reads', async () => {
@@ -95,6 +97,21 @@ test.describe('the panel, as served', () => {
     expect(t).toContain('1° / −3°');
     expect(t).toContain('0° / 0°');
     expect(t).not.toContain('-0');
+  });
+});
+
+test.describe('the trust line', () => {
+  test('carries the trust word, the model, its run and the 25 km area', async () => {
+    const h = await html(VENDEE);
+    expect(h).toContain('data-trust-status="imported"');
+    const t = visibleText(h).replace(/\s+/g, ' ');
+    expect(t).toContain('Imported · Model: ECMWF IFS, via Open-Meteo. Model run 16 Nov, 00:00 UTC. Updated about every 6 hours.');
+    expect(t).toContain('A forecast for the area (about 25 km), not for the pitch.');
+  });
+  test('an unreadable run time drops that sentence, not the section', async () => {
+    const t = visibleText(await html(VENDEE, null)).replace(/\s+/g, ' ');
+    expect(t).toContain('Imported · Model: ECMWF IFS, via Open-Meteo. Updated about every 6 hours.');
+    expect(t).not.toContain('Model run');
   });
 });
 
@@ -182,11 +199,12 @@ test.describe('watchForForecast', () => {
   const el = {} as Element;
 
   test('an answer is parsed and handed over, once', async () => {
-    const got: Array<ForecastDay[] | null> = [];
+    const got: Array<Forecast | null> = [];
     watchForForecast(null, 'u', (d) => got.push(d), { fetchImpl: ok(body(VENDEE)) });
     await new Promise((r) => setTimeout(r, 0));
     expect(got).toHaveLength(1);
-    expect(got[0]?.length).toBe(7);
+    expect(got[0]?.days.length).toBe(7);
+    expect(got[0]?.runAt).toBe('2026-11-16T00:00:00.000Z');
   });
 
   for (const [name, fetchImpl] of [
@@ -198,7 +216,7 @@ test.describe('watchForForecast', () => {
     ['an answer with three days', ok(body(VENDEE.slice(0, 3)))],
   ] as const) {
     test(`${name} ends in null, which draws nothing`, async () => {
-      const got: Array<ForecastDay[] | null> = [];
+      const got: Array<Forecast | null> = [];
       watchForForecast(null, 'u', (d) => got.push(d), { fetchImpl });
       await new Promise((r) => setTimeout(r, 0));
       expect(got).toEqual([null]);

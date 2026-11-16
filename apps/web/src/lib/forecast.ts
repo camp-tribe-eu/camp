@@ -116,6 +116,33 @@ export function parseForecast(body: unknown): ForecastDay[] | null {
   return kept.length >= MIN_DAYS ? kept : null;
 }
 
+export interface Forecast {
+  days: ForecastDay[];
+  /** When the model run behind the numbers started, ISO; null if unreadable. */
+  runAt: string | null;
+}
+
+/**
+ * The days AND the model run. An unreadable run time costs the sentence
+ * that names it, never the section: the days stand on their own.
+ */
+export function parseAnswer(body: unknown): Forecast | null {
+  const days = parseForecast(body);
+  if (!days) return null;
+  const r = (body as { runAt?: unknown }).runAt;
+  const ok = typeof r === 'string' && !Number.isNaN(new Date(r).getTime());
+  return { days, runAt: ok ? new Date(r as string).toISOString() : null };
+}
+
+/** "16 Nov, 00:00 UTC" — the model run, in the one zone the model uses. */
+export function runLabel(runAt: string): string {
+  const d = new Date(runAt);
+  const day = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  const hh = String(d.getUTCHours()).padStart(2, '0');
+  const mm = String(d.getUTCMinutes()).padStart(2, '0');
+  return `${day}, ${hh}:${mm} UTC`;
+}
+
 /** "Mon 17 Nov" — the weekday of a calendar date, whatever the reader's zone. */
 export function dayLabel(date: string): string {
   const d = new Date(`${date}T12:00:00Z`);
@@ -152,7 +179,7 @@ export interface ForecastWatchDeps {
 export function watchForForecast(
   el: Element | null,
   url: string,
-  onDays: (days: ForecastDay[] | null) => void,
+  onDays: (forecast: Forecast | null) => void,
   deps: ForecastWatchDeps,
 ): () => void {
   let cancelled = false;
@@ -162,7 +189,7 @@ export function watchForForecast(
       .fetchImpl(url)
       .then((r) => (r.ok ? r.json() : null))
       .then((body) => {
-        if (!cancelled) onDays(parseForecast(body));
+        if (!cancelled) onDays(parseAnswer(body));
       })
       .catch(() => {
         if (!cancelled) onDays(null);
