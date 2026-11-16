@@ -38,7 +38,7 @@ BASE="$(mktemp -d "${TMPDIR:-/tmp}/camptribe-deploy-selftest.XXXXXX")"
 cleanup_all() { stop_world; rm -rf "$BASE"; }
 trap cleanup_all EXIT
 trap 'exit 130' INT TERM
-EXPECTED=138
+EXPECTED=139
 PASSED=0
 FAILED=0
 pass() { echo "  ✓ $1"; PASSED=$((PASSED + 1)); }
@@ -1158,6 +1158,20 @@ mkdir "$W/root/.deploy.lock"; sleep 300 & HOLDER=$!; echo $HOLDER > "$W/root/.de
 X deploy --sha "$SHA1" --apply
 kill $HOLDER 2>/dev/null; wait $HOLDER 2>/dev/null
 [ $RC -eq 1 ] && grep -q 'уже йде' <<<"$OUT" && [ ! -d "$W/root/releases/$S1" ] && pass "замок тримає живий процес: другий деплой відмовляє й нічого не створює" || fail "замок тримає живий процес: другий деплой відмовляє й нічого не створює" "rc=$RC $OUT"
+
+# 🔴 16.11.2026 на проді: нічний таймер (13:00:01) упав на чужому замку, і його `cleanup`
+# на виході вбив слухача порту збірки — тимчасову API РУЧНОГО деплою, що саме збирав веб.
+# Через секунду пререндер отримав ECONNREFUSED :3002, викладка c3c8a64 провалилась.
+# Той, хто замка не взяв, не прибирає нічого: ні порт, ні реліз, ні чужий замок.
+new_world f5b
+mkdir "$W/root/.deploy.lock"; sleep 300 & HOLDER=$!; echo $HOLDER > "$W/root/.deploy.lock/pid"
+python3 -c 'import socket,sys,time;s=socket.socket();s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1);s.bind(("127.0.0.1",int(sys.argv[1])));s.listen();time.sleep(300)' "$TPORT" & OTHER_API=$!
+for _ in 1 2 3 4 5 6 7 8 9 10; do [ -n "$(listener_of "$TPORT")" ] && break; sleep 0.2; done
+X deploy --sha "$SHA1" --apply
+ALIVE=no; kill -0 $OTHER_API 2>/dev/null && ALIVE=yes
+LOCKPID=$(cat "$W/root/.deploy.lock/pid" 2>/dev/null)
+kill $HOLDER $OTHER_API 2>/dev/null; wait $HOLDER $OTHER_API 2>/dev/null
+[ $RC -eq 1 ] && grep -q 'уже йде' <<<"$OUT" && [ "$ALIVE" = yes ] && [ "$LOCKPID" = "$HOLDER" ] && pass "деплой, що не взяв замка, не чіпає тимчасову API чужого деплою на порту збірки і чужий замок" || fail "деплой, що не взяв замка, не чіпає тимчасову API чужого деплою на порту збірки і чужий замок" "rc=$RC alive=$ALIVE lock=$LOCKPID holder=$HOLDER $OUT"
 
 new_world f6
 X deploy --sha abc123 --apply
