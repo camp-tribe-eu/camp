@@ -6,6 +6,7 @@ import CampsitePage from '@/app/camping/[country]/[region]/[slug]/page';
 import { TRUST_LABEL, TRUST_STATUSES, trustOf } from '@/lib/trust';
 import { ForecastPanel } from '@/components/forecast-panel';
 import { renderAsyncComponent, renderComponent } from './render-component';
+import PlanBBlock from '@/components/plan-b';
 import { visibleText } from './rendered-text';
 import { CLIENT_ISLANDS } from './client-islands';
 import {
@@ -125,13 +126,13 @@ const PARAMS = { country: 'hr', region: 'istria', slug: 'camping-test' };
 
 async function page(
   extra: Record<string, unknown> = {},
-  { cms = true }: { cms?: boolean } = {},
+  { cms = true, planB }: { cms?: boolean; planB?: unknown } = {},
 ): Promise<string> {
   let html = '';
   await withFetch(
     (url) => {
       if (url.includes('/spots/hr/istria/camping-test'))
-        return json({ spot: spot(extra), nearby: [] });
+        return json({ spot: spot(extra), nearby: [], ...(planB ? { planB } : {}) });
       if (cms && url.includes(`/pages/${TRUST_SLUG}`)) return json(trustPage);
       return json({}, 404);
     },
@@ -338,6 +339,39 @@ test('🔴 легенда пояснює рівно ті статуси, що є
   );
 });
 
+// CAMP-524 + CAMP-477: EVERY trust word the page prints has a row in its
+// legend — the facts line, the amenities, the forecast and the «If it's full
+// here» block alike. This used to be asserted as "the Imported row appears
+// only because of Plan B", but since the forecast (#593) always contributes
+// `FORECAST_STATUS` ('imported'), that premise no longer holds and the old
+// test could not tell the two apart. The invariant below is what the legend is
+// for, and it holds whichever block put the word on the page.
+test('🔴 кожне слово довіри на сторінці (і в Плані Б) має рядок у легенді', async () => {
+  const quiet = {
+    osmRecordEditedAt: daysAgo(800),
+    ownerOverrides: {},
+    context: {},
+    amenities: Object.fromEntries(
+      Object.keys(spot({}).amenities).map((k) => [k, 'unknown']),
+    ),
+  };
+  const planB = {
+    ranking: 'Ranked by X.',
+    radiusM: 15_000,
+    items: [
+      { slug: 'a', name: 'A', path: '/camping/hr/istria/a', type: 'camper_stop', metres: 1200, elevation: 40, elevationDelta: 20 },
+    ],
+  };
+  for (const html of [await page(quiet), await page(quiet, { planB }), await page({}, { planB })]) {
+    const printed = new Set([...html.matchAll(/data-trust-status="([a-z-]+)"/g)].map((m) => m[1]));
+    expect(printed.size, 'the page printed no trust word at all').toBeGreaterThan(0);
+    const rows = Object.keys(legend(html));
+    for (const w of printed) expect(rows, `word «${w}» is on the page but not in its legend`).toContain(w);
+  }
+  // The block really did print its word on the page it was given.
+  expect(await page(quiet, { planB })).toContain('data-trust-status="imported"');
+});
+
 test('🔴 без CMS легенди немає, а слова на показниках лишаються', async () => {
   const html = await page({}, { cms: false });
   expect(html).not.toContain('data-testid="trust-legend"');
@@ -370,7 +404,7 @@ test('міграція сіє речення для кожного з восьм
  * origin in their own sentences. A block added to the page and to neither
  * list fails here, so "no status" is always somebody's written decision.
  */
-const COVERED = ['SpotFactsLine', 'AmenityList', 'TrustLegend', 'ForecastNote'];
+const COVERED = ['SpotFactsLine', 'AmenityList', 'TrustLegend', 'ForecastNote', 'PlanBBlock'];
 
 const NOT_YET = [
   'Around',
@@ -395,6 +429,52 @@ const NO_FIGURES = [
   'Link', 'MissingNotice', 'NearbyCard', 'NoPhotos', 'ReportProblem',
   'ScaleTrack', 'Section', 'SourceNote', 'SpotTabs', 'TravelNotice',
 ];
+
+// CAMP-524: PlanBBlock is in COVERED, so each figure prints a trust word, and
+// the word must be DERIVED from the origin: another origin has to change it.
+// A block that typed "Imported" would not.
+test('🔴 План Б: слово довіри біля кожної цифри виведене з походження, а не набране', async () => {
+  const planB = {
+    ranking: 'Ranked by X.',
+    radiusM: 15_000,
+    items: [
+      { slug: 'a', name: 'A', path: '/camping/fr/x/a', type: 'camper_stop', metres: 1200, elevation: 40, elevationDelta: 20 },
+    ],
+  };
+  const count = (h: string, w: string) => h.split(`data-trust-status="${w}"`).length - 1;
+  const own = await renderComponent(PlanBBlock, { planB });
+  // тип, відстань, висота мають один статус — одне слово в кінці рядка.
+  expect(count(own, 'imported')).toBe(1);
+  expect(own.indexOf('data-trust-status')).toBeGreaterThan(own.indexOf('m higher'));
+  expect(visibleText(own)).toContain(TRUST_LABEL.imported);
+  const none = { kind: 'none' as const };
+  const base = {
+    distance: { kind: 'derived' as const, sourceId: null },
+    height: { kind: 'derived' as const, sourceId: null },
+    type: { kind: 'import' as const, sourceId: null },
+  };
+  const noDist = await renderComponent(PlanBBlock, { planB, origins: { ...base, distance: none } });
+  expect(count(noDist, 'unknown')).toBe(1);
+  expect(count(noDist, 'imported')).toBe(2);
+  const noHeight = await renderComponent(PlanBBlock, { planB, origins: { ...base, height: { kind: 'owner' as const } } });
+  expect(count(noHeight, 'owner-confirmed')).toBe(1);
+  const noType = await renderComponent(PlanBBlock, { planB, origins: { ...base, type: none } });
+  expect(count(noType, 'unknown')).toBe(1);
+  expect(visibleText(noType)).toContain(TRUST_LABEL.unknown);
+  // Висоти немає — слова для неї теж немає.
+  const flat = { ...planB, items: [{ ...planB.items[0], elevation: null, elevationDelta: null }] };
+  expect(count(await renderComponent(PlanBBlock, { planB: flat }), 'imported')).toBe(1);
+  // Однаковий статус, не обовʼязково «Imported»: одне слово «Not recorded».
+  const allNone = await renderComponent(PlanBBlock, {
+    planB,
+    origins: { distance: none, height: none, type: none },
+  });
+  expect(count(allNone, 'unknown')).toBe(1);
+  expect(count(allNone, 'imported')).toBe(0);
+  // Різні статуси — біля кожної цифри свій (тут два різні на три цифри).
+  expect(count(noDist, 'imported') + count(noDist, 'unknown')).toBe(3);
+  expect(count(noHeight, 'imported') + count(noHeight, 'owner-confirmed')).toBe(3);
+});
 
 // CAMP-477: ForecastNote is in COVERED, so it must print a trust word, and the
 // word must be DERIVED from the origin: handing the panel another origin has to

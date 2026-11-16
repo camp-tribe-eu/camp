@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Logger,
   NotFoundException,
   Param,
   Query,
@@ -21,6 +22,8 @@ const BULK = { default: BULK_LIMIT };
 
 @Controller('spots')
 export class SpotsController {
+  private readonly log = new Logger(SpotsController.name);
+
   constructor(
     private readonly spots: SpotsService,
     private readonly map: MapQueryService,
@@ -233,6 +236,25 @@ export class SpotsController {
     return {
       spot,
       nearby: nearby === '0' ? [] : await this.spots.nearby(slug),
+      planB: nearby === '0' ? null : await this.softPlanB(slug),
     };
+  }
+
+  /**
+   * CAMP-524: «If it's full here» is an extra, so a failure in it costs the
+   * block and never the page. Without this a thrown error became a 500, the
+   * web's `getSpot` turns any non-ok into `null`, and the campsite page was
+   * a 404 over a missing optional block. `null` is what the web already
+   * reads as "nothing to show".
+   */
+  private async softPlanB(slug: string) {
+    try {
+      return await this.spots.planB(slug);
+    } catch (e) {
+      this.log.warn(
+        `plan-b failed for ${slug}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+      return null;
+    }
   }
 }

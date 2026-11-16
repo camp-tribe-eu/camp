@@ -489,6 +489,22 @@ export interface NearbySpot {
   metres: number;
 }
 
+/** CAMP-524: «If it's full here». Mirrors apps/api/src/spots/plan-b.ts. */
+export interface PlanB {
+  /** Printed verbatim beside the block; no sentence, no block. */
+  ranking: string;
+  radiusM: number;
+  items: {
+    slug: string;
+    name: string | null;
+    path: string;
+    type: string;
+    metres: number;
+    elevation: number | null;
+    elevationDelta: number | null;
+  }[];
+}
+
 export interface SpotIndexEntry {
   country: string;
   region: string;
@@ -511,7 +527,7 @@ export async function getSpot(
   country: string,
   region: string,
   slug: string,
-): Promise<{ spot: Spot; nearby: NearbySpot[] } | null> {
+): Promise<{ spot: Spot; nearby: NearbySpot[]; planB?: PlanB | null } | null> {
   const res = await apiFetch(`/spots/${encodeURIComponent(country)}/${encodeURIComponent(
       region,
     )}/${encodeURIComponent(slug)}`,

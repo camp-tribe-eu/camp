@@ -43,6 +43,7 @@ import { WarningsForSpot } from '@/components/warnings-for-spot';
 import { settingParagraph } from '@/lib/setting';
 import { droughtAtBuild } from '@/lib/drought-build';
 import { WebcamNote } from '@/components/webcam-panel';
+import PlanBBlock, { planBStatuses } from '@/components/plan-b';
 import { ForecastNote } from '@/components/forecast-panel';
 import { FORECAST_STATUS } from '@/lib/forecast';
 import { ButtonLink } from '@/components/button';
@@ -342,6 +343,8 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
     [
       ...facts.map((f) => f.trust),
       ...Object.values(amenitiesTrust),
+      // CAMP-524: the words the "If it's full here" block prints.
+      ...planBStatuses(data.planB),
       // CAMP-477: the forecast section arrives in the browser, so the page
       // cannot know at build whether it will show; its word is explained
       // either way (a legend row without a forecast is the accepted price).
@@ -773,6 +776,7 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
         {!hasWebcamTab && <WebcamNote webcams={spot.webcams} renderedAt={renderedAt} />}
       </div>
 
+      <PlanBBlock planB={data.planB} />
       {/* CAMP-477: сім днів прогнозу. Клієнтський компонент: сторінка
           збирається наперед і живе днями, прогноз у ній постарів би разом
           зі збіркою. Дані приходять із НАШОГО API (відро Open-Meteo на AWS
