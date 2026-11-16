@@ -107,6 +107,13 @@ async function setDrawer(page: Page, open: boolean): Promise<void> {
     toggle.click();
     const aside = document.getElementById('map-settings');
     while (Date.now() < deadline) {
+      // Без WebGL (Firefox у CI без GPU — то є, то нема) мапа малює смугу з
+      // кнопкою, а тоді підміняє все одним реченням: кнопка зникає з
+      // розмітки, шухляди в цьому стані немає зовсім. Це не поломка.
+      // Поломка — коли кнопка ЛИШИЛАСЬ, а шухляда не змінилась: тоді 'stuck'.
+      if (!toggle.isConnected && document.querySelector('[data-testid="map-unsupported"]')) {
+        return 'unsupported';
+      }
       const shown = !!aside && aside.getClientRects().length > 0;
       if (isOpen() === want && shown === want) return 'done';
       await sleep(20);
