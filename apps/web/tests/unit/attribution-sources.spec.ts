@@ -635,6 +635,8 @@ const REFERENCE_HOSTS: Readonly<Record<string, string>> = {
   "cartes.gouv.fr":
     "IGN France’s conditions of use, which its service points to",
   "openfontlicense.org": "SIL Open Font License text",
+  "apps.ecmwf.int":
+    "ECMWF's terms of use for its open data (the attribution wording the forecast carries, CAMP-477); the data itself reaches us from openmeteo.s3.amazonaws.com, which is in code",
   "opensource.org":
     "MIT License text, under which the flag-icons files are released",
   "flagicons.lipis.dev":

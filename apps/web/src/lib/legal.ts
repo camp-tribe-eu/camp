@@ -242,8 +242,13 @@ export const LEGAL_PAGES: LegalPage[] = [
     // названо модель (FLUX1.1 [pro] ultra) і сервіс (fal.run), і сказано,
     // що вони не зображують жодного реального місця. Migration
     // 1796600000000-AttributionBannerImages.
-    version: '1.4',
-    effectiveFrom: '2026-11-11',
+    // 1.5 (16.11.2026, CAMP-477): прогноз погоди на сторінці кемпінгу —
+    // ECMWF IFS через відкрите відро Open-Meteo (CC BY 4.0), добові
+    // значення рахуємо самі; названо обидва джерела і сказано, що браузер
+    // читача до жодного з них не звертається. Migration
+    // 1797930000000-AttributionWeatherForecast.
+    version: '1.5',
+    effectiveFrom: '2026-11-16',
   },
   {
     // CAMP-186. ODbL §4.6 lets us answer with the DESCRIPTION of our
