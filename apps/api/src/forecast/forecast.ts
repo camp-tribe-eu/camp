@@ -43,8 +43,10 @@
 // 🔴 WHAT THE NUMBERS MEAN, and what this file does about it.
 //
 //   · Temperature is 3-hourly. The daily maximum is the largest of the
-//     3-hourly values AND of the stored `temperature_2m_max` values for
-//     that local day (the minimum likewise).
+//     3-hourly values for that local day AND of the stored
+//     `temperature_2m_max` intervals whose middle falls in it (the minimum
+//     likewise): the stored extremes cover the three hours before their
+//     stamp, as the rain does.
 //   · Precipitation at a step is the amount that fell in the three hours
 //     BEFORE its stamp (Open-Meteo's convention for accumulations). The
 //     steps sit on UTC multiples of three hours, so in most of the EU a
@@ -339,10 +341,18 @@ export function dailyForecast(
       a.tempSteps++;
       a.hi.push(t0);
       a.lo.push(t0);
-      const hi = s.temperature_2m_max[i];
-      const lo = s.temperature_2m_min[i];
-      if (Number.isFinite(hi)) a.hi.push(hi);
-      if (Number.isFinite(lo)) a.lo.push(lo);
+    }
+    // 🔴 THE STORED EXTREMES LOOK BACKWARDS LIKE THE RAIN: Open-Meteo's
+    // ECMWF `temperature_2m_max/min` are the extreme of the three hours
+    // BEFORE the stamp (`.backwards` in its EcmwfVariable.swift). They go
+    // to the day holding the middle of that interval, not the day of the
+    // stamp; the instantaneous temperature stays with its stamp.
+    const hi = s.temperature_2m_max[i];
+    const lo = s.temperature_2m_min[i];
+    if (Number.isFinite(hi) || Number.isFinite(lo)) {
+      const b = get(parts(zone, t - s.step / 2).date);
+      if (Number.isFinite(hi)) b.hi.push(hi);
+      if (Number.isFinite(lo)) b.lo.push(lo);
     }
     // 🔴 daytime only: a clear night under a cloudy day is a cloudy day.
     const c = s.cloud_cover[i];
@@ -358,14 +368,20 @@ export function dailyForecast(
     }
   }
 
-  const today = parts(zone, nowSec).date;
+  // 🔴 A CONTIGUOUS RUN STARTING TODAY, AND NOTHING AFTER A HOLE. If a day
+  // lacks data, the days after it are not pulled forward to fill the week:
+  // that would label a later day as an earlier one's neighbour and call
+  // the set "seven days". The run stops at the first day missing.
+  let date = parts(zone, nowSec).date;
   const out: ForecastDay[] = [];
-  for (const date of [...byDay.keys()].sort()) {
-    if (date < today) continue;
-    if (out.length >= days) break;
-    const a = byDay.get(date)!;
-    if (a.tempSteps < MIN_STEPS_PER_DAY || a.rainSteps < MIN_STEPS_PER_DAY) {
-      continue;
+  while (out.length < days) {
+    const a = byDay.get(date);
+    if (
+      !a ||
+      a.tempSteps < MIN_STEPS_PER_DAY ||
+      a.rainSteps < MIN_STEPS_PER_DAY
+    ) {
+      break;
     }
     const tMax = Math.max(...a.hi);
     const tMin = Math.min(...a.lo);
@@ -380,22 +396,22 @@ export function dailyForecast(
       precipMm: Math.round(rain * 10) / 10,
       condition: conditionOf(rain, tMax, cloud),
     });
+    date = nextDate(date);
   }
   return out;
 }
 
-/** How few days are too few to print a "7-day" section at all. */
-export const MIN_DAYS_TO_SHOW = 5;
+/** The calendar date after `date` (YYYY-MM-DD), by calendar and not by hours. */
+export function nextDate(date: string): string {
+  const d = new Date(`${date}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/** How few days are too few to print a forecast section at all. */
+export const MIN_DAYS_TO_SHOW = 3;
 
 // ───────────────────────────── the request ─────────────────────────────
-
-/**
- * EU-27 with its outermost islands in the box: Azores -31.3, Canaries
- * 27.6, Cyprus 34.6 east, Finland 70.1 north. A request outside it is not
- * a campsite of ours, and answering it would let anyone walk the globe
- * through our cache and the bucket.
- */
-export const BOX = { latMin: 27, latMax: 72, lonMin: -32, lonMax: 36 };
 
 export interface ForecastQuery {
   lat: number;
@@ -403,19 +419,14 @@ export interface ForecastQuery {
   country: string;
 }
 
-export function parseQuery(q: {
-  lat?: string;
-  lng?: string;
-  country?: string;
-}): ForecastQuery | null {
-  const num = (s?: string) =>
-    s !== undefined && /^-?\d{1,3}(\.\d{1,6})?$/.test(s) ? Number(s) : NaN;
-  const lat = num(q.lat);
-  const lon = num(q.lng);
-  const country = (q.country ?? '').toLowerCase();
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-  if (lat < BOX.latMin || lat > BOX.latMax) return null;
-  if (lon < BOX.lonMin || lon > BOX.lonMax) return null;
-  if (!isKnownCountry(country)) return null;
-  return { lat, lon, country };
+/**
+ * 🔴 THE REQUEST NAMES A CAMPSITE, NOT A POINT. The coordinates come from
+ * our own database, so the set of grid cells this route can ever make us
+ * read is the set of cells our campsites sit in, not the 49 000 inside a
+ * bounding box that anyone could walk through a 2000-entry cache.
+ */
+export function parseSlug(slug?: string): string | null {
+  return typeof slug === 'string' && /^[a-z0-9][a-z0-9-]{0,199}$/.test(slug)
+    ? slug
+    : null;
 }

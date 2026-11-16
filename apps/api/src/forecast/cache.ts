@@ -22,6 +22,19 @@
 // comes from the run before last, which is still a forecast for the same
 // days. Past that, the answer is "unavailable" and the page shows nothing.
 //
+// 🔴 A FAILURE IS REMEMBERED FOR TEN MINUTES (negative cache, per cell). A
+// cell the bucket cannot give us (a missing chunk, a corrupt file) would
+// otherwise cost a full read, ten files, on every request for every
+// campsite in it. Within the window the failure is answered from memory
+// and the bucket is not touched; the old entry, if one is young enough,
+// is still served.
+//
+// 🔴 THE WAITING LINE IS BOUNDED. Past `maxQueue` readers already waiting
+// for a slot, a request is refused at once (`CacheBusy`, a 503 with no
+// section) instead of joining a queue that grows with the traffic. A
+// refusal for being busy is NOT remembered against the cell: the cell did
+// nothing wrong.
+//
 // 🔴 BOUNDS. At most `maxEntries` cells (one entry is five arrays of about
 // 200 numbers, a few kilobytes), the oldest-used dropped first, and at most
 // `maxConcurrent` reads in flight; a burst of distinct cells queues instead
@@ -62,19 +75,44 @@ export interface CacheDeps {
   now: () => number;
   maxEntries?: number;
   maxConcurrent?: number;
+  /** Readers allowed to wait for a slot; more are refused. */
+  maxQueue?: number;
+  /** How long a failed cell is answered from memory, ms. */
+  failureMemoryMs?: number;
+}
+
+/** Thrown when the waiting line is full. Nothing was read. */
+export class CacheBusy extends Error {
+  constructor() {
+    super('forecast reads are saturated');
+    this.name = 'CacheBusy';
+  }
+}
+
+/** Thrown when this cell failed a moment ago and is not tried again yet. */
+export class RecentlyFailed extends Error {
+  constructor() {
+    super('this cell failed recently');
+    this.name = 'RecentlyFailed';
+  }
 }
 
 export class ForecastCache {
   private readonly entries = new Map<string, Entry>();
   private readonly inflight = new Map<string, Promise<Entry>>();
+  private readonly failedUntil = new Map<string, number>();
   private running = 0;
   private readonly waiting: Array<() => void> = [];
   private readonly maxEntries: number;
   private readonly maxConcurrent: number;
+  private readonly maxQueue: number;
+  private readonly failureMemoryMs: number;
 
   constructor(private readonly deps: CacheDeps) {
     this.maxEntries = deps.maxEntries ?? 2000;
     this.maxConcurrent = deps.maxConcurrent ?? 4;
+    this.maxQueue = deps.maxQueue ?? 32;
+    this.failureMemoryMs = deps.failureMemoryMs ?? 10 * 60_000;
   }
 
   /** The answer, or null when there is nothing honest to show. */
@@ -88,6 +126,8 @@ export class ForecastCache {
       nowMs - entry.fetchedAt < (entry.meta.update_interval_seconds * 1000) / 2;
     if (!fresh) {
       try {
+        const until = this.failedUntil.get(key);
+        if (until !== undefined && nowMs < until) throw new RecentlyFailed();
         entry = await this.load(key, q);
       } catch (e) {
         const usable =
@@ -121,7 +161,14 @@ export class ForecastCache {
     if (running) return running;
     const p = this.slot(async () => {
       const nowMs = this.deps.now();
-      const got = await this.deps.read(q.lat, q.lon, Math.floor(nowMs / 1000));
+      let got: Awaited<ReturnType<CacheDeps['read']>>;
+      try {
+        got = await this.deps.read(q.lat, q.lon, Math.floor(nowMs / 1000));
+      } catch (e) {
+        this.failedUntil.set(key, nowMs + this.failureMemoryMs);
+        throw e;
+      }
+      this.failedUntil.delete(key);
       const entry: Entry = { ...got, fetchedAt: nowMs };
       this.entries.delete(key);
       this.entries.set(key, entry);
@@ -137,6 +184,7 @@ export class ForecastCache {
 
   private async slot<T>(job: () => Promise<T>): Promise<T> {
     if (this.running >= this.maxConcurrent) {
+      if (this.waiting.length >= this.maxQueue) throw new CacheBusy();
       await new Promise<void>((resolve) => this.waiting.push(resolve));
     }
     this.running++;

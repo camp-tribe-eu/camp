@@ -10,7 +10,7 @@
 // 🔴 LICENCE OF THAT PACKAGE: GPL-2.0-only. It runs on OUR server and is
 // never sent to a reader or bundled into the web app, so nothing is
 // distributed; the GPL's conditions attach on distribution. It must stay
-// in apps/api — `forecast-licence.spec.ts` fails if the web workspace
+// in apps/api — `forecast.spec.ts` fails if the web workspace
 // ever depends on it.
 
 import {

@@ -44,6 +44,7 @@ import { settingParagraph } from '@/lib/setting';
 import { droughtAtBuild } from '@/lib/drought-build';
 import { WebcamNote } from '@/components/webcam-panel';
 import { ForecastNote } from '@/components/forecast-panel';
+import { FORECAST_STATUS } from '@/lib/forecast';
 import { ButtonLink } from '@/components/button';
 import { CampsiteMedia, type Photo } from '@/components/campsite-media';
 import { ScaleTrack, SpotFactsLine } from '@/components/spot-facts';
@@ -338,7 +339,14 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
   const facts = spotFacts(spot);
   const amenitiesTrust = amenityTrust(spot, spot.amenities, AMENITY_KEYS);
   const legend = trustLegend(
-    [...facts.map((f) => f.trust), ...Object.values(amenitiesTrust)],
+    [
+      ...facts.map((f) => f.trust),
+      ...Object.values(amenitiesTrust),
+      // CAMP-477: the forecast section arrives in the browser, so the page
+      // cannot know at build whether it will show; its word is explained
+      // either way (a legend row without a forecast is the accepted price).
+      FORECAST_STATUS,
+    ],
     trustPage?.sections ?? null,
   );
   const name = spot.name;
@@ -769,7 +777,7 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
           збирається наперед і живе днями, прогноз у ній постарів би разом
           зі збіркою. Дані приходять із НАШОГО API (відро Open-Meteo на AWS
           читає сервер, не браузер). Немає даних — не малює нічого. */}
-      <ForecastNote lat={spot.lat} lon={spot.lon} country={spot.country} />
+      <ForecastNote slug={spot.slug} />
 
       {data.nearby.length > 0 && (
         <Section title="Campsites nearby">

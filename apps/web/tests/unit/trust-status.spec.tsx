@@ -396,15 +396,23 @@ const NO_FIGURES = [
   'ScaleTrack', 'Section', 'SourceNote', 'SpotTabs', 'TravelNotice',
 ];
 
-// CAMP-477: ForecastNote is in COVERED, so it must print a trust word.
+// CAMP-477: ForecastNote is in COVERED, so it must print a trust word, and the
+// word must be DERIVED from the origin: handing the panel another origin has to
+// change the word. A panel that printed a literal "Imported" would not.
 test('🔴 прогноз несе слово довіри, виведене з походження, а не набране', async () => {
   const days = Array.from({ length: 5 }, (_, i) => ({
     date: `2026-11-${16 + i}`, tMax: 10, tMin: 5, precipMm: 0, condition: 'clear' as const,
   }));
-  const h = await renderComponent(ForecastPanel, { forecast: { days, runAt: null } });
-  const word = TRUST_LABEL[trustOf({ kind: 'derived', sourceId: 'open-meteo-forecast' })];
-  expect(h).toContain(`data-trust-status="imported"`);
-  expect(visibleText(h)).toContain(word);
+  const forecast = { days, runAt: null };
+  const own = await renderComponent(ForecastPanel, { forecast });
+  expect(own).toContain(`data-trust-status="${trustOf({ kind: 'derived', sourceId: null })}"`);
+  expect(visibleText(own)).toContain(TRUST_LABEL.imported);
+  const none = await renderComponent(ForecastPanel, { forecast, origin: { kind: 'none' } });
+  expect(none).toContain('data-trust-status="unknown"');
+  expect(visibleText(none)).toContain(TRUST_LABEL.unknown);
+  expect(visibleText(none)).not.toContain(TRUST_LABEL.imported);
+  const owner = await renderComponent(ForecastPanel, { forecast, origin: { kind: 'owner' } });
+  expect(owner).toContain('data-trust-status="owner-confirmed"');
 });
 
 test('🔴 кожен блок сторінки кемпінгу або має статус, або названий серед тих, що ще ні', () => {

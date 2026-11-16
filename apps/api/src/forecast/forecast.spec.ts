@@ -5,7 +5,6 @@ import {
   type BucketMeta,
   type ChunkRead,
   type Series,
-  BOX,
   GRID,
   VARIABLES,
   cellOf,
@@ -13,7 +12,9 @@ import {
   conditionOf,
   dailyForecast,
   joinChunks,
-  parseQuery,
+  parseSlug,
+  nextDate,
+  MIN_DAYS_TO_SHOW,
   stepTime,
   zoneFor,
 } from './forecast';
@@ -43,50 +44,29 @@ const reads = (f: Fixture): ChunkRead[] =>
 
 const seriesOf = (f: Fixture): Series => joinChunks(f.meta, reads(f))!;
 
-// 🔴 These tables were computed by a SEPARATE implementation (Python,
-// zoneinfo, straight off the fixture JSON), not copied from this code's
-// output: a stub that follows the code's formula would confirm its bug.
-const VENDEE = [
-  ['2026-11-16', 16, 13, 19.9, 'heavy-rain'],
-  ['2026-11-17', 16, 14, 22.2, 'heavy-rain'],
-  ['2026-11-18', 15, 13, 13.4, 'heavy-rain'],
-  ['2026-11-19', 14, 11, 10.5, 'heavy-rain'],
-  ['2026-11-20', 14, 11, 7.6, 'rain'],
-  ['2026-11-21', 12, 7, 1.5, 'rain'],
-  ['2026-11-22', 14, 11, 11, 'heavy-rain'],
-] as const;
-const FINLAND = [
-  ['2026-11-16', 6, 4, 7.8, 'rain'],
-  ['2026-11-17', 5, 2, 21.3, 'heavy-rain'],
-  ['2026-11-18', 5, 2, 3.9, 'rain'],
-  ['2026-11-19', 3, 1, 6.4, 'rain'],
-  ['2026-11-20', 2, 0, 0.2, 'cloudy'],
-  ['2026-11-21', 0, -2, 1, 'snow'],
-  ['2026-11-22', 1, 0, 2.6, 'snow'],
-] as const;
-const asDays = (
-  t: ReadonlyArray<readonly [string, number, number, number, string]>,
-) =>
-  t.map(([date, tMax, tMin, precipMm, condition]) => ({
-    date,
-    tMax,
-    tMin,
-    precipMm,
-    condition,
-  }));
+// 🔴 `fixtures/expected.json` was computed by a SEPARATE implementation
+// (Python, zoneinfo, straight off the fixture JSON), not copied from this
+// code's output. It uses the BACKWARDS rule for the stored extremes
+// (`temperature_2m_max/min` cover the three hours before their stamp, as in
+// Open-Meteo's EcmwfVariable.swift), which the first version of this table
+// did not: it moved Vendée 18.11 min 13->12, 19.11 max 14->13, 20.11 min
+// 11->10, and a reviewer found it.
+const EXPECTED = JSON.parse(
+  readFileSync(join(__dirname, 'fixtures', 'expected.json'), 'utf8'),
+) as Record<'vendee' | 'finland', unknown[]>;
 
 describe('dailyForecast on real bucket reads', () => {
   it('Vendée, Europe/Paris: seven days equal the independent table', () => {
     const f = load('vendee');
     expect(dailyForecast(seriesOf(f), 'Europe/Paris', f.nowSec)).toEqual(
-      asDays(VENDEE),
+      EXPECTED.vendee,
     );
   });
 
   it('Finland, Europe/Helsinki: seven days equal the independent table', () => {
     const f = load('finland');
     expect(dailyForecast(seriesOf(f), 'Europe/Helsinki', f.nowSec)).toEqual(
-      asDays(FINLAND),
+      EXPECTED.finland,
     );
   });
 
@@ -136,9 +116,8 @@ describe('dailyForecast on real bucket reads', () => {
       if (off >= 0 && off < 8 && off >= 5) s.temperature_2m[i] = NaN;
     }
     const days = dailyForecast(s, 'Europe/Paris', f.nowSec).map((d) => d.date);
-    expect(days).not.toContain('2026-11-18');
-    expect(days).toContain('2026-11-17');
-    expect(days).toContain('2026-11-19');
+    // The run stops at the hole: the 19th is not pulled forward.
+    expect(days).toEqual(['2026-11-16', '2026-11-17']);
   });
 });
 
@@ -281,44 +260,158 @@ describe('zones', () => {
   });
 });
 
-describe('parseQuery', () => {
-  it('accepts a campsite and lower-cases the country', () => {
-    expect(parseQuery({ lat: '46.6', lng: '-1.8', country: 'FR' })).toEqual({
-      lat: 46.6,
-      lon: -1.8,
-      country: 'fr',
-    });
+describe('parseSlug', () => {
+  it.each(['camp-bovec', 'a', '3', 'ac-san-marino-dt'])('%s is a slug', (v) => {
+    expect(parseSlug(v)).toBe(v);
+  });
+  it.each([
+    undefined,
+    '',
+    '-x',
+    'A',
+    'a b',
+    'a/b',
+    '../x',
+    "a'; drop",
+    'a'.repeat(201),
+  ])('%j is refused', (v) => {
+    expect(parseSlug(v)).toBeNull();
+  });
+});
+
+describe('the stored extremes look backwards, like the rain', () => {
+  const meta = load('vendee').meta;
+  const flat = (): Series => {
+    const n = 2 * meta.chunk_time_length;
+    const fill = (v: number) => new Array<number>(n).fill(v);
+    return {
+      start: stepTime(meta, 1597, 0),
+      step: meta.temporal_resolution_seconds,
+      temperature_2m: fill(10),
+      temperature_2m_max: fill(10),
+      temperature_2m_min: fill(10),
+      precipitation: fill(0),
+      cloud_cover: fill(50),
+    };
+  };
+  const now = Date.UTC(2026, 10, 16, 12) / 1000;
+
+  it('a max stamped 01:00 Paris covers 22:00-01:00 and counts for the day before', () => {
+    const s = flat();
+    // 00:00Z on the 18th = 01:00 Paris. A 25 degree extreme.
+    s.temperature_2m_max[
+      (Date.UTC(2026, 10, 18, 0) / 1000 - s.start) / s.step
+    ] = 25;
+    const by = Object.fromEntries(
+      dailyForecast(s, 'Europe/Paris', now).map((d) => [d.date, d.tMax]),
+    );
+    expect(by['2026-11-17']).toBe(25);
+    expect(by['2026-11-18']).toBe(10);
   });
 
-  it.each([
-    [{ lat: '0', lng: '0', country: 'fr' }, 'the Gulf of Guinea'],
-    [{ lat: '40', lng: '-74', country: 'es' }, 'New York'],
-    [{ lat: '51', lng: '0', country: 'gb' }, 'a non-member'],
-    [{ lat: 'abc', lng: '1', country: 'fr' }, 'not a number'],
-    [{ lat: '46.6', lng: '1e1', country: 'fr' }, 'exponent notation'],
-    [{ lat: '46.6', lng: '-1.8' }, 'no country'],
-    [{ lat: '46.6', country: 'fr' }, 'no longitude'],
-    [{ lat: '46.1234567', lng: '1', country: 'fr' }, 'seven decimals'],
-  ] as Array<[{ lat?: string; lng?: string; country?: string }, string]>)(
-    '%j is refused (%s)',
-    (q) => {
-      expect(parseQuery(q)).toBeNull();
-    },
-  );
+  it('the same for a minimum, and an instantaneous value stays with its stamp', () => {
+    const s = flat();
+    s.temperature_2m_min[
+      (Date.UTC(2026, 10, 18, 0) / 1000 - s.start) / s.step
+    ] = -4;
+    s.temperature_2m[(Date.UTC(2026, 10, 18, 0) / 1000 - s.start) / s.step] =
+      30;
+    const by = Object.fromEntries(
+      dailyForecast(s, 'Europe/Paris', now).map((d) => [
+        d.date,
+        [d.tMax, d.tMin],
+      ]),
+    );
+    expect(by['2026-11-17']).toEqual([10, -4]);
+    // 30 degrees at the stamp 01:00 on the 18th belongs to the 18th.
+    expect(by['2026-11-18']).toEqual([30, 10]);
+  });
+});
 
-  it('the box holds the outermost EU points', () => {
-    for (const [lat, lng, c] of [
-      [28.1, -15.4, 'es'], // Canaries
-      [38.7, -27.2, 'pt'], // Azores
-      [35.0, 34.1, 'cy'], // Cyprus
-      [70.1, 27.9, 'fi'], // northern Finland
-      [35.9, 14.4, 'mt'],
-    ] as const) {
-      expect(
-        parseQuery({ lat: String(lat), lng: String(lng), country: c }),
-      ).not.toBeNull();
+describe('a week with a hole', () => {
+  it('stops at the first missing day and never pulls a later one forward', () => {
+    const f = load('vendee');
+    const s = seriesOf(f);
+    // Blank every temperature of Paris 19.11 (stamps 18th 23:00Z .. 19th 22:00Z).
+    const from = Date.UTC(2026, 10, 18, 23) / 1000;
+    for (let i = 0; i < s.temperature_2m.length; i++) {
+      const t = s.start + i * s.step;
+      if (t >= from && t < from + 24 * 3600) s.temperature_2m[i] = NaN;
     }
-    expect(BOX.latMin).toBeLessThan(27.6);
+    const days = dailyForecast(s, 'Europe/Paris', f.nowSec).map((d) => d.date);
+    expect(days).toEqual(['2026-11-16', '2026-11-17', '2026-11-18']);
+  });
+
+  it('a missing TODAY means no days at all', () => {
+    const f = load('vendee');
+    const s = seriesOf(f);
+    const from = Date.UTC(2026, 10, 15, 23) / 1000;
+    for (let i = 0; i < s.temperature_2m.length; i++) {
+      const t = s.start + i * s.step;
+      if (t >= from && t < from + 24 * 3600) s.temperature_2m[i] = NaN;
+    }
+    expect(dailyForecast(s, 'Europe/Paris', f.nowSec)).toEqual([]);
+  });
+
+  it('nextDate steps by calendar across a month and a year', () => {
+    expect(nextDate('2026-11-30')).toBe('2026-12-01');
+    expect(nextDate('2026-12-31')).toBe('2027-01-01');
+    expect(nextDate('2028-02-28')).toBe('2028-02-29');
+  });
+
+  it('shows at least three days or nothing: the number the page also uses', () => {
+    expect(MIN_DAYS_TO_SHOW).toBe(3);
+  });
+});
+
+describe('what the rain sum and the window are made of', () => {
+  const meta = load('vendee').meta;
+  const span = meta.chunk_time_length * meta.temporal_resolution_seconds;
+  const H = 3600;
+  const B = 1598 * span; // the start of chunk 1598
+  const ahead = { ...meta, data_end_time: B + 100 * span };
+
+  it('the window reaches back 36 hours: 35 h after a boundary still needs the chunk before it', () => {
+    expect(chunksNeeded(ahead, B + 35 * H)[0]).toBe(1597);
+    expect(chunksNeeded(ahead, B + 36 * H)[0]).toBe(1598);
+  });
+
+  it('the window reaches forward 8 days: just under needs no next chunk, just over does', () => {
+    const last = (now: number) => chunksNeeded(ahead, now).slice(-1)[0];
+    expect(last(B - 8 * 24 * H - 1)).toBe(1597);
+    expect(last(B - 8 * 24 * H)).toBe(1598);
+  });
+
+  const base = (): Series => {
+    const n = 2 * meta.chunk_time_length;
+    const fill = (v: number) => new Array<number>(n).fill(v);
+    return {
+      start: stepTime(meta, 1597, 0),
+      step: meta.temporal_resolution_seconds,
+      temperature_2m: fill(10),
+      temperature_2m_max: fill(11),
+      temperature_2m_min: fill(9),
+      precipitation: fill(0),
+      cloud_cover: fill(50),
+    };
+  };
+  const now = Date.UTC(2026, 10, 16, 12) / 1000;
+  const idx = (s: Series, ms: number) => (ms / 1000 - s.start) / s.step;
+
+  it('a day with full temperatures but only five rain steps is left out', () => {
+    const s = base();
+    // UTC zone: the 18th holds stamps 03:00 .. 24:00 for rain. Blank four.
+    for (const h of [3, 6, 9, 12])
+      s.precipitation[idx(s, Date.UTC(2026, 10, 18, h))] = NaN;
+    const days = dailyForecast(s, 'UTC', now).map((d) => d.date);
+    expect(days).toEqual(['2026-11-16', '2026-11-17']);
+  });
+
+  it('a negative precipitation value is never subtracted from the sum', () => {
+    const s = base();
+    s.precipitation[idx(s, Date.UTC(2026, 10, 16, 6))] = 2;
+    s.precipitation[idx(s, Date.UTC(2026, 10, 16, 9))] = -1.5;
+    expect(dailyForecast(s, 'UTC', now)[0].precipMm).toBe(2);
   });
 });
 

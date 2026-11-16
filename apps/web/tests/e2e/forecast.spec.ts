@@ -86,9 +86,9 @@ test.describe('with a forecast', () => {
     await expect(section).toContainText(
       'Based on data and products of the European Centre for Medium-Range Weather Forecasts (ECMWF)',
     );
-    // The page asked OUR API for this campsite's point and country, once.
+    // The page asked OUR API for this campsite by slug, once: no coordinate.
     expect(asked).toHaveLength(1);
-    expect(asked[0]).toMatch(/\/forecast\?lat=-?\d+\.\d{3}&lng=-?\d+\.\d{3}&country=[a-z]{2}$/);
+    expect(asked[0]).toMatch(/\/forecast\?slug=[a-z0-9-]+$/);
   });
 
   test('one broken day costs one day: six rows, not none', async ({ page }) => {
@@ -114,7 +114,7 @@ test.describe('without a forecast, there is no section', () => {
     ['a 400', json({ message: 'no' }, 400)],
     ['a connection that fails', (route) => route.abort('failed')],
     ['an empty list of days', json(answer([]))],
-    ['four days, which is too few', json(answer(SEVEN.slice(0, 4)))],
+    ['two days, which is too few', json(answer(SEVEN.slice(0, 2)))],
     ['a body that is not JSON', (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<html>oops</html>' })],
     ['JSON of the wrong shape', json({ days: 'soon' })],
   ];

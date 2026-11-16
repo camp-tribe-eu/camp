@@ -1,12 +1,15 @@
 import {
   Injectable,
+  NotFoundException,
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
 
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
+
 import { readPoint } from './bucket';
 import { ForecastCache, type ForecastAnswer } from './cache';
-import type { ForecastQuery } from './forecast';
 
 @Injectable()
 export class ForecastService {
@@ -16,7 +19,25 @@ export class ForecastService {
     now: () => Date.now(),
   });
 
-  async forecast(q: ForecastQuery): Promise<ForecastAnswer> {
+  constructor(@InjectDataSource() private readonly db: DataSource) {}
+
+  /**
+   * The forecast for one campsite, found by its slug. The point comes from
+   * our own table: see `parseSlug` for why.
+   */
+  async forecast(slug: string): Promise<ForecastAnswer> {
+    const rows: Array<{ lat: number; lon: number; country: string }> =
+      await this.db.query(
+        `SELECT ST_Y(location::geometry) AS lat, ST_X(location::geometry) AS lon,
+                country FROM camping_spots WHERE slug = $1`,
+        [slug],
+      );
+    if (rows.length === 0) throw new NotFoundException('no such campsite');
+    const q = {
+      lat: Number(rows[0].lat),
+      lon: Number(rows[0].lon),
+      country: String(rows[0].country).toLowerCase(),
+    };
     try {
       const a = await this.cache.forecast(q);
       if (a) return a;

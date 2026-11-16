@@ -21,6 +21,8 @@
 // the same number is the API's (`MIN_DAYS_TO_SHOW`), so the two ends agree
 // on what "too few" means.
 
+import { trustOf, type Origin, type TrustStatus } from './trust';
+
 export const FORECAST_API = process.env.NEXT_PUBLIC_API_BASE_URL ?? '';
 
 export const CONDITIONS = [
@@ -52,27 +54,28 @@ export const CONDITION_LABEL: Record<Condition, string> = {
 };
 
 /** Fewer usable days than this and there is no section. */
-export const MIN_DAYS = 5;
+export const MIN_DAYS = 3;
 export const MAX_DAYS = 7;
 
 export const OPEN_METEO_URL = 'https://open-meteo.com/';
 export const CC_BY_URL = 'https://creativecommons.org/licenses/by/4.0/';
 
-export function forecastUrl(
-  lat: number,
-  lon: number,
-  country: string,
-  base: string = FORECAST_API,
-): string {
-  // Six decimals is about a tenth of a metre; the server rounds to a
-  // 25 km cell anyway, and a shorter address is a better cache key.
-  const q = new URLSearchParams({
-    lat: lat.toFixed(3),
-    lng: lon.toFixed(3),
-    country: country.toLowerCase(),
-  });
-  return `${base}/forecast?${q.toString()}`;
+export function forecastUrl(slug: string, base: string = FORECAST_API): string {
+  // The campsite, by slug: the server finds the point itself, so no
+  // coordinate leaves the browser and none can be made up.
+  return `${base}/forecast?slug=${encodeURIComponent(slug)}`;
 }
+
+/**
+ * What stands behind the forecast's figures, in the trust vocabulary: we
+ * work the daily values out from an outside model, which is `derived`,
+ * which `trustOf` turns into a word. Never typed here as a word.
+ */
+export const FORECAST_ORIGIN: Origin = {
+  kind: 'derived',
+  sourceId: 'open-meteo-forecast',
+};
+export const FORECAST_STATUS: TrustStatus = trustOf(FORECAST_ORIGIN);
 
 const isDate = (s: unknown): s is string => {
   if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;

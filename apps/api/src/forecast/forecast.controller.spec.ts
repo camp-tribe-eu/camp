@@ -21,8 +21,8 @@ beforeAll(async () => {
       {
         provide: ForecastService,
         useValue: {
-          forecast: (q: unknown) => {
-            asked.push(q);
+          forecast: (slug: string) => {
+            asked.push(slug);
             return answer();
           },
         },
@@ -42,15 +42,22 @@ beforeEach(() => {
 const get = (qs: string) => fetch(`${base}/forecast?${qs}`);
 
 describe('GET /forecast', () => {
-  it('an answer is cacheable for fifteen minutes and passes the parsed query on', async () => {
-    const r = await get('lat=46.6&lng=-1.8&country=FR');
+  it('an answer is cacheable for fifteen minutes and passes the slug on', async () => {
+    const r = await get('slug=camp-bovec');
     expect(r.status).toBe(200);
     expect(r.headers.get('cache-control')).toBe('public, max-age=900');
-    expect(asked).toEqual([{ lat: 46.6, lon: -1.8, country: 'fr' }]);
+    expect(asked).toEqual(['camp-bovec']);
   });
 
-  it('a point outside the EU is a 400 with NO Cache-Control, and never reaches the service', async () => {
-    const r = await get('lat=40.7&lng=-74&country=es');
+  it('a coordinate is not an input any more: lat/lng alone is a 400 and never reaches the service', async () => {
+    const r = await get('lat=51&lng=0&country=fr');
+    expect(r.status).toBe(400);
+    expect(r.headers.get('cache-control')).toBeNull();
+    expect(asked).toEqual([]);
+  });
+
+  it('a malformed slug is a 400 with NO Cache-Control', async () => {
+    const r = await get('slug=..%2Fetc');
     expect(r.status).toBe(400);
     expect(r.headers.get('cache-control')).toBeNull();
     expect(asked).toEqual([]);
@@ -60,7 +67,7 @@ describe('GET /forecast', () => {
     answer = async () => {
       throw new ServiceUnavailableException('forecast is not available');
     };
-    const r = await get('lat=46.6&lng=-1.8&country=fr');
+    const r = await get('slug=camp-bovec');
     expect(r.status).toBe(503);
     expect(r.headers.get('cache-control')).toBeNull();
   });

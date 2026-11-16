@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 
-import { parseQuery } from './forecast';
+import { parseSlug } from './forecast';
 import { ForecastService } from './forecast.service';
 
 @Controller('forecast')
@@ -15,7 +15,7 @@ export class ForecastController {
   constructor(private readonly forecast: ForecastService) {}
 
   /**
-   * CAMP-477: seven days for one campsite.
+   * CAMP-477: up to seven days for one campsite, named by its slug.
    *
    * 🔴 THE PAGE IS STATIC AND THIS ROUTE IS WHY A FORECAST CAN BE ON IT.
    * A forecast in the built HTML would be as old as the build. The browser
@@ -31,17 +31,11 @@ export class ForecastController {
   @Get()
   async one(
     @Res({ passthrough: true }) res: Response,
-    @Query('lat') lat?: string,
-    @Query('lng') lng?: string,
-    @Query('country') country?: string,
+    @Query('slug') slug?: string,
   ) {
-    const q = parseQuery({ lat, lng, country });
-    if (!q) {
-      throw new BadRequestException(
-        'lat, lng and country: a point inside the EU-27 and its code',
-      );
-    }
-    const answer = await this.forecast.forecast(q);
+    const s = parseSlug(slug);
+    if (!s) throw new BadRequestException('slug: the campsite slug');
+    const answer = await this.forecast.forecast(s);
     res.setHeader('Cache-Control', 'public, max-age=900');
     return answer;
   }

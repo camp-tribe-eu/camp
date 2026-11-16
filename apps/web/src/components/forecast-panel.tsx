@@ -3,9 +3,11 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { TrustMark } from '@/components/trust';
+import type { Origin } from '@/lib/trust';
 import { trustOf } from '@/lib/trust';
 import {
   CC_BY_URL,
+  FORECAST_ORIGIN,
   CONDITION_LABEL,
   OPEN_METEO_URL,
   dayLabel,
@@ -44,17 +46,13 @@ import {
 // of the rendered HTML.
 
 export function ForecastNote({
-  lat,
-  lon,
-  country,
+  slug,
 }: {
-  lat: number;
-  lon: number;
-  country: string;
+  slug: string;
 }) {
   const [forecast, setDays] = useState<Forecast | null>(null);
   const sentinel = useRef<HTMLDivElement | null>(null);
-  const url = forecastUrl(lat, lon, country);
+  const url = forecastUrl(slug);
 
   useEffect(() => {
     return watchForForecast(sentinel.current, url, setDays, {
@@ -91,13 +89,20 @@ export function ForecastNote({
   return <ForecastPanel forecast={forecast} />;
 }
 
-export function ForecastPanel({ forecast }: { forecast: Forecast }) {
+export function ForecastPanel({
+  forecast,
+  origin = FORECAST_ORIGIN,
+}: {
+  forecast: Forecast;
+  /** A seam for the test that proves the word is derived; production passes none. */
+  origin?: Origin;
+}) {
   const { days, runAt } = forecast;
   if (days.length === 0) return null;
   // 🔴 DERIVED, NOT TYPED: the word comes from `trustOf`, like every other
   // status on the page. We work the daily figures out from an outside
   // model, which the trust vocabulary calls `derived` → "Imported".
-  const status = trustOf({ kind: 'derived', sourceId: 'open-meteo-forecast' });
+  const status = trustOf(origin);
   return (
     <section
       data-testid="forecast"
@@ -113,7 +118,7 @@ export function ForecastPanel({ forecast }: { forecast: Forecast }) {
         className="text-xl md:text-[25px]"
         data-boilerplate="forecast-heading"
       >
-        7-day forecast
+        {days.length}-day forecast
       </h2>
 
       <div className="mt-3 rounded-card border border-line-2 bg-surface-2 p-4 text-sm text-ink-2">

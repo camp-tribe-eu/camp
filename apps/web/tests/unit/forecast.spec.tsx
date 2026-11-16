@@ -51,6 +51,12 @@ test.describe('the panel, as served', () => {
     expect(text).toContain('16° / 13°');
   });
 
+  test('the heading counts the days actually shown, never a promised seven', async () => {
+    expect(visibleText(await html(VENDEE.slice(0, 5)))).toContain('5-day forecast');
+    expect(visibleText(await html(VENDEE.slice(0, 5)))).not.toContain('7-day');
+    expect(visibleText(await html(VENDEE.slice(0, 3)))).toContain('3-day forecast');
+  });
+
   test('a first row says Mon 16 Nov with its figures in ONE row, not spread', async () => {
     const h = await html(VENDEE);
     const row = h.split('data-testid="forecast-day"')[1].split('</tr>')[0];
@@ -149,9 +155,9 @@ test.describe('parseForecast: one bad day costs one day', () => {
     expect(got?.map((d) => d.date)).toEqual(VENDEE.slice(0, 5).map((d) => d.date));
   });
 
-  test('four days are too few: no section', () => {
-    expect(parseForecast(body(VENDEE.slice(0, 4)))).toBeNull();
-    expect(parseForecast(body(VENDEE.slice(0, 5)))?.length).toBe(5);
+  test('two days are too few: no section; three are enough', () => {
+    expect(parseForecast(body(VENDEE.slice(0, 2)))).toBeNull();
+    expect(parseForecast(body(VENDEE.slice(0, 3)))?.length).toBe(3);
   });
 
   test('nothing that is not an answer becomes one', () => {
@@ -187,11 +193,13 @@ test.describe('formatting', () => {
 });
 
 test.describe('the request', () => {
-  test('goes to OUR API and carries a rounded point and the country', () => {
-    expect(forecastUrl(46.6123, -1.8, 'FR', 'https://camptribe.eu/api')).toBe(
-      'https://camptribe.eu/api/forecast?lat=46.612&lng=-1.800&country=fr',
+  test('goes to OUR API and names the campsite, not a point', () => {
+    expect(forecastUrl('camp-bovec', 'https://camptribe.eu/api')).toBe(
+      'https://camptribe.eu/api/forecast?slug=camp-bovec',
     );
+    expect(forecastUrl('a b/c')).toBe('/forecast?slug=a%20b%2Fc');
   });
+
 });
 
 test.describe('watchForForecast', () => {
@@ -213,7 +221,7 @@ test.describe('watchForForecast', () => {
     ['a 503 with a body that parses', async () => ({ ok: false, json: async () => body(VENDEE) })],
     ['a network error', async () => Promise.reject(new Error('offline'))],
     ['a body that is not JSON', async () => ({ ok: true, json: async () => Promise.reject(new Error('x')) })],
-    ['an answer with three days', ok(body(VENDEE.slice(0, 3)))],
+    ['an answer with two days', ok(body(VENDEE.slice(0, 2)))],
   ] as const) {
     test(`${name} ends in null, which draws nothing`, async () => {
       const got: Array<Forecast | null> = [];
