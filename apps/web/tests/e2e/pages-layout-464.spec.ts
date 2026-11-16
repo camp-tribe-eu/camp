@@ -37,10 +37,16 @@ test.describe("🔴 CAMP-464 — /contact", () => {
     expect(overflow, "горизонтальна прокрутка на 375").toBe(false);
   });
 
-  test("форми немає: єдина дія — лист, і вона одна", async ({ page, request }) => {
+  test("форма одна (CAMP-441/31), а лист лишається запасним шляхом — одна кнопка-якір", async ({
+    page,
+    request,
+  }) => {
     await page.goto("/contact");
-    await expect(page.locator("main form")).toHaveCount(0);
-    await expect(page.locator("main [data-ct-button]")).toHaveCount(1);
+    // Раніше тут було «форми немає» — тест, який саме це й тримав. Тепер
+    // форма є, і тримається, що вона ОДНА й що лист нікуди не дівся.
+    await expect(page.locator("main form")).toHaveCount(1);
+    await expect(page.getByTestId("contact-form").locator("form")).toHaveCount(1);
+    await expect(page.locator("main a[data-ct-button]")).toHaveCount(1);
     // Дві картки-адреси ведуть на ЛИСТ (звичайним якорем, не `next/link`).
     const cards = page.locator('main [data-testid="features"] a[href^="mailto:"]');
     await expect(cards).toHaveCount(2);

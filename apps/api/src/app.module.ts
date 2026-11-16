@@ -32,6 +32,7 @@ import { WarningsModule } from './warnings/warnings.module';
 import { WebcamsModule } from './webcams/webcams.module';
 import { ForecastModule } from './forecast/forecast.module';
 import { ProblemReportsModule } from './reports/problem-reports.module';
+import { ContactModule } from './contact/contact.module';
 import { ProblemReport } from './entities/problem-report.entity';
 import { ClientError } from './entities/client-error.entity';
 import { NotFoundHit } from './entities/not-found-hit.entity';
@@ -144,6 +145,8 @@ export const REASONS = loadMeasuredReasons();
     // «Report a problem» — `POST /problem-reports`, open, in its own throttle
     // bucket; rows are read in Directus by a moderator, never by a GET.
     ProblemReportsModule,
+    // «Write to us»: a letter to the project mailbox, nothing stored.
+    ContactModule,
     // CAMP-391: the HTTP entry to the planner — `POST /plan`, in its own throttle
     // bucket, over a read-only transaction.
     PlanModule,
