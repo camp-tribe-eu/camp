@@ -230,7 +230,14 @@ function Slider({
                 {s.eyebrow ? (
                   <span className="ct-slide__eyebrow">{s.eyebrow}</span>
                 ) : null}
-                <h2 className="ct-slide__heading">{s.heading}</h2>
+                {/* 🔴 ОДИН h1 НА ГОЛОВНІЙ — ПЕРШИЙ СЛАЙД. Старий блок
+                    «Every campsite, and what is around it» прибрано як дубль
+                    заголовка; решта слайдів — h2, бо h1 у сторінки один. */}
+                {i === 0 ? (
+                  <h1 className="ct-slide__heading">{s.heading}</h1>
+                ) : (
+                  <h2 className="ct-slide__heading">{s.heading}</h2>
+                )}
                 {s.body ? <p className="ct-slide__text">{s.body}</p> : null}
                 {s.cta ? (
                   <div className="ct-slide__button">

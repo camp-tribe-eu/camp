@@ -816,7 +816,8 @@ test.describe("сторінка /plan", () => {
     const said = visibleText(page());
     expect(said).toContain("What it does not know:");
     expect(said).toContain("the roads, so every distance is a straight line and there are no driving times");
-    expect(said).toContain("the size of your vehicle, because we hold no data on pitch sizes");
+    expect(said).toContain("the size of your vehicle, so the height");
+    expect(said).not.toContain("pitch sizes");
     expect(said).toContain("whether a campsite is open on your dates");
     expect(said).toContain("Place names are looked up in our own data only, as they are written locally.");
     expect(said).toContain("the height, length and weight you enter are saved with the trip and change nothing in the plan");

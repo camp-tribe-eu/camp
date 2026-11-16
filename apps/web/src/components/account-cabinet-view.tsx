@@ -75,7 +75,7 @@ export const EMPTY_STATES: readonly EmptyState[] = [
     // write-маршруту. «Синхронізується між пристроями» описувало б список,
     // якого не існує.
     body:
-      'Saving a campsite to your account is not built yet, so nothing can land here. ' +
+      'Nothing is saved to your account, so there is nothing to list here. ' +
       'The site does not yet let you save a trip, a place, a photograph or a review.',
     actions: [
       // макет: «Відкрити мапу»

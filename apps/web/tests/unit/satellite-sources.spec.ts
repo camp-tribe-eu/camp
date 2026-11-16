@@ -99,31 +99,31 @@ test("a country with no source gets no source", () => {
   expect(satelliteFor(["pl"])).toBeNull();
 });
 
-// 🔴 "WE LOOKED AND THERE IS NONE" IS NOT "WE HAVE NOT LOOKED".
-//
-// The first version printed "No open orthophoto service we can use covers
-// X yet" for every country without a source — twenty-five of them — when
-// exactly one had been researched. Asserting a negative result nobody
-// measured is the same fault this repository keeps finding in its guards,
-// moved onto the page where a reader believes it.
-test("a researched country says what was found", () => {
+// 🔴 NO KITCHEN ON THE PAGE. A country without a source gets one neutral
+// sentence: not "we have not looked", not "closed to us by licence".
+test("a researched and an unresearched country both get the neutral sentence", () => {
   const researched = SATELLITE_NOT_YET.map((n) => n.country);
   expect(researched.length).toBeGreaterThan(0);
-  const why = whySatelliteUnavailable([researched[0]]);
-  expect(why).toContain("No orthophoto service we can use covers");
+  for (const c of [researched[0], "pl"]) {
+    const why = whySatelliteUnavailable([c]);
+    expect(why).toBe(`Satellite imagery is not available in ${c.toUpperCase()}.`);
+  }
+  expect(whySatelliteUnavailable(["pl", "hr"])).toBe(
+    "Satellite imagery is not available in PL, HR.",
+  );
 });
 
-test("an unresearched country admits nobody looked", () => {
-  const unresearched = "pl";
-  expect(SATELLITE_NOT_YET.some((n) => n.country === unresearched)).toBe(false);
-  const why = whySatelliteUnavailable([unresearched]);
-  expect(why).toContain("have not yet looked");
-  expect(why).not.toContain("No orthophoto service we can use covers");
+test("the reason never discusses our own research or licences", () => {
+  for (const list of [["pl"], ["nl"], ["pl", "hr"], ["nl", "pl"]]) {
+    expect(whySatelliteUnavailable(list)).not.toMatch(
+      /not yet looked|closed to us|licen[cs]e|we can use|\bwe\b/i,
+    );
+  }
 });
 
 test("a covered country is never told imagery is missing", () => {
   for (const c of COVERED) {
-    expect(whySatelliteUnavailable([c])).not.toContain("have not yet looked");
+    expect(whySatelliteUnavailable([c])).not.toContain("not available");
   }
 });
 

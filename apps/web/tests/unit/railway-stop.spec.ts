@@ -369,16 +369,21 @@ test.describe("the home page, which says what is computed for every campsite", (
     return visibleText(html);
   }
 
-  test("anchor: the hero renders", async () => {
+  // 🔴 The old h1 + lead block under the slider is gone (it duplicated the
+  // slider's heading). The fixture still carries a `hero` section, as an
+  // unmigrated database would, so these read the RENDERED page: neither the
+  // heading nor the lead sentence may be printed, and the page that remains
+  // must not call the field a station.
+  test("anchor: the page renders, without the retired hero block", async () => {
     const text = await home();
-    expect(text).toContain("Every campsite, and what is around it");
+    expect(text).toContain("How this works");
+    expect(text).not.toContain("Every campsite, and what is around it");
+    expect(text).not.toContain("calculated by us, published by nobody else");
   });
 
-  test('🔴 the hero lists "a railway stop" among the things we compute', async () => {
+  test('🔴 the page no longer prints the lead that listed "a railway stop"', async () => {
     const text = await home();
-    expect(text).toContain(
-      "the distance to water, to the nearest town and to a railway stop, its elevation and its terrain",
-    );
+    expect(text).not.toContain("the distance to water, to the nearest town");
     expect(text).not.toMatch(/railway station/i);
   });
 });
