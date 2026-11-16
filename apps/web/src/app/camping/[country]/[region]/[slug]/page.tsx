@@ -891,14 +891,20 @@ function Around({ spot }: { spot: Spot }) {
         className="mt-4 grid grid-cols-1 gap-x-8 gap-y-5 sm:grid-cols-2 lg:grid-cols-3"
       >
         {scaledRows.map((r) => (
-          <div key={r.key} data-row={r.key} className="min-w-0">
-            <div className="mb-2 flex items-baseline justify-between gap-3">
-              <dt className="min-w-0 break-words text-sm text-ink">{r.label}</dt>
-              <dd className="shrink-0 text-base font-bold tabular-nums text-heading">
-                {glueUnit(r.value)}
-              </dd>
-            </div>
-            <ScaleTrack row={r} />
+          // dt/dd must be DIRECT children of the row div (axe
+          // `definition-list`): the track is a second <dd> of the same term.
+          <div
+            key={r.key}
+            data-row={r.key}
+            className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3"
+          >
+            <dt className="min-w-0 break-words text-sm text-ink">{r.label}</dt>
+            <dd className="text-base font-bold tabular-nums text-heading">
+              {glueUnit(r.value)}
+            </dd>
+            <dd className="col-span-2 mt-2">
+              <ScaleTrack row={r} />
+            </dd>
           </div>
         ))}
       </dl>
