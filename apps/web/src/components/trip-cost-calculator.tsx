@@ -1,5 +1,6 @@
 'use client';
 
+import { SELECT_CHEVRON_ROOM, SelectChevron } from './select-chevron';
 import { useEffect, useMemo, useState } from 'react';
 import {
   budget,
@@ -281,62 +282,71 @@ export default function TripCostCalculator({ country }: CalculatorProps) {
             <label className={label} htmlFor="tc-country">
               Country you are driving in
             </label>
-            <select
-              id="tc-country"
-              disabled={!ready}
-              className={field}
-              value={s.country}
-              onChange={(e) => set('country', e.target.value)}
-            >
-              {options.map((c) => (
-                <option key={c.code} value={c.code}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+            <div className="relative">
+              <select
+                id="tc-country"
+                disabled={!ready}
+                className={`${field} ${SELECT_CHEVRON_ROOM}`}
+                value={s.country}
+                onChange={(e) => set('country', e.target.value)}
+              >
+                {options.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              <SelectChevron />
+            </div>
           </div>
 
           <div>
             <label className={label} htmlFor="tc-fuel">
               Fuel
             </label>
-            <select
-              id="tc-fuel"
-              disabled={!ready}
-              className={field}
-              value={s.fuel}
-              onChange={(e) => set('fuel', e.target.value as FuelType)}
-            >
-              <option value="diesel">Diesel</option>
-              <option value="petrol">Petrol (Euro-super 95)</option>
-            </select>
+            <div className="relative">
+              <select
+                id="tc-fuel"
+                disabled={!ready}
+                className={`${field} ${SELECT_CHEVRON_ROOM}`}
+                value={s.fuel}
+                onChange={(e) => set('fuel', e.target.value as FuelType)}
+              >
+                <option value="diesel">Diesel</option>
+                <option value="petrol">Petrol (Euro-super 95)</option>
+              </select>
+              <SelectChevron />
+            </div>
           </div>
 
           <div className="sm:col-span-2">
             <label className={label} htmlFor="tc-vehicle">
               Vehicle
             </label>
-            <select
-              id="tc-vehicle"
-              disabled={!ready}
-              className={field}
-              value={s.vehicleId}
-              onChange={(e) => {
-                const v = vehicle(e.target.value);
-                setShared('idle');
-                setS((prev) => ({
-                  ...prev,
-                  vehicleId: v.id,
-                  litresPer100: String(v.start),
-                }));
-              }}
-            >
-              {VEHICLES.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.label}
-                </option>
-              ))}
-            </select>
+            <div className="relative">
+              <select
+                id="tc-vehicle"
+                disabled={!ready}
+                className={`${field} ${SELECT_CHEVRON_ROOM}`}
+                value={s.vehicleId}
+                onChange={(e) => {
+                  const v = vehicle(e.target.value);
+                  setShared('idle');
+                  setS((prev) => ({
+                    ...prev,
+                    vehicleId: v.id,
+                    litresPer100: String(v.start),
+                  }));
+                }}
+              >
+                {VEHICLES.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.label}
+                  </option>
+                ))}
+              </select>
+              <SelectChevron />
+            </div>
             <p className="mt-1 text-sm text-ink-2">{shape.note}</p>
           </div>
 

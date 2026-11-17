@@ -1,3 +1,4 @@
+import { SELECT_CHEVRON_ROOM, SelectChevron } from './select-chevron';
 import Link from 'next/link';
 import type { ReactNode, Ref } from 'react';
 import { AMENITY_LABEL, countryName } from '@/lib/api';
@@ -79,7 +80,7 @@ const border = (bad: boolean) => (bad ? 'border-warn' : 'border-line-2');
  * власного шеврона `appearance: none` зробив би селект схожим на звичайне
  * поле. Висота 56px і відступи 18px — теж із теми.
  */
-const SELECT = `${FIELD} min-h-14 appearance-none py-[18px] ps-4 pe-10 font-semibold`;
+const SELECT = `${FIELD} min-h-14 ${SELECT_CHEVRON_ROOM} py-[18px] ps-4 font-semibold`;
 
 /** Ідентифікатори через пробіл, без порожніх і без тих, на які немає на що посилатись. */
 const describedBy = (...ids: (string | false | undefined)[]) =>
@@ -131,17 +132,7 @@ function Select(props: {
         >
           {props.children}
         </select>
-        <svg
-          aria-hidden="true"
-          data-testid="select-chevron"
-          width="12"
-          height="8"
-          viewBox="0 0 12 8"
-          fill="none"
-          className="pointer-events-none absolute end-4 top-1/2 mt-0.5 -translate-y-1/2 text-heading"
-        >
-          <path d="M1 1.5 6 6.5 11 1.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+        <SelectChevron />
       </div>
     </div>
   );

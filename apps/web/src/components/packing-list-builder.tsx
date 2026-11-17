@@ -1,5 +1,6 @@
 'use client';
 
+import { SELECT_CHEVRON_ROOM, SelectChevron } from './select-chevron';
 import { useEffect, useState } from 'react';
 import Checkbox from '@/components/checkbox';
 import { buttonClasses } from '@/components/button';
@@ -229,37 +230,43 @@ export default function PackingListBuilder() {
             <label className={label} htmlFor="pk-vehicle">
               Travelling in
             </label>
-            <select
-              id="pk-vehicle"
-              disabled={!ready}
-              className={field}
-              value={input.vehicle}
-              onChange={(e) => set('vehicle', e.target.value as VehicleKind)}
-            >
-              {VEHICLE_KINDS.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.label}
-                </option>
-              ))}
-            </select>
+            <div className="relative">
+              <select
+                id="pk-vehicle"
+                disabled={!ready}
+                className={`${field} ${SELECT_CHEVRON_ROOM}`}
+                value={input.vehicle}
+                onChange={(e) => set('vehicle', e.target.value as VehicleKind)}
+              >
+                {VEHICLE_KINDS.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.label}
+                  </option>
+                ))}
+              </select>
+              <SelectChevron />
+            </div>
           </div>
           <div>
             <label className={label} htmlFor="pk-season">
               Time of year
             </label>
-            <select
-              id="pk-season"
-              disabled={!ready}
-              className={field}
-              value={input.season}
-              onChange={(e) => set('season', e.target.value as Season)}
-            >
-              {SEASONS.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
+            <div className="relative">
+              <select
+                id="pk-season"
+                disabled={!ready}
+                className={`${field} ${SELECT_CHEVRON_ROOM}`}
+                value={input.season}
+                onChange={(e) => set('season', e.target.value as Season)}
+              >
+                {SEASONS.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+              <SelectChevron />
+            </div>
           </div>
           <div>
             <label className={label} htmlFor="pk-nights">
