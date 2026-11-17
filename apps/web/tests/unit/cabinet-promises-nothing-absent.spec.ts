@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, basename } from "node:path";
 
 // 🔴 CAMP-425. ІНТЕРФЕЙС НЕ СМІЄ ОБІЦЯТИ ТЕ, ЧОГО API НЕ ВМІЄ ПРИЙНЯТИ.
 //
@@ -42,7 +42,9 @@ function controllers(): string[] {
 function writeRoutesAbout(words: string[]): number {
   let n = 0;
   for (const f of controllers()) {
-    if (!words.some((w) => f.includes(w))) continue;
+    // The FILE name, not the path: a checkout in a folder called «…photos»
+    // made every controller count as a photo controller (17.11.2026).
+    if (!words.some((w) => basename(f).includes(w))) continue;
     n += (readFileSync(f, "utf8").match(/@(Post|Put|Patch|Delete)\(/g) ?? [])
       .length;
   }

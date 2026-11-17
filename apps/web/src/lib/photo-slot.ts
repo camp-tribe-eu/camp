@@ -1,3 +1,4 @@
+import type { PagePhoto } from './page-photos';
 import { apiFetch } from './api';
 import { bannerFileUsable, nowMs } from './cms-file';
 import { readRawBanner, type RawBanner } from './country-banner';
@@ -116,6 +117,8 @@ export async function getRawPhotoSlotMemo(key: PhotoSlotKey): Promise<RawBanner>
 export async function bannerBackground(
   key: PhotoSlotKey,
   fallback: string,
-): Promise<{ src: string; alt: string }> {
-  return (await getPhotoSlot(key)) ?? { src: fallback, alt: '' };
+  generated: PagePhoto | null = null,
+): Promise<{ src: string; alt: string; ai?: boolean }> {
+  // Owner's photo → this page's generated one → the shared drawing.
+  return (await getPhotoSlot(key)) ?? generated ?? { src: fallback, alt: '' };
 }

@@ -1,3 +1,4 @@
+import { MoreForTheTrip } from "@/components/more-for-the-trip";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
@@ -99,6 +100,25 @@ export default async function ToolsIndex() {
       <div className="mt-4">
         <PageSections sections={page.sections} />
       </div>
+
+      {/* CAMP-443 (14): sections at the bottom — blog and other features. */}
+      <MoreForTheTrip
+        testId="tools-more"
+        features={[
+          {
+            image: { src: "/banners/routes.webp" },
+            heading: "Road trips",
+            text: "Twelve routes across Europe with the campsites, motorhome parks and services along them.",
+            cta: { href: "/routes", label: "See the routes" },
+          },
+          {
+            image: { src: "/banners/guides.webp" },
+            heading: "Guides",
+            text: "Packing, driving, overnight rules and the small print of camping in Europe.",
+            cta: { href: "/guides", label: "Read the guides" },
+          },
+        ]}
+      />
     </main>
   );
 }

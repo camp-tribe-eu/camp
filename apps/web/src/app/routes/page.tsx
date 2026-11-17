@@ -1,3 +1,4 @@
+import { MoreForTheTrip } from "@/components/more-for-the-trip";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { countryName } from "@/lib/api";
@@ -199,6 +200,25 @@ export default async function RoutesIndex() {
           </p>
         </Block>
       </section>
+
+      {/* CAMP-443 (17, 21): sections at the bottom — blog and other features. */}
+      <MoreForTheTrip
+        testId="routes-more"
+        features={[
+          {
+            image: { src: "/banners/camper.webp" },
+            heading: "Rent a camper",
+            text: "Licence classes, weights, tolls and insurance — what hiring a camper commits you to, country by country.",
+            cta: { href: "/camper-rental", label: "Choose a country" },
+          },
+          {
+            image: { src: "/banners/tools.webp" },
+            heading: "Planning tools",
+            text: "A trip cost calculator on this week's fuel prices and a packing list for your season and vehicle.",
+            cta: { href: "/tools", label: "Open the tools" },
+          },
+        ]}
+      />
     </main>
   );
 }
