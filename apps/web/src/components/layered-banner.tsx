@@ -218,7 +218,7 @@ export function LayeredBanner({
           className="ct-banner__background"
           src={background.src}
           srcSet={srcSetFor(background.src)}
-          sizes={SIZES.full}
+          sizes={srcSetFor(background.src) ? SIZES.full : undefined}
           alt={background.alt ?? ""}
           fetchPriority="high"
         />

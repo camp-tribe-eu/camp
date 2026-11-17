@@ -113,7 +113,7 @@ export function GridBanner({
                 className="ct-grid-banner__image"
                 src={item.image.src}
                 srcSet={srcSetFor(item.image.src)}
-                sizes={SIZES.half}
+                sizes={srcSetFor(item.image.src) ? SIZES.half : undefined}
                 alt={item.image.alt ?? ""}
                 loading="lazy"
               />

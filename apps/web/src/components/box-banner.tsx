@@ -100,7 +100,7 @@ export function BoxBanner({
             className="ct-box-banner__media"
             src={image.src}
             srcSet={srcSetFor(image.src)}
-            sizes={SIZES.wide}
+            sizes={srcSetFor(image.src) ? SIZES.wide : undefined}
             alt={image.alt ?? ""}
             loading="lazy"
           />

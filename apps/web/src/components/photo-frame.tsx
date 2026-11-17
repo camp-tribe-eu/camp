@@ -121,7 +121,7 @@ export function PhotoFrame({
         className="ct-photo__image"
         src={src}
         srcSet={srcSetFor(src)}
-        sizes={SIZES.full}
+        sizes={srcSetFor(src) ? SIZES.full : undefined}
         alt={image?.alt ?? ""}
         loading={loading}
         data-testid="photo-image"
