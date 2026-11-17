@@ -1,5 +1,6 @@
 import { DataSource, type QueryRunner } from 'typeorm';
 import { HeaderFooterMenus1797480000000 } from '../migrations/1797480000000-HeaderFooterMenus';
+import { NavAboutChildren1797970000000 } from '../migrations/1797970000000-NavAboutChildren';
 
 /**
  * CAMP-448 — міграція меню читається з бази, а не з тексту запиту.
@@ -42,6 +43,9 @@ describe('HeaderFooterMenus: що міграція кладе в меню й щ�
     await qr.connect();
     await qr.startTransaction();
     // Починаємо з доміграційного стану, хоч база вже могла її накотити.
+    // Новіші міграції меню відкочуються першими, як при справжньому відкаті:
+    // інакше їхні рядки під /about лишились би й зламали «до» цієї.
+    await new NavAboutChildren1797970000000().down(qr);
     await m.down(qr);
   });
 
