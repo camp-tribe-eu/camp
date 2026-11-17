@@ -515,6 +515,28 @@ test.describe('the wildfire layer', () => {
       page,
     }) => {
       await serveFeed(page, feedOf([centred(fire)]));
+      // 🔴 CAMP-532. No campsites on this map. A click on a campsite
+      // CLUSTER zooms the map (`easeTo` in campsite-map.tsx), and on a
+      // 390 px phone the CI fixture's clusters sit within reach of the
+      // fire at the centre: one of the twelve clicks below landed on a
+      // cluster, the map moved, and the next click at the same pixels
+      // found nothing — «nothing at (0, -5)», passing on retry (17.11.2026,
+      // #606 and #610). This test is about the fire's hit area, so it gets
+      // a map that holds only the fire. Not an EMPTY index — the map reads
+      // that as a broken build and never reaches «drawn» — but one region
+      // far outside the view (Lapland), whose chunk is empty.
+      await page.route('**/data/spots/index.json', (r) =>
+        r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([
+            { country: 'FI', region: 'Lappi', slug: 'lappi', count: 1, minLon: 27, minLat: 68, maxLon: 27.1, maxLat: 68.1, lon: 27.05, lat: 68.05 },
+          ]),
+        }),
+      );
+      await page.route('**/data/spots/*.geojson', (r) =>
+        r.fulfill({ status: 200, contentType: 'application/json', body: '{"type":"FeatureCollection","features":[]}' }),
+      );
       await openMap(page);
       await settle(page);
       await expect(page.locator(NOTE)).toHaveAttribute('data-in-view', '1');
@@ -530,9 +552,8 @@ test.describe('the wildfire layer', () => {
       // the point that was clicked and is 260 px wide, so a spot straight
       // above the fire is under the card — the first version clicked there
       // to "close" it and hit the card instead. This one is up and to the
-      // left, and the nearest campsite in the CI fixture is 75 px from it.
-      // It is used BEFORE any card is open, and cards are closed by their
-      // own button.
+      // left. It is used BEFORE any card is open, and cards are closed by
+      // their own button. (No campsites are served to this test — see above.)
       const empty = { x: cx - 120, y: cy - 100 };
       // dispatchEvent, not click(): on a phone the card sits under the zoom
       // control and the cookie banner, and a real pointer click on its close
