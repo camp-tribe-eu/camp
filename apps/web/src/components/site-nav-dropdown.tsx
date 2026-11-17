@@ -111,6 +111,12 @@ export function NavDropdown({ item }: { item: NavItem }) {
       className={mega ? undefined : "relative"}
       onMouseEnter={() => {
         cancelClose();
+        // 🔴 Hover opens the panel only where hover exists. On a touch
+        // screen the panel opens by tap (onClick below); a pointer merely
+        // passing over the header — a scroll, an emulated mouse — must not
+        // unfold a list over the page and swallow the next tap (CI 17.11:
+        // the 4-item About list covered links on mobile-chrome).
+        if (typeof window !== "undefined" && !window.matchMedia("(hover: hover)").matches) return;
         setOpen(true);
       }}
       onMouseLeave={scheduleClose}
