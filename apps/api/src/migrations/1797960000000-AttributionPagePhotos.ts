@@ -27,8 +27,15 @@ export class AttributionPagePhotos1797960000000 implements MigrationInterface {
   readonly previous = new AttributionWeatherForecast1797930000000().page;
 
   readonly page = (() => {
-    const body = replaceOnce(
+    // The banners on the main sections were replaced too (17.11.2026), so
+    // the 1.4 paragraph naming FLUX ultra would now be untrue.
+    const banners = replaceOnce(
       this.previous.body,
+      'The banners behind page headings and on the section cards are AI-generated. They were made with the FLUX1.1 [pro] ultra model from Black Forest Labs, run through the hosted service at [fal.run](https://fal.run/fal-ai/flux-pro/v1.1-ultra), from a text prompt alone: no photograph or other picture was supplied. We keep the prompt and the seed of every image on record.',
+      'The banners behind the headings of the main sections and on the section cards are AI-generated. They were made with the Seedream 5.5 model from ByteDance, run through the hosted service at [fal.run](https://fal.run/bytedance/seedream/v5.5/text-to-image), from a text prompt alone: no photograph or other picture was supplied. We keep the prompt of every image on record.',
+    );
+    const body = replaceOnce(
+      banners,
       '## Typefaces {#type}',
       `## Illustrations of countries, routes and topics {#illustrations}
 
