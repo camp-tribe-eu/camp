@@ -100,7 +100,17 @@ export function NavDropdown({ item }: { item: NavItem }) {
       if (!root.current?.contains(e.target as Node)) close();
     };
     document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
+    // 🔴 An open panel closes when the page scrolls. The header stays on
+    // screen while the page moves under a still pointer, so the panel was
+    // left hanging over whatever scrolled beneath it and took the next
+    // click (CI 17.11, #609: the 4-item About list over pagination links).
+    // The pointer is still inside the item afterwards, so no new
+    // mouseenter reopens it until the reader moves to it again.
+    window.addEventListener("scroll", close, { passive: true });
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("scroll", close);
+    };
   }, [open, close]);
 
   return (
