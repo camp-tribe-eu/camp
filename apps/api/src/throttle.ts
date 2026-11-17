@@ -288,6 +288,10 @@ export const MAIL_ROUTES = [
   // (256 біт, тож марного), тому стоїть у тому ж відрі.
   'spot-claims/by-email',
   'spot-claims/by-email/confirm',
+  // CAMP-441/31: форма «Write to us» шле лист на скриньку проєкту — наш
+  // власний адресат, але ціна та сама: лист із нашого домену. Не
+  // `ordinary` (120 на хвилину — 7 200 листів на годину власнику).
+  'contact',
 ] as const;
 
 /** Is this a route that can send a letter? Normalised like isLoginPath. */

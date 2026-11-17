@@ -35,14 +35,21 @@ export type MailKind =
   // `claim_spot`: воно працює лише в акаунті, що почав заявку (інакше
   // клік власника скриньки віддав би листинг сторонньому), і саме
   // відкриття сторінки нічого не підтверджує — потрібен клік на кнопку.
-  | 'claim_owner_link';
+  | 'claim_owner_link'
+  // 🔴 «Write to us» (CAMP-441/31) — ТРЕТІЙ ВИД, ЩО ЙДЕ НЕ КОРИСТУВАЧЕВІ, і
+  // перший, що йде НАМ: на нашу ж скриньку, з тим, що написала людина.
+  // Без посилання: нічого, що можна клацнути, у ньому немає.
+  | 'contact_message';
 
 /**
  * Види, у листі яких є посилання, що будується з `LINK_PATH`.
  * `claim_spot` — без посилання; `claim_owner_link` — своє, з токеном, але
  * не тим самим шляхом, тож лежить окремо від `LINK_PATH`.
  */
-export type LinkMailKind = Exclude<MailKind, 'claim_spot' | 'claim_owner_link'>;
+export type LinkMailKind = Exclude<
+  MailKind,
+  'claim_spot' | 'claim_owner_link' | 'contact_message'
+>;
 
 export type MailMessage = {
   to: string;
@@ -50,6 +57,12 @@ export type MailMessage = {
   subject: string;
   text: string;
   html: string;
+  /**
+   * Де відповідь. Лише коли вона йде НЕ на скриньку проєкту: лист із форми
+   * контактів відповідає людині, яка його написала. Одна проста адреса;
+   * відправник перевіряє її тим самим `isPlainAddress`.
+   */
+  replyTo?: string;
 };
 
 export interface MailSender {
@@ -434,3 +447,54 @@ export const resetPasswordMessage = (to: string, link: string): MailMessage =>
     link,
     'If it was not you, just delete this letter — nothing has changed.',
   );
+
+/**
+ * «Write to us»: the letter a visitor's message becomes.
+ *
+ * 🔴 THE VISITOR'S WORDS ARE DATA IN THIS LETTER, NEVER MARKUP AND NEVER A
+ * HEADER. Name and message are escaped in the html part; the subject is the
+ * visitor's text after a fixed prefix, on one line (the rules refuse CR/LF
+ * before it gets here, and `subjectOf` strips them again — a second wall,
+ * because this function is exported and a later caller may not have
+ * parsed). `Reply-To` is the visitor's address, so «Reply» in the mailbox
+ * answers them; `From` stays ours, because a letter from our server that
+ * claims to be from `anna@example.eu` fails SPF and lands in spam.
+ */
+export const CONTACT_SUBJECT_PREFIX = '[CampTribe contact] ';
+
+const oneLine = (s: string): string =>
+  s.replace(/[\u0000-\u001f\u007f\u0085\u2028\u2029]+/g, ' ').trim();
+
+export function contactMessage(
+  to: string,
+  visitor: {
+    name: string;
+    email: string;
+    subject: string | null;
+    message: string;
+  },
+): MailMessage {
+  const subject = `${CONTACT_SUBJECT_PREFIX}${oneLine(visitor.subject ?? '') || 'Message from the contact form'}`;
+  const text = [
+    `From: ${oneLine(visitor.name)} <${visitor.email}>`,
+    `Subject: ${oneLine(visitor.subject ?? '') || '(none)'}`,
+    '',
+    visitor.message,
+    '',
+    '—',
+    'Sent through the contact form on camptribe.eu. Reply to this letter to answer the sender.',
+  ].join('\n');
+  const html =
+    `<p><strong>From:</strong> ${esc(oneLine(visitor.name))} &lt;${esc(visitor.email)}&gt;<br>` +
+    `<strong>Subject:</strong> ${esc(oneLine(visitor.subject ?? '') || '(none)')}</p>` +
+    `<p style="white-space:pre-wrap">${esc(visitor.message)}</p>` +
+    `<p style="color:#666">Sent through the contact form on camptribe.eu. Reply to this letter to answer the sender.</p>`;
+  return {
+    to,
+    kind: 'contact_message',
+    subject,
+    text,
+    html,
+    replyTo: visitor.email,
+  };
+}

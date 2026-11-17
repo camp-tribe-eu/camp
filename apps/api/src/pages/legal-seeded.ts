@@ -19,6 +19,7 @@ import { PersonaChoiceCookies1797100200000 } from '../migrations/1797100200000-P
 import { PrivacyPersonaChoice1797100100000 } from '../migrations/1797100100000-PrivacyPersonaChoice';
 import { PrivacyOwnerVerifyLink1797810000000 } from '../migrations/1797810000000-PrivacyOwnerVerifyLink';
 import { PrivacyTripStorage1797850000000 } from '../migrations/1797850000000-PrivacyTripStorage';
+import { PrivacyContactForm1797950000000 } from '../migrations/1797950000000-PrivacyContactForm';
 import { TripStorageCookies1797850100000 } from '../migrations/1797850100000-TripStorageCookies';
 import { AttributionBannerImages1796600000000 } from '../migrations/1796600000000-AttributionBannerImages';
 import { AttributionWeatherForecast1797930000000 } from '../migrations/1797930000000-AttributionWeatherForecast';
@@ -84,6 +85,7 @@ const UPDATES: ReadonlyArray<SeededLegalPage> = [
   // CAMP-456: шостий запис у сховищі браузера — збережені поїздки; підказки місць; перегони.
   new TripStorageCookies1797850100000().page,
   new PrivacyTripStorage1797850000000().page,
+  new PrivacyContactForm1797950000000().page,
   // CAMP-477: прогноз погоди з відра Open-Meteo (ECMWF IFS), через наш сервер.
   new AttributionWeatherForecast1797930000000().page,
 ];

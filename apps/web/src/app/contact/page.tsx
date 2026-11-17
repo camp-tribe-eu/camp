@@ -7,6 +7,7 @@ import { pageContent } from "@/lib/page-content";
 import { PageSections } from "@/components/page-sections";
 import { sectionsBySlot } from "@/lib/page-layout";
 import { LayeredBanner } from "@/components/layered-banner";
+import ContactForm from "@/components/contact-form";
 
 // CAMP-209 завела цю сторінку, CAMP-365 забрала з неї текст.
 //
@@ -78,22 +79,23 @@ export default async function Contact() {
         textSize={{ desktop: "140px", mobile: "48px" }}
       />
 
-      {/* 🔴 ФОРМИ ТУТ НЕМАЄ, І ЦЕ РІШЕННЯ, А НЕ ПРОПУСК (CAMP-464). Власник
-          просив форму зворотного звʼязку. Єдиний відкритий ендпоінт, що
-          приймає звернення від читача без акаунта, — `POST /problem-reports`,
-          і він привʼязаний до кемпінгу: приймає лише `slug` наявного
-          кемпінгу й відповідає 404 на решту. Загального ендпоінта «написати
-          нам» немає, а нова форма — це нова обробка персональних даних:
-          таблиця, строк зберігання, розділ у політиці приватності, а текст
-          політики перечитаний юристом (`scripts/seo/legal-review.json`).
-          Форма, що відправляє «в нікуди», гірша за її відсутність. Тож
-          картка з кнопкою `mailto:`; про форму з поясненням — у PR. */}
+      {/* 🔴 ФОРМА Є (CAMP-441, пункт 31 ревʼю), І ВОНА НІЧОГО НЕ ЗБЕРІГАЄ.
+          Раніше тут стояв коментар «форми немає»: єдиний відкритий
+          ендпоінт був привʼязаний до кемпінгу, а нова форма — це нова
+          обробка персональних даних. Тепер `POST /contact` перетворює
+          повідомлення на ОДИН ЛИСТ на скриньку проєкту (той самий SMTP, що
+          шле листи акаунтів) і нічого не кладе в базу; розділ «Writing to
+          us» політики приватності каже це словами, а під кнопкою стоїть
+          речення з посиланням на нього. Картка CMS із кнопкою `mailto:`
+          лишається під формою: це запасний шлях, і він потрібен, коли
+          пошта на боці API недоступна. */}
       <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:items-start lg:gap-12">
         <div data-testid="contact-intro">
           <PageSections sections={bySlot.intro} />
           <PageSections sections={bySlot.details} />
         </div>
-        <div data-testid="contact-aside">
+        <div data-testid="contact-aside" className="grid gap-8">
+          <ContactForm />
           <PageSections sections={bySlot.aside} />
         </div>
       </div>

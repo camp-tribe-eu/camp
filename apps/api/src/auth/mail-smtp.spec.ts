@@ -12,6 +12,7 @@ import {
   resetPasswordMessage,
   verifyEmailMessage,
   type MailMessage,
+  contactMessage,
 } from './mail';
 import {
   DEFAULT_FROM_NAME,
@@ -930,5 +931,68 @@ describe('.env.example, read as written', () => {
     expect([465, 587]).toContain(config.port);
     expect(config.from).toBe('noreply@camptribe.eu');
     expect(config.replyTo).toBe('hello@camptribe.eu');
+  });
+});
+
+// ── CAMP-441/31: the contact-form letter, on the wire ──────────────────────
+
+describe('the contact letter, as nodemailer composes it', () => {
+  const visitor = {
+    name: 'Anna Novak',
+    email: 'anna@example.eu',
+    subject: 'A closed campsite',
+    message: 'Line one.\nLine two, with <b>tags</b>.',
+  };
+
+  it('goes to the project mailbox, FROM us, and Reply-To is the visitor', async () => {
+    const { headers, envelope } = await onTheWire(
+      contactMessage('hello@camptribe.eu', visitor),
+    );
+    expect(headers.get('from')).toBe('CampTribe <noreply@camptribe.eu>');
+    expect(headers.get('to')).toBe('hello@camptribe.eu');
+    expect(headers.get('reply-to')).toBe('anna@example.eu');
+    expect(headers.get('subject')).toBe(
+      '[CampTribe contact] A closed campsite',
+    );
+    expect(envelope).toEqual({
+      from: 'noreply@camptribe.eu',
+      to: ['hello@camptribe.eu'],
+    });
+    for (const h of ['cc', 'bcc', 'sender']) expect(headers.has(h)).toBe(false);
+  });
+
+  it('an ordinary letter without replyTo still replies to the project mailbox', async () => {
+    const { headers } = await onTheWire(
+      verifyEmailMessage('anna@example.eu', 'https://site.example/v?t=a'),
+    );
+    expect(headers.get('reply-to')).toBe('hello@camptribe.eu');
+  });
+
+  it('🔴 a header line break in a visitor field cannot add a header (the second wall)', async () => {
+    const evil = contactMessage('hello@camptribe.eu', {
+      ...visitor,
+      name: 'Anna\r\nBcc: spy@evil.example',
+      subject: 'Hi\r\nBcc: spy@evil.example',
+    });
+    const { headers, raw } = await onTheWire(evil);
+    expect(headers.has('bcc')).toBe(false);
+    expect(raw).not.toMatch(/^bcc:/im);
+  });
+
+  it.each([
+    'a@b.eu\r\nBcc: spy@evil.example',
+    'a@b.eu,c@d.eu',
+    'Anna <a@b.eu>',
+    '',
+  ])('is refused when Reply-To is %j, and nothing is sent', async (replyTo) => {
+    const transport = fake();
+    const mailer = new SmtpMailer(configOf(), transport);
+    await expect(
+      mailer.send({
+        ...contactMessage('hello@camptribe.eu', visitor),
+        replyTo,
+      }),
+    ).rejects.toMatchObject({ name: 'SmtpSendFailed_EADDRESS' });
+    expect(transport.sent).toHaveLength(0);
   });
 });

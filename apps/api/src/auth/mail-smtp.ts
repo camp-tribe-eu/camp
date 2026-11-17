@@ -231,10 +231,15 @@ export class SmtpMailer implements MailSender {
     // only when it is one plain address — so what was validated is what is
     // sent to, and a second recipient cannot ride along.
     if (!isPlainAddress(message.to)) throw new SmtpSendFailed('EADDRESS');
+    // 🔴 `replyTo` is the one address in a letter that a visitor chose (the
+    // contact form). Same test as `to`: one plain address or the send fails,
+    // so a CR/LF or a second address cannot ride into the header.
+    if (message.replyTo !== undefined && !isPlainAddress(message.replyTo))
+      throw new SmtpSendFailed('EADDRESS');
     try {
       await this.transport.sendMail({
         from: { name: this.config.fromName, address: this.config.from },
-        replyTo: { name: '', address: this.config.replyTo },
+        replyTo: { name: '', address: message.replyTo ?? this.config.replyTo },
         to: { name: '', address: message.to },
         subject: message.subject,
         text: message.text,
