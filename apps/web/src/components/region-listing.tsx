@@ -1,3 +1,4 @@
+import { pagePhoto } from '@/lib/page-photos';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import {
@@ -231,7 +232,9 @@ export default async function RegionListing({
         <LayeredBanner
           className="mt-4"
           headingLevel={1}
-          background={{ src: '/banners/lake.webp' }}
+          background={
+            pagePhoto('country', country) ?? { src: '/banners/lake.webp' }
+          }
           tickerText={regionName.toUpperCase()}
           heading={`Campsites in ${regionName}`}
           description={lead}
