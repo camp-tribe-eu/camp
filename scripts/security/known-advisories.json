@@ -23,6 +23,14 @@
       "scope": "dev",
       "why": "01.11.2026, картка «аудит зелений». ЛИШЕ ТЕСТИ: `npm audit --omit=dev` у apps/api → 0. Хто тримає: jest-config@30.5.2 (`npm view jest-config@30.5.2 dependencies.deepmerge` → ^4.3.1), яка зливає НАШ jest-конфіг із типовим. ЩО ЦЕ: отруєння прототипу об'єкта, який повертає mergeObject(), коли ВХІД містить __proto__ — вхід тут це наш власний конфіг у репозиторії. ЧОМУ НЕ ПІДНЯТО: виправленої версії НЕ ІСНУЄ — `npm view deepmerge version` → 4.3.1, це й є вразлива; перелік versions закінчується на 4.3.1 (діапазон advisory >=4.2.0 <=4.3.1). `npm audit` пропонує лише jest@25.1.0 (відкат до jest без deepmerge). ЯК ЗАКРИТИ: коли вийде deepmerge >4.3.1 — `npm update deepmerge --package-lock-only`; або коли jest-config перестане його тягнути.",
       "acceptedUntil": "2027-01-31"
+    },
+    "GHSA-fc5q-39xc-vjpf": {
+      "severity": "high",
+      "package": "picomatch",
+      "title": "picomatch vulnerable to ReDoS through single-branch repeated extglobs",
+      "scope": "prod",
+      "why": "17.11.2026. ПРОД, але недосяжне. Шлях: typeorm@1.1.2 → tinyglobby@0.2.17 → picomatch@4.0.7 (`npm ls picomatch --omit=dev -w apps/api`). ЩО ЦЕ: ReDoS, коли ШАБЛОН glob містить повторені extglob-гілки. Шаблон тут — лише наш: typeorm кличе tinyglobby.globSync у DirectoryExportedClassesLoader для рядкових шляхів entities/migrations; у застосунку entities — класи (app.module.ts), рядок є тільки в data-source.ts (`src/migrations/*.ts`, CLI міграцій). Жоден шаблон не приходить від читача чи з мережі, тож зловмисник не може подати повільний шаблон. ЧОМУ НЕ ПІДНЯТО: advisory (GitHub, опубліковано 19.10.2026) каже `picomatch <= 4.0.7`, first_patched_version — немає; 4.0.7 — остання версія (`npm view picomatch versions`). `npm audit` пропонує лише мажорний відкат typeorm. ЯК ЗАКРИТИ: коли вийде picomatch 4.0.8+ — `npm update picomatch --workspace apps/api --package-lock-only`; сторож сам скаже «fixed upstream».",
+      "acceptedUntil": "2026-12-31"
     }
   },
   "apps/web": {
@@ -33,6 +41,14 @@
       "scope": "dev",
       "why": "01.11.2026, картка «аудит зелений». ЛИШЕ ЛІНТ: `npm audit --omit=dev` у apps/web → 0; у `dependencies` web лише next, react, react-dom, maplibre-gl, і жоден не тягне minimatch. Хто тримає: eslint-config-next@16.4.3 → eslint-plugin-import/react/jsx-a11y (^3.1.2 → 3.1.5), typescript-eslint → @typescript-eslint/typescript-estree (^10.2.2), @eslint/config-array (^10.2.4); @lhci/cli → chrome-launcher → rimraf@3 → glob@7 (не вразливий сам, <9, але його minimatch — 3.x). Що це й чому не піднято — те саме, що в записі apps/api: патерни наші, виправлення лише в 11.0.1 (27.10.2026), `npm audit` пропонує лише мажор-відкат eslint-config-next@0.2.4. ЯК ЗАКРИТИ: eslint-config-next, що тягне typescript-eslint/плагіни з minimatch ^11 — `npm update eslint-config-next --workspace apps/web --package-lock-only` після виходу.",
       "acceptedUntil": "2027-01-31"
+    },
+    "GHSA-fc5q-39xc-vjpf": {
+      "severity": "high",
+      "package": "picomatch",
+      "title": "picomatch vulnerable to ReDoS through single-branch repeated extglobs",
+      "scope": "prod",
+      "why": "17.11.2026. Той самий вузол, що в apps/api (див. там): node_modules/picomatch@4.0.7 ← tinyglobby@0.2.17 у СПІЛЬНОМУ кореневому lock. `npm explain tinyglobby`: його тягнуть typeorm (API) і eslint-import-resolver-typescript (dev, через eslint-config-next). `npm audit --omit=dev` у apps/web рахує піднятий корінь, але код вебу tinyglobby не імпортує (`grep -rn tinyglobby apps/web/src` → 0), і шаблонів glob від читача немає. Виправленої версії немає (advisory: picomatch <= 4.0.7, first_patched — немає). ЯК ЗАКРИТИ: як у apps/api.",
+      "acceptedUntil": "2026-12-31"
     }
   }
 }

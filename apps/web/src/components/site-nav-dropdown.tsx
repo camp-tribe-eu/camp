@@ -106,10 +106,19 @@ export function NavDropdown({ item }: { item: NavItem }) {
     // click (CI 17.11, #609: the 4-item About list over pagination links).
     // The pointer is still inside the item afterwards, so no new
     // mouseenter reopens it until the reader moves to it again.
-    window.addEventListener("scroll", close, { passive: true });
+    // 🔴 Only a REAL scroll closes it: more than 40 px from where the page
+    // stood when the panel opened. A scroll event that merely reports the
+    // move which brought the item into view arrives a frame AFTER the
+    // hover opened the panel, and closing on it shut every panel the
+    // moment it opened (CI 17.11, #615: «розкривач не відкрив підпункти»).
+    const openedAt = window.scrollY;
+    const onScroll = () => {
+      if (Math.abs(window.scrollY - openedAt) > 40) close();
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
     return () => {
       document.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("scroll", close);
+      window.removeEventListener("scroll", onScroll);
     };
   }, [open, close]);
 
