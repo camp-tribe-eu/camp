@@ -1,3 +1,4 @@
+import { pagePhoto } from "@/lib/page-photos";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { byTopic, isTopic, TOPICS } from "@/lib/guide-facets";
@@ -60,7 +61,7 @@ export default async function GuidesByTopic(props: {
       topic={topic}
       guides={entry.guides}
       page={1}
-      background={await bannerBackground("guide-topic-hero", "/banners/guides.webp")}
+      background={await bannerBackground("guide-topic-hero", "/banners/guides.webp", pagePhoto("topic", topic))}
     />
   );
 }

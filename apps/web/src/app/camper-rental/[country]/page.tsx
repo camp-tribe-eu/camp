@@ -1,3 +1,4 @@
+import { pagePhoto } from "@/lib/page-photos";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -167,7 +168,9 @@ export default async function RentalCountryPage({
       <LayeredBanner
         className="mt-3"
         headingLevel={1}
-        background={{ src: "/banners/eu-dawn.webp" }}
+        background={
+          pagePhoto("rental", c.code) ?? pagePhoto("country", c.code) ?? { src: "/banners/eu-dawn.webp" }
+        }
         foreground={countryPhoto ?? undefined}
         tickerText={c.name.toUpperCase()}
         heading={`Renting a camper in ${inProse(c)}`}

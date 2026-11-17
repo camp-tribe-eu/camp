@@ -19,6 +19,7 @@
  *      «ключ не з переліку».
  *   6. розійтись переліком із API → червоніє «перелік дзеркалить API».
  */
+import { pagePhoto } from '@/lib/page-photos';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
@@ -280,10 +281,13 @@ const guideWorld = (slot: World['slot']): World => {
   };
 };
 
+// 17.11.2026: no owner picture → THIS page's generated picture (lib/page-photos),
+// and only without one the shared drawing. Fixtures: guide fr-ain-water,
+// topic water, provider registered in FI (no rental picture → country).
 const DEFAULT_BG: Record<string, string> = {
-  'guide-hero': '/banners/guides.webp',
-  'guide-topic-hero': '/banners/guides.webp',
-  'provider-hero': '/banners/camper.webp',
+  'guide-hero': pagePhoto('topic-country', 'fr-water')?.src ?? '/banners/guides.webp',
+  'guide-topic-hero': pagePhoto('topic', 'water')?.src ?? '/banners/guides.webp',
+  'provider-hero': (pagePhoto('rental', 'fi') ?? pagePhoto('country', 'fi'))?.src ?? '/banners/camper.webp',
 };
 
 const renderers = {
@@ -324,12 +328,20 @@ const bannerBackgrounds = (html: string): string[] =>
 test('🔴 /routes/[slug] без банера: слот стоїть окремим фото, заглушка при порожньому', async () => {
   const html = await renderers['route-hero'](null);
   expect(html).toContain('data-photo-slot="route-hero"');
-  expect(html).toContain('data-testid="photo-placeholder"');
+  // No owner picture: the route's generated one, labelled; none → placeholder.
+  const generated = pagePhoto('route', route.slug);
+  if (generated) {
+    expect(html).toContain(`src="${generated.src}"`);
+    expect(html).toContain('data-testid="ai-label"');
+  } else {
+    expect(html).toContain('data-testid="photo-placeholder"');
+  }
   expect(html.match(/data-photo-slot="/g)).toHaveLength(1);
   const filled = await renderers['route-hero']({ src: '/banners/lake.webp', alt: 'Hero' });
   expect(filled).toContain('src="/banners/lake.webp"');
   expect(filled).toContain('alt="Hero"');
   expect(filled).not.toContain('data-testid="photo-placeholder"');
+  expect(filled).not.toContain('data-testid="ai-label"');
 });
 
 for (const key of ['guide-hero', 'guide-topic-hero', 'provider-hero'] as const) {

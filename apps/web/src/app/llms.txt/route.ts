@@ -81,8 +81,8 @@ export async function GET() {
   );
   lines.push(
     "- **No photographs of campsites nobody has visited.** We do not " +
-      "publish stock or AI-generated images of a campsite, or of any " +
-      "place nobody has visited. A photograph of a campsite appears only " +
+      "publish stock or AI-generated images of a campsite or of a " +
+      "company. A photograph of a campsite appears only " +
       "where someone stood there and took it. A page without pictures is " +
       "not an incomplete page; it is an honest one.",
   );
@@ -95,6 +95,13 @@ export async function GET() {
       "where they look like photographs: a tent, a road, a night sky. They " +
       "show no real place and say nothing about what any campsite, region " +
       "or country looks like, so they must not be cited as if they did.",
+  );
+  // 17.11.2026: generated page photos (lib/page-photos.ts).
+  lines.push(
+    "- **Country, route, rental and guide pictures are AI illustrations.** " +
+      "Each is labelled \"AI illustration\" on the picture. They show the " +
+      "kind of landscape a page is about, not any particular campsite or " +
+      "company, and must not be cited as evidence of what a place looks like.",
   );
   lines.push(
     "- **No reviews and no ratings.** There is no rating data on this " +

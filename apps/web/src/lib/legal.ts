@@ -251,8 +251,12 @@ export const LEGAL_PAGES: LegalPage[] = [
     // значення рахуємо самі; названо обидва джерела і сказано, що браузер
     // читача до жодного з них не звертається. Migration
     // 1797930000000-AttributionWeatherForecast.
-    version: '1.5',
-    effectiveFrom: '2026-11-16',
+    // 1.6 (17.11.2026): згенеровані ілюстрації країн, маршрутів, оренди й
+    // тем гайдів — FLUX.1 Krea [dev] через fal.run, підпис «AI illustration»
+    // на кожній, ніколи на сторінці кемпінгу чи компанії. Migration
+    // 1797960000000-AttributionPagePhotos.
+    version: '1.6',
+    effectiveFrom: '2026-11-17',
   },
   {
     // CAMP-186. ODbL §4.6 lets us answer with the DESCRIPTION of our

@@ -1,3 +1,4 @@
+import { pagePhoto } from '@/lib/page-photos';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -179,7 +180,7 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
       </header>
 
       <div className="mt-6">
-        <PhotoSlot slot="route-hero" />
+        <PhotoSlot slot="route-hero" generated={pagePhoto('route', slug)} />
       </div>
 
       <RouteFigures

@@ -1,0 +1,1492 @@
+{
+ "country": {
+  "bg": {
+   "src": "/photos/country/bg.webp",
+   "alt": "Camping landscape in Bulgaria (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 239678812,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Camping in the Pirin mountains, a high meadow with granite peaks and pine forest, a clear stream, a few tents and a campervan small in the landscape.",
+   "generated": "2026-11-17"
+  },
+  "at": {
+   "src": "/photos/country/at.webp",
+   "alt": "Camping landscape in Austria (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 516124572,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Camping in a turquoise alpine lake below limestone peaks in Tyrol, wooden farmhouses and meadows on the shore, a few tents and a campervan small in the landscape.",
+   "generated": "2026-11-17"
+  },
+  "be": {
+   "src": "/photos/country/be.webp",
+   "alt": "Camping landscape in Belgium (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1697140141,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Camping in the wooded Ardennes, a river looping through a green valley in morning mist, a slate-roofed village, a few tents and a campervan small in the landscape.",
+   "generated": "2026-11-17"
+  },
+  "de": {
+   "src": "/photos/country/de.webp",
+   "alt": "Camping landscape in Germany (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1937445177,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Camping in the Moselle river loop with steep vineyards, a half-timbered village and a riverside meadow, a few tents and a campervan small in the landscape.",
+   "generated": "2026-11-17"
+  },
+  "es": {
+   "src": "/photos/country/es.webp",
+   "alt": "Camping landscape in Spain (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 173117348,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Camping in a Costa Brava cove with umbrella pines, red rocks and turquoise Mediterranean water, a few tents and a campervan small in the landscape.",
+   "generated": "2026-11-17"
+  },
+  "ee": {
+   "src": "/photos/country/ee.webp",
+   "alt": "Camping landscape in Estonia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 795730881,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Camping in a pine forest running down to a quiet Baltic shore with boulders and a wooden boardwalk, a few tents and a campervan small in the landscape.",
+   "generated": "2026-11-17"
+  },
+  "dk": {
+   "src": "/photos/country/dk.webp",
+   "alt": "Camping landscape in Denmark (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1621523771,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Camping in North Sea dunes with marram grass, a white lighthouse and a wide sandy beach, a few tents and a campervan small in the landscape.",
+   "generated": "2026-11-17"
+  },
+  "fr": {
+   "src": "/photos/country/fr.webp",
+   "alt": "Camping landscape in France (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 2012415255,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Camping in the Dordogne valley, limestone cliffs, a stone village and a castle above a slow river lined with plane trees, a few tents and a campervan small in the landscape.",
+   "generated": "2026-11-17"
+  },
+  "fi": {
+   "src": "/photos/country/fi.webp",
+   "alt": "Camping landscape in Finland (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 173698125,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Camping in a still Finnish lake in the long summer evening, granite shore, birch trees and a red wooden sauna cabin, a few tents and a campervan small in the landscape.",
+   "generated": "2026-11-17"
+  },
+  "gr": {
+   "src": "/photos/country/gr.webp",
+   "alt": "Camping landscape in Greece (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1699154871,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Camping in an olive grove above the Ionian Sea, a small white chapel, a rocky headland and clear water, a few tents and a campervan small in the landscape.",
+   "generated": "2026-11-17"
+  },
+  "hr": {
+   "src": "/photos/country/hr.webp",
+   "alt": "Camping landscape in Croatia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 168360793,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Camping in the Istrian coast with pine trees on white rocks, clear Adriatic water and an island across the channel, a few tents and a campervan small in the landscape.",
+   "generated": "2026-11-17"
+  },
+  "hu": {
+   "src": "/photos/country/hu.webp",
+   "alt": "Camping landscape in Hungary (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1619588480,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Camping in the reed-fringed shore of Lake Balaton, sailing boats and the volcanic hills of Badacsony behind, a few tents and a campervan small in the landscape.",
+   "generated": "2026-11-17"
+  },
+  "ie": {
+   "src": "/photos/country/ie.webp",
+   "alt": "Camping landscape in Ireland (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1597309372,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Camping in Connemara, green hills, dry-stone walls, a lake and a single-track road under a changing sky, a few tents and a campervan small in the landscape.",
+   "generated": "2026-11-17"
+  },
+  "it": {
+   "src": "/photos/country/it.webp",
+   "alt": "Camping landscape in Italy (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1050498408,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Camping in Lake Garda with olive terraces, cypress trees and a lakeside village below steep mountains, a few tents and a campervan small in the landscape.",
+   "generated": "2026-11-17"
+  },
+  "lt": {
+   "src": "/photos/country/lt.webp",
+   "alt": "Camping landscape in Lithuania (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1832836224,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Camping in the Curonian Spit, tall white dunes, pine forest and the Baltic lagoon, a few tents and a campervan small in the landscape.",
+   "generated": "2026-11-17"
+  },
+  "lu": {
+   "src": "/photos/country/lu.webp",
+   "alt": "Camping landscape in Luxembourg (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 114227850,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Camping in the Sûre river valley with forested hills and a hilltop castle above a small town, a few tents and a campervan small in the landscape.",
+   "generated": "2026-11-17"
+  },
+  "lv": {
+   "src": "/photos/country/lv.webp",
+   "alt": "Camping landscape in Latvia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 428111798,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Camping in the Gauja valley, red sandstone cliffs above a slow river, pine and birch forest, a few tents and a campervan small in the landscape.",
+   "generated": "2026-11-17"
+  },
+  "mt": {
+   "src": "/photos/country/mt.webp",
+   "alt": "Camping landscape in Malta (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1183247545,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Camping in the Gozo coastline, golden limestone cliffs, terraced fields and deep blue sea, a few tents and a campervan small in the landscape.",
+   "generated": "2026-11-17"
+  },
+  "nl": {
+   "src": "/photos/country/nl.webp",
+   "alt": "Camping landscape in the Netherlands (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 124713432,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Camping in a Dutch polder with a row of windmills along a canal, cyclists on a dike path, a few tents and a campervan small in the landscape.",
+   "generated": "2026-11-17"
+  },
+  "pl": {
+   "src": "/photos/country/pl.webp",
+   "alt": "Camping landscape in Poland (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1814000735,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Camping in the Masurian lakes, birch forest on the shore, small sailing boats on calm water, a few tents and a campervan small in the landscape.",
+   "generated": "2026-11-17"
+  },
+  "pt": {
+   "src": "/photos/country/pt.webp",
+   "alt": "Camping landscape in Portugal (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 2049446030,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Camping in the Douro valley, terraced vineyards falling to a wide river, a quinta on the slope, a few tents and a campervan small in the landscape.",
+   "generated": "2026-11-17"
+  },
+  "ro": {
+   "src": "/photos/country/ro.webp",
+   "alt": "Camping landscape in Romania (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1214632798,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Camping in a Transylvanian Carpathian meadow with haystacks, wooden fences and a fortified church in the valley, a few tents and a campervan small in the landscape.",
+   "generated": "2026-11-17"
+  },
+  "se": {
+   "src": "/photos/country/se.webp",
+   "alt": "Camping landscape in Sweden (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1826593395,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Camping in the Swedish west coast archipelago, smooth pink granite rocks, red boathouses and a calm sea, a few tents and a campervan small in the landscape.",
+   "generated": "2026-11-17"
+  },
+  "si": {
+   "src": "/photos/country/si.webp",
+   "alt": "Camping landscape in Slovenia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 283483033,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Camping in the emerald Soča river running through a gravel bed below the Julian Alps, a few tents and a campervan small in the landscape.",
+   "generated": "2026-11-17"
+  },
+  "sk": {
+   "src": "/photos/country/sk.webp",
+   "alt": "Camping landscape in Slovakia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 216789108,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Camping in the High Tatras, an alpine meadow below jagged peaks, a mountain stream and spruce forest, a few tents and a campervan small in the landscape.",
+   "generated": "2026-11-17"
+  },
+  "cz": {
+   "src": "/photos/country/cz.webp",
+   "alt": "Camping landscape in Czechia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1614376645,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Camping in the Vltava river bending below a Bohemian old town with red roofs and a castle tower, wooded hills, a few tents and a campervan parked on the grass, small in the landscape.",
+   "generated": "2026-11-17"
+  }
+ },
+ "route": {
+  "baltic-coast-and-capitals": {
+   "src": "/photos/route/baltic-coast-and-capitals.webp",
+   "alt": "Road-trip landscape on this route (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1325636109,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. The Baltic coast between Tallinn and Vilnius: a campervan parked by a pine-lined sandy beach, calm grey-blue sea, late summer evening.",
+   "generated": "2026-11-17"
+  },
+  "dalmatian-coast-and-islands": {
+   "src": "/photos/route/dalmatian-coast-and-islands.webp",
+   "alt": "Road-trip landscape on this route (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 515393870,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. The Dalmatian coast between Zadar and Dubrovnik: a coastal road above turquoise Adriatic bays and islands, a campervan on the road.",
+   "generated": "2026-11-17"
+  },
+  "andalusia-in-winter": {
+   "src": "/photos/route/andalusia-in-winter.webp",
+   "alt": "Road-trip landscape on this route (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1328885625,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Andalusia in winter: a motorhome on an empty road through the volcanic desert coast of Cabo de Gata, low winter sun, agave plants, the Mediterranean beyond.",
+   "generated": "2026-11-17"
+  },
+  "danube-vienna-to-budapest": {
+   "src": "/photos/route/danube-vienna-to-budapest.webp",
+   "alt": "Road-trip landscape on this route (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 785912611,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. The Danube between Vienna and Budapest: the river bend at Visegrád with wooded hills, a riverside meadow with a tent and bicycles.",
+   "generated": "2026-11-17"
+  },
+  "france-atlantic-coast": {
+   "src": "/photos/route/france-atlantic-coast.webp",
+   "alt": "Road-trip landscape on this route (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1189882638,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. The French Atlantic coast near the Dune du Pilat: a tall sand dune, pine forest, Atlantic surf, a campervan on a forest road.",
+   "generated": "2026-11-17"
+  },
+  "dolomites-and-tyrol": {
+   "src": "/photos/route/dolomites-and-tyrol.webp",
+   "alt": "Road-trip landscape on this route (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1161833887,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. The Dolomites: pale jagged peaks above green alpine pastures and a winding mountain pass road with a campervan.",
+   "generated": "2026-11-17"
+  },
+  "peloponnese-loop": {
+   "src": "/photos/route/peloponnese-loop.webp",
+   "alt": "Road-trip landscape on this route (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 821220249,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. The Peloponnese: a Venetian fortress above Nafplio harbour, olive hills and a coastal road with a campervan.",
+   "generated": "2026-11-17"
+  },
+  "tuscany-hill-towns": {
+   "src": "/photos/route/tuscany-hill-towns.webp",
+   "alt": "Road-trip landscape on this route (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1509630892,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Tuscany: rolling hills with cypress-lined roads leading to a stone hill town with towers, golden evening light.",
+   "generated": "2026-11-17"
+  },
+  "swedish-lakes-and-forests": {
+   "src": "/photos/route/swedish-lakes-and-forests.webp",
+   "alt": "Road-trip landscape on this route (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 313595178,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Dalarna in Sweden: a calm lake surrounded by spruce forest, a red wooden cottage, a canoe pulled up on the shore by a tent.",
+   "generated": "2026-11-17"
+  },
+  "wadden-sea-and-dikes": {
+   "src": "/photos/route/wadden-sea-and-dikes.webp",
+   "alt": "Road-trip landscape on this route (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 442977993,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. The Wadden Sea coast: a green dike with sheep, wide tidal mudflats at low tide, a lighthouse on the horizon.",
+   "generated": "2026-11-17"
+  },
+  "portuguese-atlantic": {
+   "src": "/photos/route/portuguese-atlantic.webp",
+   "alt": "Road-trip landscape on this route (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 634766494,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. The Portuguese Atlantic near Sagres: high ochre cliffs, a wild beach with surf, a campervan on a dirt track at the clifftop.",
+   "generated": "2026-11-17"
+  },
+  "wild-atlantic-way-cork-to-the-burren": {
+   "src": "/photos/route/wild-atlantic-way-cork-to-the-burren.webp",
+   "alt": "Road-trip landscape on this route (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 327799978,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. The Wild Atlantic Way: limestone pavement of the Burren meeting the Atlantic, a campervan on a narrow coastal road.",
+   "generated": "2026-11-17"
+  }
+ },
+ "rental": {
+  "at": {
+   "src": "/photos/rental/at.webp",
+   "alt": "A rented motorhome in Austria (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1684874538,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A rented white motorhome parked at a viewpoint, a couple unloading bags, a turquoise alpine lake below limestone peaks in Tyrol, wooden farmhouses and meadows on the shore.",
+   "generated": "2026-11-17"
+  },
+  "de": {
+   "src": "/photos/rental/de.webp",
+   "alt": "A rented motorhome in Germany (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 556526243,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A rented white motorhome parked at a viewpoint, a couple unloading bags, the Moselle river loop with steep vineyards, a half-timbered village and a riverside meadow.",
+   "generated": "2026-11-17"
+  },
+  "dk": {
+   "src": "/photos/rental/dk.webp",
+   "alt": "A rented motorhome in Denmark (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1662363999,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A rented white motorhome parked at a viewpoint, a couple unloading bags, North Sea dunes with marram grass, a white lighthouse and a wide sandy beach.",
+   "generated": "2026-11-17"
+  },
+  "fr": {
+   "src": "/photos/rental/fr.webp",
+   "alt": "A rented motorhome in France (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 893973425,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A rented white motorhome parked at a viewpoint, a couple unloading bags, the Dordogne valley, limestone cliffs, a stone village and a castle above a slow river lined with plane trees.",
+   "generated": "2026-11-17"
+  },
+  "es": {
+   "src": "/photos/rental/es.webp",
+   "alt": "A rented motorhome in Spain (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 372353762,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A rented white motorhome parked at a viewpoint, a couple unloading bags, a Costa Brava cove with umbrella pines, red rocks and turquoise Mediterranean water.",
+   "generated": "2026-11-17"
+  },
+  "hr": {
+   "src": "/photos/rental/hr.webp",
+   "alt": "A rented motorhome in Croatia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1242632505,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A rented white motorhome parked at a viewpoint, a couple unloading bags, the Istrian coast with pine trees on white rocks, clear Adriatic water and an island across the channel.",
+   "generated": "2026-11-17"
+  },
+  "ie": {
+   "src": "/photos/rental/ie.webp",
+   "alt": "A rented motorhome in Ireland (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 2116676597,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A rented white motorhome parked at a viewpoint, a couple unloading bags, Connemara, green hills, dry-stone walls, a lake and a single-track road under a changing sky.",
+   "generated": "2026-11-17"
+  },
+  "nl": {
+   "src": "/photos/rental/nl.webp",
+   "alt": "A rented motorhome in the Netherlands (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1375938512,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A rented white motorhome parked at a viewpoint, a couple unloading bags, a Dutch polder with a row of windmills along a canal, cyclists on a dike path.",
+   "generated": "2026-11-17"
+  },
+  "it": {
+   "src": "/photos/rental/it.webp",
+   "alt": "A rented motorhome in Italy (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1720111220,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A rented white motorhome parked at a viewpoint, a couple unloading bags, Lake Garda with olive terraces, cypress trees and a lakeside village below steep mountains.",
+   "generated": "2026-11-17"
+  },
+  "pt": {
+   "src": "/photos/rental/pt.webp",
+   "alt": "A rented motorhome in Portugal (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1573725649,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A rented white motorhome parked at a viewpoint, a couple unloading bags, the Douro valley, terraced vineyards falling to a wide river, a quinta on the slope.",
+   "generated": "2026-11-17"
+  },
+  "se": {
+   "src": "/photos/rental/se.webp",
+   "alt": "A rented motorhome in Sweden (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1776363363,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A rented white motorhome parked at a viewpoint, a couple unloading bags, the Swedish west coast archipelago, smooth pink granite rocks, red boathouses and a calm sea.",
+   "generated": "2026-11-17"
+  },
+  "si": {
+   "src": "/photos/rental/si.webp",
+   "alt": "A rented motorhome in Slovenia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1166917539,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A rented white motorhome parked at a viewpoint, a couple unloading bags, the emerald Soča river running through a gravel bed below the Julian Alps.",
+   "generated": "2026-11-17"
+  }
+ },
+ "topic": {
+  "water": {
+   "src": "/photos/topic/water.webp",
+   "alt": "Campsites by the water (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1809478635,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Tents and a canoe at the edge of a clear European lake at dawn, mountains behind.",
+   "generated": "2026-11-17"
+  },
+  "motorhome": {
+   "src": "/photos/topic/motorhome.webp",
+   "alt": "Motorhome-friendly campsites (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 2101832817,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A motorhome on a level pitch with an electric hook-up post on a quiet European campsite, trees and hills.",
+   "generated": "2026-11-17"
+  },
+  "dogs": {
+   "src": "/photos/topic/dogs.webp",
+   "alt": "Dog-friendly campsites (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 3626108,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A happy dog lying on the grass beside a tent on a European campsite, evening light.",
+   "generated": "2026-11-17"
+  },
+  "accessible": {
+   "src": "/photos/topic/accessible.webp",
+   "alt": "Accessible campsites (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1431841976,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A person in a wheelchair, seen from behind, on a smooth paved path between pitches of a green campsite.",
+   "generated": "2026-11-17"
+  },
+  "classified": {
+   "src": "/photos/topic/classified.webp",
+   "alt": "Officially classified campsites (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 2034168488,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A tidy European campsite with neat hedged pitches, campervans and tents, mature trees.",
+   "generated": "2026-11-17"
+  }
+ },
+ "topic-country": {
+  "at-water": {
+   "src": "/photos/topic-country/at-water.webp",
+   "alt": "Campsites by the water in Austria (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1804282584,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Tents and a campervan pitched right at the water's edge, a turquoise alpine lake below limestone peaks in Tyrol, wooden farmhouses and meadows on the shore.",
+   "generated": "2026-11-17"
+  },
+  "at-motorhome": {
+   "src": "/photos/topic-country/at-motorhome.webp",
+   "alt": "Motorhome-friendly campsites in Austria (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 289251232,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A motorhome on a level gravel pitch with an electric hook-up post, a turquoise alpine lake below limestone peaks in Tyrol, wooden farmhouses and meadows on the shore.",
+   "generated": "2026-11-17"
+  },
+  "at-dogs": {
+   "src": "/photos/topic-country/at-dogs.webp",
+   "alt": "Dog-friendly campsites in Austria (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 968971511,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A dog resting on the grass beside a tent and camping chairs, a turquoise alpine lake below limestone peaks in Tyrol, wooden farmhouses and meadows on the shore.",
+   "generated": "2026-11-17"
+  },
+  "at-accessible": {
+   "src": "/photos/topic-country/at-accessible.webp",
+   "alt": "Accessible campsites in Austria (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 975693693,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A smooth paved path leading to a level pitch with a campervan, a person in a wheelchair seen from behind, a turquoise alpine lake below limestone peaks in Tyrol, wooden farmhouses and meadows on the shore.",
+   "generated": "2026-11-17"
+  },
+  "be-water": {
+   "src": "/photos/topic-country/be-water.webp",
+   "alt": "Campsites by the water in Belgium (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 653667968,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Tents and a campervan pitched right at the water's edge, the wooded Ardennes, a river looping through a green valley in morning mist, a slate-roofed village.",
+   "generated": "2026-11-17"
+  },
+  "at-classified": {
+   "src": "/photos/topic-country/at-classified.webp",
+   "alt": "Officially classified campsites in Austria (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 2131467018,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A well-kept campsite with neat hedged pitches, a campervan and tents, a turquoise alpine lake below limestone peaks in Tyrol, wooden farmhouses and meadows on the shore.",
+   "generated": "2026-11-17"
+  },
+  "be-motorhome": {
+   "src": "/photos/topic-country/be-motorhome.webp",
+   "alt": "Motorhome-friendly campsites in Belgium (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 701603899,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A motorhome on a level gravel pitch with an electric hook-up post, the wooded Ardennes, a river looping through a green valley in morning mist, a slate-roofed village.",
+   "generated": "2026-11-17"
+  },
+  "be-dogs": {
+   "src": "/photos/topic-country/be-dogs.webp",
+   "alt": "Dog-friendly campsites in Belgium (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 527580250,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A dog resting on the grass beside a tent and camping chairs, the wooded Ardennes, a river looping through a green valley in morning mist, a slate-roofed village.",
+   "generated": "2026-11-17"
+  },
+  "be-classified": {
+   "src": "/photos/topic-country/be-classified.webp",
+   "alt": "Officially classified campsites in Belgium (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 149697438,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A well-kept campsite with neat hedged pitches, a campervan and tents, the wooded Ardennes, a river looping through a green valley in morning mist, a slate-roofed village.",
+   "generated": "2026-11-17"
+  },
+  "be-accessible": {
+   "src": "/photos/topic-country/be-accessible.webp",
+   "alt": "Accessible campsites in Belgium (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1742311946,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A smooth paved path leading to a level pitch with a campervan, a person in a wheelchair seen from behind, the wooded Ardennes, a river looping through a green valley in morning mist, a slate-roofed village.",
+   "generated": "2026-11-17"
+  },
+  "bg-water": {
+   "src": "/photos/topic-country/bg-water.webp",
+   "alt": "Campsites by the water in Bulgaria (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 2004471842,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Tents and a campervan pitched right at the water's edge, the Pirin mountains, a high meadow with granite peaks and pine forest, a clear stream.",
+   "generated": "2026-11-17"
+  },
+  "bg-motorhome": {
+   "src": "/photos/topic-country/bg-motorhome.webp",
+   "alt": "Motorhome-friendly campsites in Bulgaria (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 875603361,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A motorhome on a level gravel pitch with an electric hook-up post, the Pirin mountains, a high meadow with granite peaks and pine forest, a clear stream.",
+   "generated": "2026-11-17"
+  },
+  "bg-dogs": {
+   "src": "/photos/topic-country/bg-dogs.webp",
+   "alt": "Dog-friendly campsites in Bulgaria (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 2132047147,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A dog resting on the grass beside a tent and camping chairs, the Pirin mountains, a high meadow with granite peaks and pine forest, a clear stream.",
+   "generated": "2026-11-17"
+  },
+  "bg-accessible": {
+   "src": "/photos/topic-country/bg-accessible.webp",
+   "alt": "Accessible campsites in Bulgaria (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1438684864,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A smooth paved path leading to a level pitch with a campervan, a person in a wheelchair seen from behind, the Pirin mountains, a high meadow with granite peaks and pine forest, a clear stream.",
+   "generated": "2026-11-17"
+  },
+  "bg-classified": {
+   "src": "/photos/topic-country/bg-classified.webp",
+   "alt": "Officially classified campsites in Bulgaria (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1256939769,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A well-kept campsite with neat hedged pitches, a campervan and tents, the Pirin mountains, a high meadow with granite peaks and pine forest, a clear stream.",
+   "generated": "2026-11-17"
+  },
+  "cz-water": {
+   "src": "/photos/topic-country/cz-water.webp",
+   "alt": "Campsites by the water in Czechia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1335743927,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Tents and a campervan pitched right at the water's edge, the Vltava river bending below a Bohemian old town with red roofs and a castle tower, wooded hills.",
+   "generated": "2026-11-17"
+  },
+  "cz-motorhome": {
+   "src": "/photos/topic-country/cz-motorhome.webp",
+   "alt": "Motorhome-friendly campsites in Czechia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 649332105,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A motorhome on a level gravel pitch with an electric hook-up post, the Vltava river bending below a Bohemian old town with red roofs and a castle tower, wooded hills.",
+   "generated": "2026-11-17"
+  },
+  "cz-accessible": {
+   "src": "/photos/topic-country/cz-accessible.webp",
+   "alt": "Accessible campsites in Czechia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 2079032749,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A smooth paved path leading to a level pitch with a campervan, a person in a wheelchair seen from behind, the Vltava river bending below a Bohemian old town with red roofs and a castle tower, wooded hills.",
+   "generated": "2026-11-17"
+  },
+  "cz-dogs": {
+   "src": "/photos/topic-country/cz-dogs.webp",
+   "alt": "Dog-friendly campsites in Czechia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 927475725,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A dog resting on the grass beside a tent and camping chairs, the Vltava river bending below a Bohemian old town with red roofs and a castle tower, wooded hills.",
+   "generated": "2026-11-17"
+  },
+  "cz-classified": {
+   "src": "/photos/topic-country/cz-classified.webp",
+   "alt": "Officially classified campsites in Czechia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1531698472,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A well-kept campsite with neat hedged pitches, a campervan and tents, the Vltava river bending below a Bohemian old town with red roofs and a castle tower, wooded hills.",
+   "generated": "2026-11-17"
+  },
+  "de-water": {
+   "src": "/photos/topic-country/de-water.webp",
+   "alt": "Campsites by the water in Germany (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1189478773,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Tents and a campervan pitched right at the water's edge, the Moselle river loop with steep vineyards, a half-timbered village and a riverside meadow.",
+   "generated": "2026-11-17"
+  },
+  "de-dogs": {
+   "src": "/photos/topic-country/de-dogs.webp",
+   "alt": "Dog-friendly campsites in Germany (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 2111149989,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A dog resting on the grass beside a tent and camping chairs, the Moselle river loop with steep vineyards, a half-timbered village and a riverside meadow.",
+   "generated": "2026-11-17"
+  },
+  "de-motorhome": {
+   "src": "/photos/topic-country/de-motorhome.webp",
+   "alt": "Motorhome-friendly campsites in Germany (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 2146274982,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A motorhome on a level gravel pitch with an electric hook-up post, the Moselle river loop with steep vineyards, a half-timbered village and a riverside meadow.",
+   "generated": "2026-11-17"
+  },
+  "de-accessible": {
+   "src": "/photos/topic-country/de-accessible.webp",
+   "alt": "Accessible campsites in Germany (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 675615125,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A smooth paved path leading to a level pitch with a campervan, a person in a wheelchair seen from behind, the Moselle river loop with steep vineyards, a half-timbered village and a riverside meadow.",
+   "generated": "2026-11-17"
+  },
+  "de-classified": {
+   "src": "/photos/topic-country/de-classified.webp",
+   "alt": "Officially classified campsites in Germany (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1671650313,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A well-kept campsite with neat hedged pitches, a campervan and tents, the Moselle river loop with steep vineyards, a half-timbered village and a riverside meadow.",
+   "generated": "2026-11-17"
+  },
+  "dk-water": {
+   "src": "/photos/topic-country/dk-water.webp",
+   "alt": "Campsites by the water in Denmark (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1794563187,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Tents and a campervan pitched right at the water's edge, North Sea dunes with marram grass, a white lighthouse and a wide sandy beach.",
+   "generated": "2026-11-17"
+  },
+  "dk-dogs": {
+   "src": "/photos/topic-country/dk-dogs.webp",
+   "alt": "Dog-friendly campsites in Denmark (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1274392305,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A dog resting on the grass beside a tent and camping chairs, North Sea dunes with marram grass, a white lighthouse and a wide sandy beach.",
+   "generated": "2026-11-17"
+  },
+  "dk-motorhome": {
+   "src": "/photos/topic-country/dk-motorhome.webp",
+   "alt": "Motorhome-friendly campsites in Denmark (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 504809111,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A motorhome on a level gravel pitch with an electric hook-up post, North Sea dunes with marram grass, a white lighthouse and a wide sandy beach.",
+   "generated": "2026-11-17"
+  },
+  "dk-accessible": {
+   "src": "/photos/topic-country/dk-accessible.webp",
+   "alt": "Accessible campsites in Denmark (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 319239191,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A smooth paved path leading to a level pitch with a campervan, a person in a wheelchair seen from behind, North Sea dunes with marram grass, a white lighthouse and a wide sandy beach.",
+   "generated": "2026-11-17"
+  },
+  "dk-classified": {
+   "src": "/photos/topic-country/dk-classified.webp",
+   "alt": "Officially classified campsites in Denmark (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 492689842,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A well-kept campsite with neat hedged pitches, a campervan and tents, North Sea dunes with marram grass, a white lighthouse and a wide sandy beach.",
+   "generated": "2026-11-17"
+  },
+  "ee-water": {
+   "src": "/photos/topic-country/ee-water.webp",
+   "alt": "Campsites by the water in Estonia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 600765950,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Tents and a campervan pitched right at the water's edge, a pine forest running down to a quiet Baltic shore with boulders and a wooden boardwalk.",
+   "generated": "2026-11-17"
+  },
+  "ee-motorhome": {
+   "src": "/photos/topic-country/ee-motorhome.webp",
+   "alt": "Motorhome-friendly campsites in Estonia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1411227094,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A motorhome on a level gravel pitch with an electric hook-up post, a pine forest running down to a quiet Baltic shore with boulders and a wooden boardwalk.",
+   "generated": "2026-11-17"
+  },
+  "ee-dogs": {
+   "src": "/photos/topic-country/ee-dogs.webp",
+   "alt": "Dog-friendly campsites in Estonia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1557825003,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A dog resting on the grass beside a tent and camping chairs, a pine forest running down to a quiet Baltic shore with boulders and a wooden boardwalk.",
+   "generated": "2026-11-17"
+  },
+  "ee-accessible": {
+   "src": "/photos/topic-country/ee-accessible.webp",
+   "alt": "Accessible campsites in Estonia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 98943528,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A smooth paved path leading to a level pitch with a campervan, a person in a wheelchair seen from behind, a pine forest running down to a quiet Baltic shore with boulders and a wooden boardwalk.",
+   "generated": "2026-11-17"
+  },
+  "ee-classified": {
+   "src": "/photos/topic-country/ee-classified.webp",
+   "alt": "Officially classified campsites in Estonia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 90864499,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A well-kept campsite with neat hedged pitches, a campervan and tents, a pine forest running down to a quiet Baltic shore with boulders and a wooden boardwalk.",
+   "generated": "2026-11-17"
+  },
+  "es-water": {
+   "src": "/photos/topic-country/es-water.webp",
+   "alt": "Campsites by the water in Spain (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1273862743,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Tents and a campervan pitched right at the water's edge, a Costa Brava cove with umbrella pines, red rocks and turquoise Mediterranean water.",
+   "generated": "2026-11-17"
+  },
+  "es-motorhome": {
+   "src": "/photos/topic-country/es-motorhome.webp",
+   "alt": "Motorhome-friendly campsites in Spain (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1192381724,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A motorhome on a level gravel pitch with an electric hook-up post, a Costa Brava cove with umbrella pines, red rocks and turquoise Mediterranean water.",
+   "generated": "2026-11-17"
+  },
+  "es-classified": {
+   "src": "/photos/topic-country/es-classified.webp",
+   "alt": "Officially classified campsites in Spain (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 992768232,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A well-kept campsite with neat hedged pitches, a campervan and tents, a Costa Brava cove with umbrella pines, red rocks and turquoise Mediterranean water.",
+   "generated": "2026-11-17"
+  },
+  "es-dogs": {
+   "src": "/photos/topic-country/es-dogs.webp",
+   "alt": "Dog-friendly campsites in Spain (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 496287642,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A dog resting on the grass beside a tent and camping chairs, a Costa Brava cove with umbrella pines, red rocks and turquoise Mediterranean water.",
+   "generated": "2026-11-17"
+  },
+  "es-accessible": {
+   "src": "/photos/topic-country/es-accessible.webp",
+   "alt": "Accessible campsites in Spain (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1371965674,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A smooth paved path leading to a level pitch with a campervan, a person in a wheelchair seen from behind, a Costa Brava cove with umbrella pines, red rocks and turquoise Mediterranean water.",
+   "generated": "2026-11-17"
+  },
+  "fi-water": {
+   "src": "/photos/topic-country/fi-water.webp",
+   "alt": "Campsites by the water in Finland (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1035102888,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Tents and a campervan pitched right at the water's edge, a still Finnish lake in the long summer evening, granite shore, birch trees and a red wooden sauna cabin.",
+   "generated": "2026-11-17"
+  },
+  "fi-motorhome": {
+   "src": "/photos/topic-country/fi-motorhome.webp",
+   "alt": "Motorhome-friendly campsites in Finland (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 277993551,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A motorhome on a level gravel pitch with an electric hook-up post, a still Finnish lake in the long summer evening, granite shore, birch trees and a red wooden sauna cabin.",
+   "generated": "2026-11-17"
+  },
+  "fi-dogs": {
+   "src": "/photos/topic-country/fi-dogs.webp",
+   "alt": "Dog-friendly campsites in Finland (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 545816385,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A dog resting on the grass beside a tent and camping chairs, a still Finnish lake in the long summer evening, granite shore, birch trees and a red wooden sauna cabin.",
+   "generated": "2026-11-17"
+  },
+  "fi-accessible": {
+   "src": "/photos/topic-country/fi-accessible.webp",
+   "alt": "Accessible campsites in Finland (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 419883128,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A smooth paved path leading to a level pitch with a campervan, a person in a wheelchair seen from behind, a still Finnish lake in the long summer evening, granite shore, birch trees and a red wooden sauna cabin.",
+   "generated": "2026-11-17"
+  },
+  "fi-classified": {
+   "src": "/photos/topic-country/fi-classified.webp",
+   "alt": "Officially classified campsites in Finland (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 608916987,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A well-kept campsite with neat hedged pitches, a campervan and tents, a still Finnish lake in the long summer evening, granite shore, birch trees and a red wooden sauna cabin.",
+   "generated": "2026-11-17"
+  },
+  "fr-water": {
+   "src": "/photos/topic-country/fr-water.webp",
+   "alt": "Campsites by the water in France (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1237289272,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Tents and a campervan pitched right at the water's edge, the Dordogne valley, limestone cliffs, a stone village and a castle above a slow river lined with plane trees.",
+   "generated": "2026-11-17"
+  },
+  "fr-motorhome": {
+   "src": "/photos/topic-country/fr-motorhome.webp",
+   "alt": "Motorhome-friendly campsites in France (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 316827908,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A motorhome on a level gravel pitch with an electric hook-up post, the Dordogne valley, limestone cliffs, a stone village and a castle above a slow river lined with plane trees.",
+   "generated": "2026-11-17"
+  },
+  "fr-dogs": {
+   "src": "/photos/topic-country/fr-dogs.webp",
+   "alt": "Dog-friendly campsites in France (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1846170108,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A dog resting on the grass beside a tent and camping chairs, the Dordogne valley, limestone cliffs, a stone village and a castle above a slow river lined with plane trees.",
+   "generated": "2026-11-17"
+  },
+  "fr-accessible": {
+   "src": "/photos/topic-country/fr-accessible.webp",
+   "alt": "Accessible campsites in France (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 952027239,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A smooth paved path leading to a level pitch with a campervan, a person in a wheelchair seen from behind, the Dordogne valley, limestone cliffs, a stone village and a castle above a slow river lined with plane trees.",
+   "generated": "2026-11-17"
+  },
+  "fr-classified": {
+   "src": "/photos/topic-country/fr-classified.webp",
+   "alt": "Officially classified campsites in France (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1135115,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A well-kept campsite with neat hedged pitches, a campervan and tents, the Dordogne valley, limestone cliffs, a stone village and a castle above a slow river lined with plane trees.",
+   "generated": "2026-11-17"
+  },
+  "gr-water": {
+   "src": "/photos/topic-country/gr-water.webp",
+   "alt": "Campsites by the water in Greece (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 2088052533,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Tents and a campervan pitched right at the water's edge, an olive grove above the Ionian Sea, a small white chapel, a rocky headland and clear water.",
+   "generated": "2026-11-17"
+  },
+  "gr-motorhome": {
+   "src": "/photos/topic-country/gr-motorhome.webp",
+   "alt": "Motorhome-friendly campsites in Greece (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 952331519,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A motorhome on a level gravel pitch with an electric hook-up post, an olive grove above the Ionian Sea, a small white chapel, a rocky headland and clear water.",
+   "generated": "2026-11-17"
+  },
+  "gr-dogs": {
+   "src": "/photos/topic-country/gr-dogs.webp",
+   "alt": "Dog-friendly campsites in Greece (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 107502888,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A dog resting on the grass beside a tent and camping chairs, an olive grove above the Ionian Sea, a small white chapel, a rocky headland and clear water.",
+   "generated": "2026-11-17"
+  },
+  "gr-accessible": {
+   "src": "/photos/topic-country/gr-accessible.webp",
+   "alt": "Accessible campsites in Greece (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1712037889,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A smooth paved path leading to a level pitch with a campervan, a person in a wheelchair seen from behind, an olive grove above the Ionian Sea, a small white chapel, a rocky headland and clear water.",
+   "generated": "2026-11-17"
+  },
+  "gr-classified": {
+   "src": "/photos/topic-country/gr-classified.webp",
+   "alt": "Officially classified campsites in Greece (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 55332703,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A well-kept campsite with neat hedged pitches, a campervan and tents, an olive grove above the Ionian Sea, a small white chapel, a rocky headland and clear water.",
+   "generated": "2026-11-17"
+  },
+  "hr-water": {
+   "src": "/photos/topic-country/hr-water.webp",
+   "alt": "Campsites by the water in Croatia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 43566355,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Tents and a campervan pitched right at the water's edge, the Istrian coast with pine trees on white rocks, clear Adriatic water and an island across the channel.",
+   "generated": "2026-11-17"
+  },
+  "hr-motorhome": {
+   "src": "/photos/topic-country/hr-motorhome.webp",
+   "alt": "Motorhome-friendly campsites in Croatia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 57931212,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A motorhome on a level gravel pitch with an electric hook-up post, the Istrian coast with pine trees on white rocks, clear Adriatic water and an island across the channel.",
+   "generated": "2026-11-17"
+  },
+  "hr-dogs": {
+   "src": "/photos/topic-country/hr-dogs.webp",
+   "alt": "Dog-friendly campsites in Croatia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 755459750,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A dog resting on the grass beside a tent and camping chairs, the Istrian coast with pine trees on white rocks, clear Adriatic water and an island across the channel.",
+   "generated": "2026-11-17"
+  },
+  "hr-accessible": {
+   "src": "/photos/topic-country/hr-accessible.webp",
+   "alt": "Accessible campsites in Croatia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 560278666,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A smooth paved path leading to a level pitch with a campervan, a person in a wheelchair seen from behind, the Istrian coast with pine trees on white rocks, clear Adriatic water and an island across the channel.",
+   "generated": "2026-11-17"
+  },
+  "hr-classified": {
+   "src": "/photos/topic-country/hr-classified.webp",
+   "alt": "Officially classified campsites in Croatia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 610948807,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A well-kept campsite with neat hedged pitches, a campervan and tents, the Istrian coast with pine trees on white rocks, clear Adriatic water and an island across the channel.",
+   "generated": "2026-11-17"
+  },
+  "hu-water": {
+   "src": "/photos/topic-country/hu-water.webp",
+   "alt": "Campsites by the water in Hungary (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 371856993,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Tents and a campervan pitched right at the water's edge, the reed-fringed shore of Lake Balaton, sailing boats and the volcanic hills of Badacsony behind.",
+   "generated": "2026-11-17"
+  },
+  "hu-motorhome": {
+   "src": "/photos/topic-country/hu-motorhome.webp",
+   "alt": "Motorhome-friendly campsites in Hungary (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 550955357,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A motorhome on a level gravel pitch with an electric hook-up post, the reed-fringed shore of Lake Balaton, sailing boats and the volcanic hills of Badacsony behind.",
+   "generated": "2026-11-17"
+  },
+  "hu-accessible": {
+   "src": "/photos/topic-country/hu-accessible.webp",
+   "alt": "Accessible campsites in Hungary (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1711219542,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A smooth paved path leading to a level pitch with a campervan, a person in a wheelchair seen from behind, the reed-fringed shore of Lake Balaton, sailing boats and the volcanic hills of Badacsony behind.",
+   "generated": "2026-11-17"
+  },
+  "hu-dogs": {
+   "src": "/photos/topic-country/hu-dogs.webp",
+   "alt": "Dog-friendly campsites in Hungary (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 782330048,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A dog resting on the grass beside a tent and camping chairs, the reed-fringed shore of Lake Balaton, sailing boats and the volcanic hills of Badacsony behind.",
+   "generated": "2026-11-17"
+  },
+  "hu-classified": {
+   "src": "/photos/topic-country/hu-classified.webp",
+   "alt": "Officially classified campsites in Hungary (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1093425949,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A well-kept campsite with neat hedged pitches, a campervan and tents, the reed-fringed shore of Lake Balaton, sailing boats and the volcanic hills of Badacsony behind.",
+   "generated": "2026-11-17"
+  },
+  "ie-water": {
+   "src": "/photos/topic-country/ie-water.webp",
+   "alt": "Campsites by the water in Ireland (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1039360137,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Tents and a campervan pitched right at the water's edge, Connemara, green hills, dry-stone walls, a lake and a single-track road under a changing sky.",
+   "generated": "2026-11-17"
+  },
+  "ie-dogs": {
+   "src": "/photos/topic-country/ie-dogs.webp",
+   "alt": "Dog-friendly campsites in Ireland (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 2138895025,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A dog resting on the grass beside a tent and camping chairs, Connemara, green hills, dry-stone walls, a lake and a single-track road under a changing sky.",
+   "generated": "2026-11-17"
+  },
+  "ie-motorhome": {
+   "src": "/photos/topic-country/ie-motorhome.webp",
+   "alt": "Motorhome-friendly campsites in Ireland (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 724679946,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A motorhome on a level gravel pitch with an electric hook-up post, Connemara, green hills, dry-stone walls, a lake and a single-track road under a changing sky.",
+   "generated": "2026-11-17"
+  },
+  "ie-accessible": {
+   "src": "/photos/topic-country/ie-accessible.webp",
+   "alt": "Accessible campsites in Ireland (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 851748534,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A smooth paved path leading to a level pitch with a campervan, a person in a wheelchair seen from behind, Connemara, green hills, dry-stone walls, a lake and a single-track road under a changing sky.",
+   "generated": "2026-11-17"
+  },
+  "ie-classified": {
+   "src": "/photos/topic-country/ie-classified.webp",
+   "alt": "Officially classified campsites in Ireland (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1160521491,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A well-kept campsite with neat hedged pitches, a campervan and tents, Connemara, green hills, dry-stone walls, a lake and a single-track road under a changing sky.",
+   "generated": "2026-11-17"
+  },
+  "it-motorhome": {
+   "src": "/photos/topic-country/it-motorhome.webp",
+   "alt": "Motorhome-friendly campsites in Italy (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 835515793,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A motorhome on a level gravel pitch with an electric hook-up post, Lake Garda with olive terraces, cypress trees and a lakeside village below steep mountains.",
+   "generated": "2026-11-17"
+  },
+  "it-water": {
+   "src": "/photos/topic-country/it-water.webp",
+   "alt": "Campsites by the water in Italy (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1270689032,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Tents and a campervan pitched right at the water's edge, Lake Garda with olive terraces, cypress trees and a lakeside village below steep mountains.",
+   "generated": "2026-11-17"
+  },
+  "it-dogs": {
+   "src": "/photos/topic-country/it-dogs.webp",
+   "alt": "Dog-friendly campsites in Italy (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 723280473,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A dog resting on the grass beside a tent and camping chairs, Lake Garda with olive terraces, cypress trees and a lakeside village below steep mountains.",
+   "generated": "2026-11-17"
+  },
+  "it-accessible": {
+   "src": "/photos/topic-country/it-accessible.webp",
+   "alt": "Accessible campsites in Italy (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 365640044,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A smooth paved path leading to a level pitch with a campervan, a person in a wheelchair seen from behind, Lake Garda with olive terraces, cypress trees and a lakeside village below steep mountains.",
+   "generated": "2026-11-17"
+  },
+  "it-classified": {
+   "src": "/photos/topic-country/it-classified.webp",
+   "alt": "Officially classified campsites in Italy (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1955238702,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A well-kept campsite with neat hedged pitches, a campervan and tents, Lake Garda with olive terraces, cypress trees and a lakeside village below steep mountains.",
+   "generated": "2026-11-17"
+  },
+  "lt-water": {
+   "src": "/photos/topic-country/lt-water.webp",
+   "alt": "Campsites by the water in Lithuania (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1821770019,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Tents and a campervan pitched right at the water's edge, the Curonian Spit, tall white dunes, pine forest and the Baltic lagoon.",
+   "generated": "2026-11-17"
+  },
+  "lt-motorhome": {
+   "src": "/photos/topic-country/lt-motorhome.webp",
+   "alt": "Motorhome-friendly campsites in Lithuania (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 514025334,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A motorhome on a level gravel pitch with an electric hook-up post, the Curonian Spit, tall white dunes, pine forest and the Baltic lagoon.",
+   "generated": "2026-11-17"
+  },
+  "lt-dogs": {
+   "src": "/photos/topic-country/lt-dogs.webp",
+   "alt": "Dog-friendly campsites in Lithuania (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 136777098,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A dog resting on the grass beside a tent and camping chairs, the Curonian Spit, tall white dunes, pine forest and the Baltic lagoon.",
+   "generated": "2026-11-17"
+  },
+  "lt-accessible": {
+   "src": "/photos/topic-country/lt-accessible.webp",
+   "alt": "Accessible campsites in Lithuania (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 760887881,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A smooth paved path leading to a level pitch with a campervan, a person in a wheelchair seen from behind, the Curonian Spit, tall white dunes, pine forest and the Baltic lagoon.",
+   "generated": "2026-11-17"
+  },
+  "lt-classified": {
+   "src": "/photos/topic-country/lt-classified.webp",
+   "alt": "Officially classified campsites in Lithuania (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 517768218,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A well-kept campsite with neat hedged pitches, a campervan and tents, the Curonian Spit, tall white dunes, pine forest and the Baltic lagoon.",
+   "generated": "2026-11-17"
+  },
+  "lu-water": {
+   "src": "/photos/topic-country/lu-water.webp",
+   "alt": "Campsites by the water in Luxembourg (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1350758209,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Tents and a campervan pitched right at the water's edge, the Sûre river valley with forested hills and a hilltop castle above a small town.",
+   "generated": "2026-11-17"
+  },
+  "lu-motorhome": {
+   "src": "/photos/topic-country/lu-motorhome.webp",
+   "alt": "Motorhome-friendly campsites in Luxembourg (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1895601764,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A motorhome on a level gravel pitch with an electric hook-up post, the Sûre river valley with forested hills and a hilltop castle above a small town.",
+   "generated": "2026-11-17"
+  },
+  "lu-dogs": {
+   "src": "/photos/topic-country/lu-dogs.webp",
+   "alt": "Dog-friendly campsites in Luxembourg (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 910121754,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A dog resting on the grass beside a tent and camping chairs, the Sûre river valley with forested hills and a hilltop castle above a small town.",
+   "generated": "2026-11-17"
+  },
+  "lu-accessible": {
+   "src": "/photos/topic-country/lu-accessible.webp",
+   "alt": "Accessible campsites in Luxembourg (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 314003254,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A smooth paved path leading to a level pitch with a campervan, a person in a wheelchair seen from behind, the Sûre river valley with forested hills and a hilltop castle above a small town.",
+   "generated": "2026-11-17"
+  },
+  "lu-classified": {
+   "src": "/photos/topic-country/lu-classified.webp",
+   "alt": "Officially classified campsites in Luxembourg (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 330946618,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A well-kept campsite with neat hedged pitches, a campervan and tents, the Sûre river valley with forested hills and a hilltop castle above a small town.",
+   "generated": "2026-11-17"
+  },
+  "lv-water": {
+   "src": "/photos/topic-country/lv-water.webp",
+   "alt": "Campsites by the water in Latvia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 663024440,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Tents and a campervan pitched right at the water's edge, the Gauja valley, red sandstone cliffs above a slow river, pine and birch forest.",
+   "generated": "2026-11-17"
+  },
+  "lv-motorhome": {
+   "src": "/photos/topic-country/lv-motorhome.webp",
+   "alt": "Motorhome-friendly campsites in Latvia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1427719974,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A motorhome on a level gravel pitch with an electric hook-up post, the Gauja valley, red sandstone cliffs above a slow river, pine and birch forest.",
+   "generated": "2026-11-17"
+  },
+  "lv-dogs": {
+   "src": "/photos/topic-country/lv-dogs.webp",
+   "alt": "Dog-friendly campsites in Latvia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 45894182,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A dog resting on the grass beside a tent and camping chairs, the Gauja valley, red sandstone cliffs above a slow river, pine and birch forest.",
+   "generated": "2026-11-17"
+  },
+  "lv-accessible": {
+   "src": "/photos/topic-country/lv-accessible.webp",
+   "alt": "Accessible campsites in Latvia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 100301850,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A smooth paved path leading to a level pitch with a campervan, a person in a wheelchair seen from behind, the Gauja valley, red sandstone cliffs above a slow river, pine and birch forest.",
+   "generated": "2026-11-17"
+  },
+  "lv-classified": {
+   "src": "/photos/topic-country/lv-classified.webp",
+   "alt": "Officially classified campsites in Latvia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 380753054,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A well-kept campsite with neat hedged pitches, a campervan and tents, the Gauja valley, red sandstone cliffs above a slow river, pine and birch forest.",
+   "generated": "2026-11-17"
+  },
+  "mt-water": {
+   "src": "/photos/topic-country/mt-water.webp",
+   "alt": "Campsites by the water in Malta (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1276145565,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Tents and a campervan pitched right at the water's edge, the Gozo coastline, golden limestone cliffs, terraced fields and deep blue sea.",
+   "generated": "2026-11-17"
+  },
+  "mt-motorhome": {
+   "src": "/photos/topic-country/mt-motorhome.webp",
+   "alt": "Motorhome-friendly campsites in Malta (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 775626157,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A motorhome on a level gravel pitch with an electric hook-up post, the Gozo coastline, golden limestone cliffs, terraced fields and deep blue sea.",
+   "generated": "2026-11-17"
+  },
+  "mt-dogs": {
+   "src": "/photos/topic-country/mt-dogs.webp",
+   "alt": "Dog-friendly campsites in Malta (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1741363491,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A dog resting on the grass beside a tent and camping chairs, the Gozo coastline, golden limestone cliffs, terraced fields and deep blue sea.",
+   "generated": "2026-11-17"
+  },
+  "mt-accessible": {
+   "src": "/photos/topic-country/mt-accessible.webp",
+   "alt": "Accessible campsites in Malta (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1223407194,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A smooth paved path leading to a level pitch with a campervan, a person in a wheelchair seen from behind, the Gozo coastline, golden limestone cliffs, terraced fields and deep blue sea.",
+   "generated": "2026-11-17"
+  },
+  "nl-water": {
+   "src": "/photos/topic-country/nl-water.webp",
+   "alt": "Campsites by the water in the Netherlands (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1429149125,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Tents and a campervan pitched right at the water's edge, a Dutch polder with a row of windmills along a canal, cyclists on a dike path.",
+   "generated": "2026-11-17"
+  },
+  "mt-classified": {
+   "src": "/photos/topic-country/mt-classified.webp",
+   "alt": "Officially classified campsites in Malta (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1740370444,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A well-kept campsite with neat hedged pitches, a campervan and tents, the Gozo coastline, golden limestone cliffs, terraced fields and deep blue sea.",
+   "generated": "2026-11-17"
+  },
+  "nl-motorhome": {
+   "src": "/photos/topic-country/nl-motorhome.webp",
+   "alt": "Motorhome-friendly campsites in the Netherlands (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 737758665,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A motorhome on a level gravel pitch with an electric hook-up post, a Dutch polder with a row of windmills along a canal, cyclists on a dike path.",
+   "generated": "2026-11-17"
+  },
+  "nl-dogs": {
+   "src": "/photos/topic-country/nl-dogs.webp",
+   "alt": "Dog-friendly campsites in the Netherlands (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 15693101,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A dog resting on the grass beside a tent and camping chairs, a Dutch polder with a row of windmills along a canal, cyclists on a dike path.",
+   "generated": "2026-11-17"
+  },
+  "nl-accessible": {
+   "src": "/photos/topic-country/nl-accessible.webp",
+   "alt": "Accessible campsites in the Netherlands (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 975535025,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A smooth paved path leading to a level pitch with a campervan, a person in a wheelchair seen from behind, a Dutch polder with a row of windmills along a canal, cyclists on a dike path.",
+   "generated": "2026-11-17"
+  },
+  "nl-classified": {
+   "src": "/photos/topic-country/nl-classified.webp",
+   "alt": "Officially classified campsites in the Netherlands (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 461832857,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A well-kept campsite with neat hedged pitches, a campervan and tents, a Dutch polder with a row of windmills along a canal, cyclists on a dike path.",
+   "generated": "2026-11-17"
+  },
+  "pl-water": {
+   "src": "/photos/topic-country/pl-water.webp",
+   "alt": "Campsites by the water in Poland (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1607268763,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Tents and a campervan pitched right at the water's edge, the Masurian lakes, birch forest on the shore, small sailing boats on calm water.",
+   "generated": "2026-11-17"
+  },
+  "pl-motorhome": {
+   "src": "/photos/topic-country/pl-motorhome.webp",
+   "alt": "Motorhome-friendly campsites in Poland (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1505824634,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A motorhome on a level gravel pitch with an electric hook-up post, the Masurian lakes, birch forest on the shore, small sailing boats on calm water.",
+   "generated": "2026-11-17"
+  },
+  "pl-dogs": {
+   "src": "/photos/topic-country/pl-dogs.webp",
+   "alt": "Dog-friendly campsites in Poland (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 460833793,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A dog resting on the grass beside a tent and camping chairs, the Masurian lakes, birch forest on the shore, small sailing boats on calm water.",
+   "generated": "2026-11-17"
+  },
+  "pl-accessible": {
+   "src": "/photos/topic-country/pl-accessible.webp",
+   "alt": "Accessible campsites in Poland (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 676352231,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A smooth paved path leading to a level pitch with a campervan, a person in a wheelchair seen from behind, the Masurian lakes, birch forest on the shore, small sailing boats on calm water.",
+   "generated": "2026-11-17"
+  },
+  "pl-classified": {
+   "src": "/photos/topic-country/pl-classified.webp",
+   "alt": "Officially classified campsites in Poland (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 587316452,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A well-kept campsite with neat hedged pitches, a campervan and tents, the Masurian lakes, birch forest on the shore, small sailing boats on calm water.",
+   "generated": "2026-11-17"
+  },
+  "pt-motorhome": {
+   "src": "/photos/topic-country/pt-motorhome.webp",
+   "alt": "Motorhome-friendly campsites in Portugal (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 780531152,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A motorhome on a level gravel pitch with an electric hook-up post, the Douro valley, terraced vineyards falling to a wide river, a quinta on the slope.",
+   "generated": "2026-11-17"
+  },
+  "pt-accessible": {
+   "src": "/photos/topic-country/pt-accessible.webp",
+   "alt": "Accessible campsites in Portugal (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 32682737,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A smooth paved path leading to a level pitch with a campervan, a person in a wheelchair seen from behind, the Douro valley, terraced vineyards falling to a wide river, a quinta on the slope.",
+   "generated": "2026-11-17"
+  },
+  "pt-dogs": {
+   "src": "/photos/topic-country/pt-dogs.webp",
+   "alt": "Dog-friendly campsites in Portugal (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1804786551,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A dog resting on the grass beside a tent and camping chairs, the Douro valley, terraced vineyards falling to a wide river, a quinta on the slope.",
+   "generated": "2026-11-17"
+  },
+  "pt-water": {
+   "src": "/photos/topic-country/pt-water.webp",
+   "alt": "Campsites by the water in Portugal (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1178855967,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Tents and a campervan pitched right at the water's edge, the Douro valley, terraced vineyards falling to a wide river, a quinta on the slope.",
+   "generated": "2026-11-17"
+  },
+  "pt-classified": {
+   "src": "/photos/topic-country/pt-classified.webp",
+   "alt": "Officially classified campsites in Portugal (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1526580635,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A well-kept campsite with neat hedged pitches, a campervan and tents, the Douro valley, terraced vineyards falling to a wide river, a quinta on the slope.",
+   "generated": "2026-11-17"
+  },
+  "ro-dogs": {
+   "src": "/photos/topic-country/ro-dogs.webp",
+   "alt": "Dog-friendly campsites in Romania (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 200575780,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A dog resting on the grass beside a tent and camping chairs, a Transylvanian Carpathian meadow with haystacks, wooden fences and a fortified church in the valley.",
+   "generated": "2026-11-17"
+  },
+  "ro-water": {
+   "src": "/photos/topic-country/ro-water.webp",
+   "alt": "Campsites by the water in Romania (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1616095948,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Tents and a campervan pitched right at the water's edge, a Transylvanian Carpathian meadow with haystacks, wooden fences and a fortified church in the valley.",
+   "generated": "2026-11-17"
+  },
+  "ro-motorhome": {
+   "src": "/photos/topic-country/ro-motorhome.webp",
+   "alt": "Motorhome-friendly campsites in Romania (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1118051379,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A motorhome on a level gravel pitch with an electric hook-up post, a Transylvanian Carpathian meadow with haystacks, wooden fences and a fortified church in the valley.",
+   "generated": "2026-11-17"
+  },
+  "ro-accessible": {
+   "src": "/photos/topic-country/ro-accessible.webp",
+   "alt": "Accessible campsites in Romania (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 441545539,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A smooth paved path leading to a level pitch with a campervan, a person in a wheelchair seen from behind, a Transylvanian Carpathian meadow with haystacks, wooden fences and a fortified church in the valley.",
+   "generated": "2026-11-17"
+  },
+  "ro-classified": {
+   "src": "/photos/topic-country/ro-classified.webp",
+   "alt": "Officially classified campsites in Romania (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 741278339,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A well-kept campsite with neat hedged pitches, a campervan and tents, a Transylvanian Carpathian meadow with haystacks, wooden fences and a fortified church in the valley.",
+   "generated": "2026-11-17"
+  },
+  "se-water": {
+   "src": "/photos/topic-country/se-water.webp",
+   "alt": "Campsites by the water in Sweden (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 811883793,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Tents and a campervan pitched right at the water's edge, the Swedish west coast archipelago, smooth pink granite rocks, red boathouses and a calm sea.",
+   "generated": "2026-11-17"
+  },
+  "se-motorhome": {
+   "src": "/photos/topic-country/se-motorhome.webp",
+   "alt": "Motorhome-friendly campsites in Sweden (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 862235590,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A motorhome on a level gravel pitch with an electric hook-up post, the Swedish west coast archipelago, smooth pink granite rocks, red boathouses and a calm sea.",
+   "generated": "2026-11-17"
+  },
+  "se-dogs": {
+   "src": "/photos/topic-country/se-dogs.webp",
+   "alt": "Dog-friendly campsites in Sweden (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 208386601,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A dog resting on the grass beside a tent and camping chairs, the Swedish west coast archipelago, smooth pink granite rocks, red boathouses and a calm sea.",
+   "generated": "2026-11-17"
+  },
+  "se-accessible": {
+   "src": "/photos/topic-country/se-accessible.webp",
+   "alt": "Accessible campsites in Sweden (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 419738692,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A smooth paved path leading to a level pitch with a campervan, a person in a wheelchair seen from behind, the Swedish west coast archipelago, smooth pink granite rocks, red boathouses and a calm sea.",
+   "generated": "2026-11-17"
+  },
+  "se-classified": {
+   "src": "/photos/topic-country/se-classified.webp",
+   "alt": "Officially classified campsites in Sweden (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1363532610,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A well-kept campsite with neat hedged pitches, a campervan and tents, the Swedish west coast archipelago, smooth pink granite rocks, red boathouses and a calm sea.",
+   "generated": "2026-11-17"
+  },
+  "si-water": {
+   "src": "/photos/topic-country/si-water.webp",
+   "alt": "Campsites by the water in Slovenia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 807618456,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Tents and a campervan pitched right at the water's edge, the emerald Soča river running through a gravel bed below the Julian Alps.",
+   "generated": "2026-11-17"
+  },
+  "si-motorhome": {
+   "src": "/photos/topic-country/si-motorhome.webp",
+   "alt": "Motorhome-friendly campsites in Slovenia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 634765549,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A motorhome on a level gravel pitch with an electric hook-up post, the emerald Soča river running through a gravel bed below the Julian Alps.",
+   "generated": "2026-11-17"
+  },
+  "si-dogs": {
+   "src": "/photos/topic-country/si-dogs.webp",
+   "alt": "Dog-friendly campsites in Slovenia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 708603895,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A dog resting on the grass beside a tent and camping chairs, the emerald Soča river running through a gravel bed below the Julian Alps.",
+   "generated": "2026-11-17"
+  },
+  "si-accessible": {
+   "src": "/photos/topic-country/si-accessible.webp",
+   "alt": "Accessible campsites in Slovenia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1320819608,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A smooth paved path leading to a level pitch with a campervan, a person in a wheelchair seen from behind, the emerald Soča river running through a gravel bed below the Julian Alps.",
+   "generated": "2026-11-17"
+  },
+  "si-classified": {
+   "src": "/photos/topic-country/si-classified.webp",
+   "alt": "Officially classified campsites in Slovenia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 647855708,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A well-kept campsite with neat hedged pitches, a campervan and tents, the emerald Soča river running through a gravel bed below the Julian Alps.",
+   "generated": "2026-11-17"
+  },
+  "sk-water": {
+   "src": "/photos/topic-country/sk-water.webp",
+   "alt": "Campsites by the water in Slovakia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 327019891,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. Tents and a campervan pitched right at the water's edge, the High Tatras, an alpine meadow below jagged peaks, a mountain stream and spruce forest.",
+   "generated": "2026-11-17"
+  },
+  "sk-motorhome": {
+   "src": "/photos/topic-country/sk-motorhome.webp",
+   "alt": "Motorhome-friendly campsites in Slovakia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1438947399,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A motorhome on a level gravel pitch with an electric hook-up post, the High Tatras, an alpine meadow below jagged peaks, a mountain stream and spruce forest.",
+   "generated": "2026-11-17"
+  },
+  "sk-dogs": {
+   "src": "/photos/topic-country/sk-dogs.webp",
+   "alt": "Dog-friendly campsites in Slovakia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 514663667,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A dog resting on the grass beside a tent and camping chairs, the High Tatras, an alpine meadow below jagged peaks, a mountain stream and spruce forest.",
+   "generated": "2026-11-17"
+  },
+  "sk-accessible": {
+   "src": "/photos/topic-country/sk-accessible.webp",
+   "alt": "Accessible campsites in Slovakia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 1450354794,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A smooth paved path leading to a level pitch with a campervan, a person in a wheelchair seen from behind, the High Tatras, an alpine meadow below jagged peaks, a mountain stream and spruce forest.",
+   "generated": "2026-11-17"
+  },
+  "sk-classified": {
+   "src": "/photos/topic-country/sk-classified.webp",
+   "alt": "Officially classified campsites in Slovakia (AI illustration)",
+   "model": "fal-ai/flux/krea",
+   "seed": 97426905,
+   "prompt": "Documentary travel photograph, natural light, shot on 35mm film, realistic colours and textures, every vehicle parked on solid ground, calm open sky in the upper third, people small and not facing the camera, no text, no logos, no signage, no watermark. A well-kept campsite with neat hedged pitches, a campervan and tents, the High Tatras, an alpine meadow below jagged peaks, a mountain stream and spruce forest.",
+   "generated": "2026-11-17"
+  }
+ }
+}
