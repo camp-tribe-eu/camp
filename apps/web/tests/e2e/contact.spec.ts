@@ -172,6 +172,20 @@ const API_ORIGIN = new URL(
   process.env.NEXT_PUBLIC_API_BASE_URL ?? process.env.API_BASE_URL ?? 'http://localhost:3001',
 ).origin;
 
+/**
+ * 🔴 Same convention as plan-trip.spec.ts: the CI build has NO public API
+ * address, so tests that need one are REGISTERED conditionally, not skipped
+ * (`check-e2e-skips.mjs` counts skips). In CI the form must say honestly
+ * that sending is unavailable — that test exists only in such a build.
+ */
+const PUBLIC_API = process.env.NEXT_PUBLIC_API_BASE_URL ?? '';
+const withApi: typeof test = ((...args: unknown[]) => {
+  if (PUBLIC_API !== '') (test as unknown as (...a: unknown[]) => void)(...args);
+}) as typeof test;
+const withoutApi: typeof test = ((...args: unknown[]) => {
+  if (PUBLIC_API === '') (test as unknown as (...a: unknown[]) => void)(...args);
+}) as typeof test;
+
 type Sent = { body: Record<string, unknown> };
 
 /** Підміна `POST {API}/contact`: прохід CORS (OPTIONS) і задана відповідь. */
@@ -254,7 +268,7 @@ test.describe('🔴 CAMP-441/31 — форма на /contact', () => {
     }
   });
 
-  test('🔴 сторінка не звертається до сторонніх доменів — ні при завантаженні, ні при надсиланні', async ({ page }) => {
+  withApi('🔴 сторінка не звертається до сторонніх доменів — ні при завантаженні, ні при надсиланні', async ({ page }) => {
     const hosts = new Set<string>();
     page.on('request', (r) => {
       const u = new URL(r.url());
@@ -272,7 +286,7 @@ test.describe('🔴 CAMP-441/31 — форма на /contact', () => {
     expect(hosts.has(API_ORIGIN), 'POST до нашого API не відбувся').toBe(true);
   });
 
-  test('успіх: тіло — рівно ті поля, які дозволяє API, пастка порожня, час відкриття не менший за мінімум', async ({ page }) => {
+  withApi('успіх: тіло — рівно ті поля, які дозволяє API, пастка порожня, час відкриття не менший за мінімум', async ({ page }) => {
     const sent: Sent[] = [];
     await stubContactApi(page, 200, sent);
     await page.goto('/contact');
@@ -305,7 +319,7 @@ test.describe('🔴 CAMP-441/31 — форма на /contact', () => {
     [429, 'Enough messages from this connection for now'],
     [400, 'The form was not accepted'],
   ] as const) {
-    test(`🔴 ${status}: чесне повідомлення${status === 400 ? '' : ' з адресою'}, написане лишається`, async ({ page }) => {
+    withApi(`🔴 ${status}: чесне повідомлення${status === 400 ? '' : ' з адресою'}, написане лишається`, async ({ page }) => {
       await stubContactApi(page, status);
       await page.goto('/contact');
       await fill(page);
@@ -323,7 +337,25 @@ test.describe('🔴 CAMP-441/31 — форма на /contact', () => {
     });
   }
 
-  test('мережа лягла: те саме чесне повідомлення, а не «дякуємо»', async ({ page }) => {
+  withoutApi('🔴 збірка без адреси API: чесно «недоступно» з адресою, жодного запиту, написане лишається', async ({ page }) => {
+    const posts: string[] = [];
+    page.on('request', (r) => {
+      if (r.method() === 'POST') posts.push(r.url());
+    });
+    await page.goto('/contact');
+    await fill(page);
+    await page.getByRole('button', { name: 'Send message' }).click();
+    const alert = page.getByTestId('contact-form').getByRole('alert');
+    await expect(alert).toContainText('Sending is not available right now');
+    await expect(alert.locator('a[href="mailto:hello@camptribe.eu"]')).toHaveCount(1);
+    await expect(page.getByTestId('contact-form').getByLabel('Message', { exact: true })).toHaveValue(
+      'A closed campsite, the gate is chained.',
+    );
+    await expect(page.getByRole('status')).toHaveCount(0);
+    expect(posts.filter((u) => new URL(u).pathname === '/contact')).toEqual([]);
+  });
+
+  withApi('мережа лягла: те саме чесне повідомлення, а не «дякуємо»', async ({ page }) => {
     await page.route(
       (url) => url.origin === API_ORIGIN && url.pathname === '/contact',
       (route) => route.abort('connectionrefused'),
