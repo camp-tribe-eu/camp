@@ -44,3 +44,20 @@ export function pagePhoto(kind: PagePhotoKind, slug: string | null | undefined):
 
 /** The label printed on every generated picture. One string, for the page and its tests. */
 export const AI_LABEL = "AI illustration";
+
+/**
+ * Share picture for a page with a generated photo (og:image / twitter).
+ *
+ * Next REPLACES a parent's `openGraph` object instead of merging it, so the
+ * page repeats the site name and type; title and description come from the
+ * page. The 1024px version: ~60 kB is plenty for a preview card.
+ */
+export function shareImage(photo: PagePhoto | null, title: string, description?: string) {
+  if (!photo) return {};
+  const url = photo.src.replace(/\.webp$/, "-1024.webp");
+  const images = [{ url, width: 1024, height: 576, alt: photo.alt }];
+  return {
+    openGraph: { type: "website" as const, siteName: "CampTribe", title, description, images },
+    twitter: { card: "summary_large_image" as const, title, description, images: [url] },
+  };
+}

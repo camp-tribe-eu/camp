@@ -1,3 +1,4 @@
+import { SIZES, srcSetFor } from "@/lib/responsive-image";
 import { AI_LABEL } from "@/lib/page-photos";
 import type { CSSProperties, ReactNode } from "react";
 
@@ -216,6 +217,8 @@ export function LayeredBanner({
         <img
           className="ct-banner__background"
           src={background.src}
+          srcSet={srcSetFor(background.src)}
+          sizes={srcSetFor(background.src) ? SIZES.full : undefined}
           alt={background.alt ?? ""}
           fetchPriority="high"
         />

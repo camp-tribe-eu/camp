@@ -1,3 +1,4 @@
+import { SIZES, srcSetFor } from "@/lib/responsive-image";
 import { AI_LABEL } from "@/lib/page-photos";
 import type { CSSProperties } from "react";
 
@@ -119,6 +120,8 @@ export function PhotoFrame({
       <img
         className="ct-photo__image"
         src={src}
+        srcSet={srcSetFor(src)}
+        sizes={srcSetFor(src) ? SIZES.full : undefined}
         alt={image?.alt ?? ""}
         loading={loading}
         data-testid="photo-image"
