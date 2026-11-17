@@ -76,7 +76,16 @@ async function live() {
     if (FALLBACK_SVG.includes(img.name) && !existsSync(path.join(dir, `${img.name}.svg`))) problems.push(`${img.name}: fallback .svg is gone`);
     // The record must carry THIS image's prompt and seed, not just its name.
     if (!doc.includes(img.prompt)) problems.push(`${img.name}: prompt in docs/image-sources.md differs from the script`);
-    if (!doc.includes(`seed ${img.seed}`)) problems.push(`${img.name}: seed ${img.seed} not recorded`);
+    // A model that returns no seed (Seedream) is recorded as such, not left blank.
+    // Read THIS image's own section: a phrase present under another image
+    // must not satisfy it (mutation 17.11.2026 passed without this).
+    const head = `### ${img.name}.webp`;
+    const at = doc.indexOf(head);
+    const next = at < 0 ? -1 : doc.indexOf('\n### ', at + head.length);
+    const section = at < 0 ? '' : doc.slice(at, next < 0 ? undefined : next);
+    if (img.seed == null ? !section.includes('seed: none returned by the model')
+                         : !doc.includes(`seed ${img.seed}`))
+      problems.push(`${img.name}: seed ${img.seed ?? 'none'} not recorded`);
   }
   if (total > TOTAL_BUDGET) problems.push(`total ${total} bytes > ${TOTAL_BUDGET}`);
   // The disclosure that these are AI-generated and not photographs of a place.

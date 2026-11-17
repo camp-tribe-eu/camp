@@ -1,3 +1,4 @@
+import { pagePhoto } from '@/lib/page-photos';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -190,7 +191,7 @@ export default async function CountryHub(props: { params: Promise<Params> }) {
       <LayeredBanner
         className="mt-4"
         headingLevel={1}
-        background={{ src: '/banners/eu-dawn.webp' }}
+        background={pagePhoto('country', params.country) ?? { src: '/banners/eu-dawn.webp' }}
         foreground={banner ?? undefined}
         tickerText={name.toUpperCase()}
         heading={`Campsites in ${name}`}
