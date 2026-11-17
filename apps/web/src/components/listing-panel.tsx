@@ -48,10 +48,10 @@ import type { ReactNode } from 'react';
 
 // Not exported: tests read the served HTML.
 const PANEL_CSS = `
-:root{--ct-panel-h:82px}
+:root{--ct-panel-h:88px}
 body:has(.ct-panel){padding-bottom:calc(var(--consent-h,0px) + var(--ct-panel-h) + 12px)}
 .ct-panel{position:fixed;left:4px;right:4px;bottom:calc(var(--consent-h,0px) + 4px);z-index:var(--layer-overlay,14);display:flex;flex-direction:column;gap:4px;max-width:780px;margin:0 auto}
-.ct-panel__note{align-self:center;max-width:100%;margin:0;padding:2px 10px;border-radius:999px;background-color:rgb(0 0 0/.8);color:#fff;font-size:12px;line-height:1.5;text-align:center}
+.ct-panel__note{align-self:center;max-width:100%;margin:0;padding:2px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:999px;background-color:rgb(0 0 0/.8);color:#fff;font-size:12px;line-height:1.5;text-align:center}
 .ct-panel__row{position:relative;display:flex;flex:1 1 auto;align-items:center;justify-content:space-between;gap:8px;min-width:0;padding:8px;color:#fff}
 .ct-panel__row::before{content:"";position:absolute;inset:0;z-index:-1;border-radius:12px;background-color:rgb(0 0 0/.8);backdrop-filter:blur(8px)}
 .ct-panel__btn{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:8px;height:42px;padding:0 14px;border:0;border-radius:12px;background-color:#fff;color:#000;font:inherit;font-weight:600;line-height:1.12;text-decoration:none;cursor:pointer;white-space:nowrap}
@@ -119,7 +119,9 @@ export function PanelStyle() {
  */
 /** The note under the panel. One string, for the page and its test. */
 export const PANEL_NOTE =
-  'Details can be out of date — check with the campsite before you go.';
+  // One line even on a 320px phone (12px type ≈ 290px): a second line made
+  // the panel taller than --ct-panel-h and it covered the footer (CI, 17.11).
+  'Details may be out of date — check with the campsite.';
 
 export function ListingPanel({
   label,
