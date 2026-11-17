@@ -1,3 +1,4 @@
+import { pagePhoto } from "@/lib/page-photos";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -154,7 +155,12 @@ export default async function ProviderPageView({
       <LayeredBanner
         className="mt-3"
         headingLevel={1}
-        background={await bannerBackground("provider-hero", "/banners/camper.webp")}
+        background={await bannerBackground(
+          "provider-hero",
+          "/banners/camper.webp",
+          // The provider's HOME COUNTRY landscape, never "their" vans.
+          pagePhoto("country", p.homeCountry),
+        )}
         tickerText={p.name.toUpperCase()}
         heading={p.name}
         description={`Camper rental company registered in ${countryName(p.homeCountry)}.`}

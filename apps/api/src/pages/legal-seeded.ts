@@ -23,6 +23,7 @@ import { PrivacyContactForm1797950000000 } from '../migrations/1797950000000-Pri
 import { TripStorageCookies1797850100000 } from '../migrations/1797850100000-TripStorageCookies';
 import { AttributionBannerImages1796600000000 } from '../migrations/1796600000000-AttributionBannerImages';
 import { AttributionWeatherForecast1797930000000 } from '../migrations/1797930000000-AttributionWeatherForecast';
+import { AttributionPagePhotos1797960000000 } from '../migrations/1797960000000-AttributionPagePhotos';
 
 /**
  * Правові документи такими, якими їх лишають у базі ВСІ міграції разом.
@@ -88,6 +89,7 @@ const UPDATES: ReadonlyArray<SeededLegalPage> = [
   new PrivacyContactForm1797950000000().page,
   // CAMP-477: прогноз погоди з відра Open-Meteo (ECMWF IFS), через наш сервер.
   new AttributionWeatherForecast1797930000000().page,
+  new AttributionPagePhotos1797960000000().page,
 ];
 
 export function seededLegalPages(): SeededLegalPage[] {

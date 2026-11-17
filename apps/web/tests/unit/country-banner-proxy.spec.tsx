@@ -9,6 +9,7 @@
  *
  * Мутації цього файла й результат їх прогону — у тілі PR.
  */
+import { pagePhoto } from '@/lib/page-photos';
 import { expect, test } from '@playwright/test';
 import vm from 'node:vm';
 
@@ -24,6 +25,8 @@ import {
 import { rawBannerTestHooks } from '@/lib/country-banner';
 import { renderAsyncComponent } from './render-component';
 
+// 17.11.2026: Slovenia's generated picture is the background; the shared drawing only without one.
+const SI_BACKGROUND = `src="${pagePhoto('country', 'si')?.src ?? '/banners/eu-dawn.webp'}"`;
 const MARKER = 'LEAKCHECK.camp469.marker';
 const CMS = 'http://cms.camp469.invalid';
 const CMS_ORIGIN = new URL(CMS).origin;
@@ -309,7 +312,7 @@ test('🔴 Directus недоступний: маршрут — 404, сторін
     expect((await get('si')).status).toBe(404);
     const html = await page();
     expect(html).toContain('Campsites in Slovenia');
-    expect(html).toContain('src="/banners/eu-dawn.webp"');
+    expect(html).toContain(SI_BACKGROUND);
     expect(foregroundImgs(html)).toEqual([]);
   });
 });
@@ -395,7 +398,7 @@ test('🔴 п’ять способів, якими Directus бреше на р�
     await inWorld(w, async () => {
       const html = await page();
       expect(foregroundImgs(html), name).toEqual([]);
-      expect(html, name).toContain('src="/banners/eu-dawn.webp"');
+      expect(html, name).toContain(SI_BACKGROUND);
       expect((await get('si')).status, name).toBe(404);
     });
   }
@@ -409,7 +412,7 @@ test('🔴 сторінка: зображення з Directus іде з нашо
     expect(imgs[0]).toContain(`src="/media/country-banner/si?f=${SI_FILE}"`);
     expect(imgs[0]).toContain('alt="Lake Bled"');
     expect(html).not.toContain('camp469.invalid');
-    expect(html).toContain('src="/banners/eu-dawn.webp"');
+    expect(html).toContain(SI_BACKGROUND);
   });
 });
 
