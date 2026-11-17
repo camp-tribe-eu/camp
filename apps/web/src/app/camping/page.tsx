@@ -1,5 +1,7 @@
+import CountryMap from '@/components/country-map';
+import { euMapRows } from '@/lib/eu-map';
 import type { Metadata } from 'next';
-import { countryName, getCountries } from '@/lib/api';
+import { countryName, getCountries, mapRegions } from '@/lib/api';
 import { campingLead, printable } from '@/lib/campsite-count';
 import { collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
@@ -38,7 +40,12 @@ export const metadata: Metadata = {
 };
 
 export default async function CampingIndex() {
-  const countries = await getCountries();
+  const [countries, mapIndex] = await Promise.all([
+    getCountries(),
+    // The map is decoration over the tiles: a failing index removes the map,
+    // never the page (same rule as the country page).
+    mapRegions().catch(() => []),
+  ]);
   const total = printable(countries.reduce((n, c) => n + c.spots, 0));
   // 🔴 CAMP-490. ЧИСЛО В ТЕКСТІ — ЦЕ ЧИСЛО ПЛИТОК, ІЗ ОДНОГО ДЖЕРЕЛА.
   // Раніше воно йшло з `memberStateCount` (країни з даними, а на порожній
@@ -90,6 +97,16 @@ export default async function CampingIndex() {
             No countries have been imported yet.
           </Block>
         ) : null}
+        {/* CAMP-441 (35): the map of Europe — one circle per country, the
+            same set as the tiles below it. */}
+        <div className="mt-4">
+          <CountryMap
+            country="eu"
+            countryName="Europe"
+            unit="country"
+            regions={euMapRows(mapIndex, countryTiles(countries))}
+          />
+        </div>
         <CountryTiles countries={countries} className="mt-4" />
       </section>
 

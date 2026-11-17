@@ -58,9 +58,17 @@ const MAX_RADIUS = 22;
  *
  * Єдина гілка, де речення інше, — та, де мапи не буде взагалі.
  */
-function legend(state: MapState, country: string, regions: number, spots: number): string {
+function legend(state: MapState, country: string, regions: number, spots: number, unit: MapUnit): string {
+  const many = unit === 'country' ? 'countries' : 'regions';
   if (state === 'failed') {
-    return 'The map needs WebGL, which this browser did not give us; the regions are listed below.';
+    return `The map needs WebGL, which this browser did not give us; the ${many} are listed below.`;
+  }
+  if (unit === 'country') {
+    return (
+      `${regions} ${regions === 1 ? 'country' : 'countries'} on the map, ` +
+      `${spots} campsites between them. A larger circle is a country with more of ` +
+      `them; select one to open it.`
+    );
   }
   return (
     `${regions} ${regions === 1 ? 'region' : 'regions'} of ${country} on the map, ` +
@@ -68,6 +76,11 @@ function legend(state: MapState, country: string, regions: number, spots: number
     `them; select one to open it.`
   );
 }
+
+/** What one circle is: a region of a country, or a whole country (CAMP-441/35, /camping). */
+export type MapUnit = 'region' | 'country';
+/** A row of the map index, optionally with its own link (country circles link to /camping/{cc}). */
+export type MapRow = RegionSummary & { href?: string };
 
 // Не експортується: тест має читати відданий HTML, а не цю константу.
 const COUNTRY_MAP_CSS = `
@@ -84,7 +97,9 @@ export interface CountryMapProps {
   /** Назва країни для підпису. */
   countryName: string;
   /** Рядки індексу мапи, вже звужені до цієї країни. */
-  regions: RegionSummary[];
+  regions: MapRow[];
+  /** `country`: one circle per country on /camping. Default `region`. */
+  unit?: MapUnit;
 }
 
 /**
@@ -100,7 +115,7 @@ export default function CountryMap(props: CountryMapProps) {
   return <CountryMapCanvas {...props} />;
 }
 
-function CountryMapCanvas({ country, countryName, regions }: CountryMapProps) {
+function CountryMapCanvas({ country, countryName, regions, unit = 'region' }: CountryMapProps) {
   const box = useRef<HTMLDivElement>(null);
   // 🔴 Стан стартує з того, що СЕРВЕР уже знає: скільки регіонів і
   // кемпінгів піде на мапу. Якби він стартував порожнім, сторінка, яка
@@ -133,7 +148,7 @@ function CountryMapCanvas({ country, countryName, regions }: CountryMapProps) {
         geometry: { type: 'Point' as const, coordinates: [r.lon, r.lat] },
         properties: {
           name: r.region ?? 'No region',
-          href: r.region ? `/camping/${country.toLowerCase()}/${r.slug}` : null,
+          href: r.href ?? (r.region ? `/camping/${country.toLowerCase()}/${r.slug}` : null),
           count: r.count,
           radius: circleRadius(r.count, max),
         },
@@ -252,7 +267,7 @@ function CountryMapCanvas({ country, countryName, regions }: CountryMapProps) {
         />
       </div>
       <p className="ct-cmap__legend" data-testid="country-map-legend">
-        {legend(state, countryName, regions.length, spots)}
+        {legend(state, countryName, regions.length, spots, unit)}
       </p>
       <p className="ct-cmap__credit" data-testid="country-map-credit">
         Map: <span className="whitespace-nowrap">OpenFreeMap © OpenMapTiles</span>, data

@@ -1,4 +1,4 @@
-import { pagePhoto } from '@/lib/page-photos';
+import { pagePhoto, shareImage } from '@/lib/page-photos';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -84,10 +84,13 @@ export async function generateMetadata(
   const regions = readRegionCards(await getRegions(params.country));
   const spots = countedSpots(regions);
 
+  const title = `Campsites in ${name}`;
+  const description = `${en(spots)} campsites and motorhome parks across ${regions.length} regions of ${name}. Facilities, locations and nearby sites.`;
   return {
-    title: `Campsites in ${name}`,
-    description: `${en(spots)} campsites and motorhome parks across ${regions.length} regions of ${name}. Facilities, locations and nearby sites.`,
+    title,
+    description,
     alternates: alternatesFor(`/camping/${params.country}`),
+    ...shareImage(pagePhoto('country', params.country), title, description),
   };
 }
 
