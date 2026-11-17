@@ -100,7 +100,17 @@ export function NavDropdown({ item }: { item: NavItem }) {
       if (!root.current?.contains(e.target as Node)) close();
     };
     document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
+    // 🔴 An open panel closes when the page scrolls. The header stays on
+    // screen while the page moves under a still pointer, so the panel was
+    // left hanging over whatever scrolled beneath it and took the next
+    // click (CI 17.11, #609: the 4-item About list over pagination links).
+    // The pointer is still inside the item afterwards, so no new
+    // mouseenter reopens it until the reader moves to it again.
+    window.addEventListener("scroll", close, { passive: true });
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("scroll", close);
+    };
   }, [open, close]);
 
   return (
@@ -111,12 +121,6 @@ export function NavDropdown({ item }: { item: NavItem }) {
       className={mega ? undefined : "relative"}
       onMouseEnter={() => {
         cancelClose();
-        // 🔴 Hover opens the panel only where hover exists. On a touch
-        // screen the panel opens by tap (onClick below); a pointer merely
-        // passing over the header — a scroll, an emulated mouse — must not
-        // unfold a list over the page and swallow the next tap (CI 17.11:
-        // the 4-item About list covered links on mobile-chrome).
-        if (typeof window !== "undefined" && !window.matchMedia("(hover: hover)").matches) return;
         setOpen(true);
       }}
       onMouseLeave={scheduleClose}
