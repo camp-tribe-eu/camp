@@ -19,6 +19,7 @@ import { gzipSync } from 'node:zlib';
 import { apiFetch } from '@/lib/api';
 import {
   packIndex,
+  searchFacts,
   searchText,
   unpackIndex,
   type PackedIndex,
@@ -238,6 +239,8 @@ interface Doc {
   region: string;
   slug: string;
   near: { name: string; m: number }[];
+  type?: string | null;
+  yes?: string[];
 }
 
 export function toSearchDocs(rows: Doc[]): SearchDoc[] {
@@ -248,6 +251,7 @@ export function toSearchDocs(rows: Doc[]): SearchDoc[] {
     country: r.country,
     region: r.region,
     near: r.near,
+    ...searchFacts(r.type, r.yes),
     text: searchText({
       name: r.name ?? '',
       region: r.region,

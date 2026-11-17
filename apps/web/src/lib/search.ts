@@ -110,7 +110,7 @@ export function tolerance(term: string): number {
 // 🔴 CAMP-129 needs the country's NAME, not its code: the haystack has
 // always held "France" rather than "fr", because that is what a reader
 // types. Imported so the recipe below has exactly one definition.
-import { countryName } from './api';
+import { AMENITY_KEYS, SPOT_TYPES, countryName, type AmenityKey, type SpotType } from './api';
 
 /**
  * CAMP-129: the string a query is matched against, defined ONCE.
@@ -165,6 +165,25 @@ export interface SearchDoc {
    * name — the numbers come from the context computed in CAMP-33.
    */
   near: { name: string; m: number }[];
+  /** CAMP-442/3: what kind of place it is, for the card. Absent when unknown. */
+  type?: SpotType;
+  /** Amenities recorded as «yes», in AMENITY_KEYS order. Absent when none. */
+  has?: AmenityKey[];
+}
+
+/**
+ * Type and «yes» amenities from the API row, validated against our own
+ * lists: an unknown type or key is dropped, never shown as a raw word.
+ */
+export function searchFacts(
+  type: string | null | undefined,
+  yes: readonly string[] | undefined,
+): { type?: SpotType; has?: AmenityKey[] } {
+  const out: { type?: SpotType; has?: AmenityKey[] } = {};
+  if (type && (SPOT_TYPES as readonly string[]).includes(type)) out.type = type as SpotType;
+  const has = AMENITY_KEYS.filter((k) => yes?.includes(k));
+  if (has.length) out.has = has;
+  return out;
 }
 
 export interface SearchHit {
@@ -1379,13 +1398,40 @@ export function packIndex(docs: SearchDoc[]): PackedIndex {
     // a fresh import, a country loaded before its context — and a row
     // that ends early is what `unpackIndex` already expects. Kept as a
     // cheap invariant, not as a saving it no longer makes.
-    if (doc.near.length > 0) {
+    const facts = packFacts(doc);
+    if (doc.near.length > 0 || facts) {
       row.push(doc.near.map((n) => [p.idx(n.name), n.m] as [number, number]));
     }
+    // CAMP-442/3. A trailing element, so a reader of the same version that
+    // predates it simply ignores it: no format bump. Measured on the live
+    // index 17.11.2026 before the change: +≈5 bytes a row (≈ +6% raw per
+    // country chunk); the size guards in search-index.ts still hold it.
+    if (facts) row.push(facts as unknown as [number, number][]);
     return row;
   });
 
   return { v: 3, c: c.list, r: r.list, p: p.list, d };
+}
+
+/** `[typeIndex or -1, amenity bitmask over AMENITY_KEYS]`, or nothing at all. */
+function packFacts(doc: SearchDoc): [number, number] | null {
+  const t = doc.type ? SPOT_TYPES.indexOf(doc.type) : -1;
+  let mask = 0;
+  for (const k of doc.has ?? []) {
+    const i = AMENITY_KEYS.indexOf(k);
+    if (i >= 0) mask |= 1 << i;
+  }
+  return t < 0 && mask === 0 ? null : [t, mask];
+}
+
+function unpackFacts(f: unknown): { type?: SpotType; has?: AmenityKey[] } {
+  if (!Array.isArray(f) || f.length !== 2) return {};
+  const [t, mask] = f as [number, number];
+  const out: { type?: SpotType; has?: AmenityKey[] } = {};
+  if (t >= 0 && t < SPOT_TYPES.length) out.type = SPOT_TYPES[t];
+  const has = AMENITY_KEYS.filter((_, i) => mask & (1 << i));
+  if (has.length) out.has = has;
+  return out;
 }
 
 export function unpackIndex(packed: PackedIndex): SearchDoc[] {
@@ -1485,6 +1531,7 @@ export function unpackIndex(packed: PackedIndex): SearchDoc[] {
       country,
       region,
       near,
+      ...unpackFacts(row[5]),
       // Rebuilt by the same function that built it for the writer.
       // Folding 61 000 short strings once on load takes a few
       // milliseconds; sending them twice is paid on every visit.
