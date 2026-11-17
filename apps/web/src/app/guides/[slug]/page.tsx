@@ -1,3 +1,4 @@
+import { pagePhoto } from "@/lib/page-photos";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -111,7 +112,11 @@ export default async function GuidePage(props: { params: Promise<Params> }) {
       <LayeredBanner
         className="mt-3"
         headingLevel={1}
-        background={await bannerBackground("guide-hero", "/banners/guides.webp")}
+        background={await bannerBackground(
+          "guide-hero",
+          "/banners/guides.webp",
+          facets ? pagePhoto("topic", facets.topic) : null,
+        )}
         tickerText={(facets ? TOPICS[facets.topic] : "Guide").toUpperCase()}
         heading={guide.title}
         description={guide.summary ?? undefined}

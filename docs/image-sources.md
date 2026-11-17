@@ -41,7 +41,7 @@ renders no banner, and a banner shows no place, so it stays true.
 
 | | |
 |---|---|
-| Generator | FAL, model `fal-ai/flux-pro/v1.1-ultra`, `raw` mode, JPEG out, re-encoded to webp |
+| Generator | FAL, model `bytedance/seedream/v5.5/text-to-image` since 17.11.2026 (before: `fal-ai/flux-pro/v1.1-ultra`, `raw` mode), JPEG out, re-encoded to webp |
 | Replaces | a first pass with `fal-ai/flux/schnell` (flat illustrations), rejected by the owner |
 | Rights in the output | 🔴 NOT ESTABLISHED. No third-party source image or photograph was supplied, so there is no author to credit; that is all this file asserts. Read by curl on 11.11.2026: fal.ai Terms of Service (Last Updated September 8, 2026) contain no transfer or grant of rights in the output to the customer; the only ownership line is "Customer owns and retains all right, title, and interest in and to the Customer Input", and they add "Company does not represent, warrant, or covenant that any Output Content will be original, will not infringe rights of any third party". Black Forest Labs' Developer Terms (Revised August 4, 2026) say "you own all right, title, and interest in and to Output" and allow "personal or commercial purposes", but that is BFL's direct contract with its own users, and nothing in the text says whether it reaches a customer of fal. The fal model page carries the label "License: Commercial use enabled via fal partnership", with no text and no link to one. Conclusion: whether we may use the output commercially is an OPEN question. Detail and further gaps: `scripts/seo/legal-review.json`, ATTRIBUTION 1.3 → 1.4 |
 | Reproduce | `FAL_KEY=... node scripts/images/generate-banners.mjs` |
@@ -53,50 +53,102 @@ later give a different picture.
 
 ## Per image
 
+17.11.2026: all eight replaced (owner: the first set looked primitive, «no wow»). Model `bytedance/seedream/v5.5/text-to-image` on fal.run; three candidates per slot, each read against a written checklist (vehicle anatomy, traffic law, scale, hands and faces, lettering, campsite-only tents) by an inspector and by me at full size; the owner approved the eight on 17.11.2026. These images may now show the kind of landscape a section is about and people, unlike the first set.
+
 ### eu-dawn.webp
+- Delivered 1920x1080, 98344 bytes. Requested size 2048x1152 (16:9).
+- Prompt: A wide view at first light over a lakeside campsite in the Alps of Europe: mist lifting off a calm lake, the first sun touching snowy peaks, a few tents and two campervans small on the terraced meadow of the campsite at the right, one person with a mug standing by the shore. Sense of a whole continent waking up to go camping. Editorial travel photograph for the cover of a European outdoor magazine: real, unstaged, shot on a full-frame camera with a 24-35mm lens, natural light with real depth and atmosphere, rich but true colours, fine natural grain, no HDR, no glossy plastic look. Leave a calm, uncluttered area in the left half of the frame for a headline. Every vehicle whole, correctly built and parked; tents only inside a campsite; people small, natural, not posing; no lettering, logos, signs or number plates anywhere.
+- seed: none returned by the model
+- Shows: mist lifting off an alpine lake at first light, snowy peaks, a terraced campsite with tents and campervans on the right, one person with a mug at the shore.
+
+### about.webp
+- Delivered 1920x840, 43054 bytes. Requested size 2688x1152 (21:9).
+- Prompt: Blue hour at a small European campsite on a meadow above a valley: a group of five friends of different ages and backgrounds sit around a campfire in a proper stone fire ring, faces lit warmly, tents and one campervan softly lit behind them inside the campsite, the last light on the mountains. Togetherness, honest and quiet. Editorial travel photograph for the cover of a European outdoor magazine: real, unstaged, shot on a full-frame camera with a 24-35mm lens, natural light with real depth and atmosphere, rich but true colours, fine natural grain, no HDR, no glossy plastic look. Leave a calm, uncluttered area in the left half of the frame for a headline. Every vehicle whole, correctly built and parked; tents only inside a campsite; people small, natural, not posing; no lettering, logos, signs or number plates anywhere.
+- seed: none returned by the model
+- Shows: five friends around a campfire in a stone fire ring at a campsite at blue hour; tents and a lit motorhome behind, mountains at dusk.
+
+### camper.webp
+- Delivered 1200x1200, 99888 bytes. Requested size 2048x2048 (1:1).
+- Prompt: Golden evening on a hedged grass pitch of a campsite in Provence: a white 2010s Fiat Ducato motorhome with its awning out, a table set with bread, cheese and a bottle of rosé, two folding chairs, lavender rows and a hilltop village glowing in the background. Inviting, the feeling of a holiday that has just begun. Editorial travel photograph for the cover of a European outdoor magazine: real, unstaged, shot on a full-frame camera with a 24-35mm lens, natural light with real depth and atmosphere, rich but true colours, fine natural grain, no HDR, no glossy plastic look. Leave a calm, uncluttered area in the left half of the frame for a headline. Every vehicle whole, correctly built and parked; tents only inside a campsite; people small, natural, not posing; no lettering, logos, signs or number plates anywhere.
+- seed: none returned by the model
+- Shows: a white motorhome with its awning out on a hedged campsite pitch in Provence, a set table and two chairs, lavender, a hilltop village; the number plate was blurred after generation.
+
+### tent.webp
+- Delivered 1200x1200, 56538 bytes. Requested size 2048x2048 (1:1).
+- Prompt: Blue hour on the tent meadow of a lakeside campsite in Scandinavia: a green dome tent glowing warm from a lantern inside, two camping chairs and a small stove in front, other tents faintly lit further along inside the campsite, a still lake reflecting the last light and dark pine forest. Calm and magical but real. Editorial travel photograph for the cover of a European outdoor magazine: real, unstaged, shot on a full-frame camera with a 24-35mm lens, natural light with real depth and atmosphere, rich but true colours, fine natural grain, no HDR, no glossy plastic look. Leave a calm, uncluttered area in the left half of the frame for a headline. Every vehicle whole, correctly built and parked; tents only inside a campsite; people small, natural, not posing; no lettering, logos, signs or number plates anywhere.
+- seed: none returned by the model
+- Shows: a green tent glowing from a lantern inside on a lakeside campsite at blue hour, chairs and a small stove in front, other lit tents further along.
+
+### guides.webp
+- Delivered 1920x1080, 64770 bytes. Requested size 2048x1152 (16:9).
+- Prompt: Morning on a campsite pitch by a lake in the Dolomites: on a weathered wooden camping table, an open paper road map of Europe, a well-used guidebook without readable text, a pencil, a steaming enamel mug and sunglasses; behind, out of focus, the open side door of a campervan and pale mountains. The joy of planning the next stop. Editorial travel photograph for the cover of a European outdoor magazine: real, unstaged, shot on a full-frame camera with a 24-35mm lens, natural light with real depth and atmosphere, rich but true colours, fine natural grain, no HDR, no glossy plastic look. Leave a calm, uncluttered area in the left half of the frame for a headline. Every vehicle whole, correctly built and parked; tents only inside a campsite; people small, natural, not posing; no lettering, logos, signs or number plates anywhere.
+- seed: none returned by the model
+- Shows: a paper map of Europe, a steaming enamel mug, sunglasses and a guidebook on a camping table; an open campervan and mountains behind.
+
+### routes.webp
+- Delivered 1920x1080, 90678 bytes. Requested size 2048x1152 (16:9).
+- Prompt: Sunrise high on an Alpine pass: a long ribbon of empty mountain road with many hairpin bends winding down a green valley, low clouds in the valley below, jagged peaks catching first light. No vehicles. Grand scale, the promise of a road trip. Editorial travel photograph for the cover of a European outdoor magazine: real, unstaged, shot on a full-frame camera with a 24-35mm lens, natural light with real depth and atmosphere, rich but true colours, fine natural grain, no HDR, no glossy plastic look. Leave a calm, uncluttered area in the left half of the frame for a headline. Every vehicle whole, correctly built and parked; tents only inside a campsite; people small, natural, not posing; no lettering, logos, signs or number plates anywhere.
+- seed: none returned by the model
+- Shows: an empty alpine pass road with hairpin bends at sunrise, low cloud in the valley; no vehicles.
+
+### tools.webp
+- Delivered 1920x1080, 138568 bytes. Requested size 2048x1152 (16:9).
+- Prompt: Early morning at a campsite in the Black Forest: a couple in their thirties sits on the step of their campervan's open sliding door going through a printed packing list and checking a small gas bottle and a water container on the grass; folding table with a kettle, fir trees and soft mist behind. Practical preparation, warm and human. Editorial travel photograph for the cover of a European outdoor magazine: real, unstaged, shot on a full-frame camera with a 24-35mm lens, natural light with real depth and atmosphere, rich but true colours, fine natural grain, no HDR, no glossy plastic look. Leave a calm, uncluttered area in the left half of the frame for a headline. Every vehicle whole, correctly built and parked; tents only inside a campsite; people small, natural, not posing; no lettering, logos, signs or number plates anywhere.
+- seed: none returned by the model
+- Shows: a couple on the step of their campervan's open sliding door with a packing list, a gas bottle and a water container; tents and misty firs behind.
+
+### lake.webp
+- Delivered 1920x1080, 104190 bytes. Requested size 2048x1152 (16:9).
+- Prompt: Dawn on a calm Northern European lake: mist over the water, reeds and a wooden jetty in the foreground, birch and pine forest on the far shore, one canoe moored at the jetty, soft pink and gold light. Quiet and very real. Editorial travel photograph for the cover of a European outdoor magazine: real, unstaged, shot on a full-frame camera with a 24-35mm lens, natural light with real depth and atmosphere, rich but true colours, fine natural grain, no HDR, no glossy plastic look. Leave a calm, uncluttered area in the left half of the frame for a headline. Every vehicle whole, correctly built and parked; tents only inside a campsite; people small, natural, not posing; no lettering, logos, signs or number plates anywhere.
+- seed: none returned by the model
+- Shows: a calm misty lake at dawn with reeds, a wooden jetty and a moored canoe; birch and pine forest.
+
+### Replaced 17.11.2026 (FLUX1.1 [pro] ultra set, kept for the record)
+
+#### eu-dawn.webp
 - Slot: page banner background, 16:9. Delivered 1920x1080, 107670 bytes. Requested aspect ratio 16:9.
 - Prompt: Misty flat meadow at first light, a single small green dome tent far in the middle distance with long soft shadow on the dewy grass, a line of deciduous trees on the horizon, pale pink and gold sky, wide empty sky above, photograph, natural light, shot on a full-frame camera, 35mm lens, fine detail, editorial magazine quality, generic unremarkable landscape that cannot be tied to any country, no mountains, no landmark, no buildings, no signs, no text, no number plates, no license plate, no lettering, no emblems, no flags, no logos, no people
 - seed 4690011
 - Shows: a flat dewy meadow in morning mist, a line of deciduous trees on the horizon, pink-gold sky, one small green-and-white dome tent in the middle distance with its long shadow on the grass.
 
-### about.webp
+#### about.webp
 - Slot: `/about` background and About banner, 16:7. Delivered 1920x840, 27116 bytes. Requested aspect ratio 21:9.
 - Prompt: Clear night sky with the Milky Way over a dark silhouetted pine forest edge and a quiet open field, long exposure astrophotography, deep blue tones, photograph, natural light, shot on a full-frame camera, 35mm lens, fine detail, editorial magazine quality, generic unremarkable landscape that cannot be tied to any country, no mountains, no landmark, no buildings, no signs, no text, no number plates, no license plate, no lettering, no emblems, no flags, no logos, no people
 - seed 4690012
 - Shows: a night sky full of stars over a black pine-forest edge and an empty field; almost no foreground detail, so text reads over it.
 
-### camper.webp
+#### camper.webp
 - Slot: "Rent a camper" card, 1:1. Delivered 1200x1200, 128684 bytes. Requested aspect ratio 1:1.
 - Prompt: Telephoto photograph compressing a long straight empty country road lined with green fields, a small white camper van with a smooth blank rear, far down the road driving away from the camera along its own lane, seen from behind, the van occupies less than one tenth of the frame width, wheels on the asphalt with a short soft shadow under and beside it, warm low morning sun, photograph, natural light, shot on a full-frame camera, 35mm lens, fine detail, editorial magazine quality, generic unremarkable landscape that cannot be tied to any country, no mountains, no landmark, no buildings, no signs, no text, no number plates, no license plate, no lettering, no emblems, no flags, no logos, no people
 - seed 4690043
 - Shows: a plain white camper van seen from behind on a straight empty two-lane road between green fields, wheels on the asphalt, its shadow on the road, pointing along the road. The rear plate recess is blank, with no characters.
 
-### tent.webp
+#### tent.webp
 - Slot: "Find a campsite" card, 1:1. Delivered 1200x1200, 48230 bytes. Requested aspect ratio 1:1.
 - Prompt: A lone orange dome tent pitched on a grassy clearing at blue hour, warm light glowing from inside, guy lines pegged into the grass, tall spruce forest behind, first stars, photograph, natural light, shot on a full-frame camera, 35mm lens, fine detail, editorial magazine quality, generic unremarkable landscape that cannot be tied to any country, no mountains, no landmark, no buildings, no signs, no text, no number plates, no license plate, no lettering, no emblems, no flags, no logos, no people
 - seed 4690014
 - Shows: a lit orange tent in a dark meadow at blue hour, guy lines pegged to the grass, spruce forest behind, a few stars.
 
 
-### guides.webp
+#### guides.webp
 - Slot: `/guides` page banner, 16:9. Delivered 1920x1080, 72230 bytes. Requested aspect ratio 16:9. Added 12.11.2026.
 - Prompt: Flat lay on a weathered wooden outdoor table in soft morning light, a closed plain linen-bound notebook with no cover text, a wooden pencil, a steaming plain enamel mug, grass softly blurred behind, shallow depth of field, photograph, natural light, shot on a full-frame camera, 35mm lens, fine detail, editorial magazine quality, generic unremarkable landscape that cannot be tied to any country, no mountains, no landmark, no buildings, no signs, no text, no number plates, no license plate, no lettering, no emblems, no flags, no logos, no people
 - seed 4690021
 - Shows: a closed plain cream notebook with an elastic band, a pencil and a steaming white enamel mug on a weathered wooden table, blurred green grass behind. No text on the notebook.
 
-### routes.webp
+#### routes.webp
 - Slot: `/routes` page banner, 16:9. Delivered 1920x1080, 199046 bytes. Requested aspect ratio 16:9. Added 12.11.2026.
 - Prompt: Empty gravel track curving gently through a quiet pine forest in soft overcast light with light mist between the trunks, dense trees along both edges of the track, nothing on or beside the track, no benches, no bins, no objects, no vehicles, muted greens, photograph, natural light, shot on a full-frame camera, 35mm lens, fine detail, editorial magazine quality, generic unremarkable landscape that cannot be tied to any country, no mountains, no landmark, no buildings, no signs, no text, no number plates, no license plate, no lettering, no emblems, no flags, no logos, no people
 - seed 4690042
 - Shows: a pale gravel track curving through a misty pine forest, two small empty benches far down the track. No signs, no text.
 
-### tools.webp
+#### tools.webp
 - Slot: `/tools` page banner, 16:9. Delivered 1920x1080, 75524 bytes. Requested aspect ratio 16:9. Added 12.11.2026.
 - Prompt: Close photograph of camping gear on a canvas groundsheet in soft daylight, a dented plain steel kettle, coiled natural rope, a folded wool blanket, wooden tent pegs and a wooden mallet, no gas canister, no labels, plain unmarked objects, shallow depth of field, photograph, natural light, shot on a full-frame camera, 35mm lens, fine detail, editorial magazine quality, generic unremarkable landscape that cannot be tied to any country, no mountains, no landmark, no buildings, no signs, no text, no number plates, no license plate, no lettering, no emblems, no flags, no logos, no people
 - seed 4690033
 - Shows: a dented plain steel kettle, coiled natural rope, a folded wool blanket and a wooden mallet on a canvas groundsheet. A small can in the background carries no legible label.
 
-### lake.webp
+#### lake.webp
 - Slot: region listing banner (`RegionListing`), 16:9. Delivered 1920x1080, 31772 bytes. Requested aspect ratio 16:9. Added 12.11.2026.
 - Prompt: Calm lake at dawn with thin mist on the water, reeds in the foreground, low wooded shore with pines and birches on the far side, soft pastel sky reflected in still water, photograph, natural light, shot on a full-frame camera, 35mm lens, fine detail, editorial magazine quality, generic unremarkable landscape that cannot be tied to any country, no mountains, no landmark, no buildings, no signs, no text, no number plates, no license plate, no lettering, no emblems, no flags, no logos, no people
 - seed 4690024

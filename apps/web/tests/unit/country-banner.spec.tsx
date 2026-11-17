@@ -11,6 +11,7 @@
  *   • не передати `foreground` у `LayeredBanner` → червоніє «з зображенням»;
  *   • прибрати перевірку адреси → червоніє «чужий origin».
  */
+import { pagePhoto } from '@/lib/page-photos';
 import { expect, test } from '@playwright/test';
 
 import CountryHub from '@/app/camping/[country]/page';
@@ -52,7 +53,9 @@ async function countryHtml(
 const foregroundImgs = (html: string): string[] =>
   html.match(/<img\b[^>]*class="ct-banner__media-img"[^>]*>/g) ?? [];
 
-const BACKGROUND = 'src="/banners/eu-dawn.webp"';
+// 17.11.2026: the background is the country's generated picture (lib/page-photos);
+// the shared drawing only for a country without one.
+const BACKGROUND = `src="${pagePhoto('country', 'si')?.src ?? '/banners/eu-dawn.webp'}"`;
 
 test('🔴 країна БЕЗ зображення: банер такий, як був — фон є, переднього фото й обгортки немає', async () => {
   const html = await countryHtml(null);

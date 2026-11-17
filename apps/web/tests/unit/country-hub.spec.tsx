@@ -23,6 +23,7 @@ import CountryMap, { circleRadius } from '@/components/country-map';
 import { pickTickerRegions } from '@/components/region-ticker';
 import { renderAsyncComponent, renderComponent, renderNestedAsync, rendersNothing } from './render-component';
 import { visibleText } from './rendered-text';
+import { PANEL_NOTE } from '@/components/listing-panel';
 
 type Fetcher = (url: string) => Response | Promise<Response>;
 
@@ -576,6 +577,9 @@ test('🔴 нижня панель країни: фільтр, сортуван�
   expect(panel).toMatch(/<a href="#top"[^>]*aria-label="Back to top"/);
   // Панель живе під картками в розмітці, а не в шапці сторінки.
   expect(html.indexOf('data-testid="country-panel"')).toBeGreaterThan(html.indexOf('class="ct-rtiles__row"'));
+  // CAMP-441 (50): під фільтром — речення, що дані можуть бути застарілими.
+  expect(visibleText(panel)).toContain(PANEL_NOTE);
+  expect(panel).toContain('data-testid="panel-note"');
 });
 
 test('🔴 сортування й фільтр регіонів: порядок записано в самих картках, і він збігається з ручним підрахунком', async () => {

@@ -1,3 +1,4 @@
+import { AI_LABEL } from "@/lib/page-photos";
 import type { CSSProperties, ReactNode } from "react";
 
 import { ButtonLink } from "./button";
@@ -116,7 +117,7 @@ export const FOREGROUND_ERROR_GUARD =
 
 export interface LayeredBannerProps {
   /** Шар 1: фонове фото. `alt` порожній, коли фото суто декоративне. */
-  background: { src: string; alt?: string };
+  background: { src: string; alt?: string; ai?: boolean };
   /** Шар 2: розмити фон (`filter:blur(100px); transform:scale(1.4)`). */
   blur?: boolean;
   /** Шар 3: текст, що біжить по колу. */
@@ -147,6 +148,7 @@ const BANNER_CSS = `
 .ct-banner{--heading-color:#fff;--description-color:#fff;--big-heading-color:#fff;--color-overlay:#2323230d}
 .ct-banner__slide{position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end;min-height:var(--ct-banner-height);border-radius:var(--r,16px)}
 .ct-banner__background{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover}
+.ct-banner__ai{position:absolute;right:12px;bottom:10px;z-index:4;padding:2px 8px;border-radius:999px;background:rgb(0 0 0 / .55);color:#fff;font-size:12px;line-height:1.5;letter-spacing:.02em}
 .ct-banner__overlay{position:absolute;top:0;left:0;z-index:3;width:100%;height:100%;background:var(--color-overlay)}
 .ct-banner__overlay--blur{backdrop-filter:none}
 .ct-banner__slide:has(.ct-banner__overlay--blur) .ct-banner__background{filter:blur(100px);transform:scale(1.4)}
@@ -219,6 +221,12 @@ export function LayeredBanner({
         />
         {/* Шар 2 — накладка, з розмиттям або без. */}
         <div className={overlayClass} aria-hidden="true" />
+        {/* 🔴 AI Act 50(4): a generated picture says so on itself. */}
+        {background.ai && (
+          <span className="ct-banner__ai" data-testid="ai-label">
+            {AI_LABEL}
+          </span>
+        )}
         {/* Шари 3 і 4 — біжучий текст і переднє фото. */}
         <div className="ct-banner__main">
           <div className="ct-banner__ticker" aria-hidden="true">
