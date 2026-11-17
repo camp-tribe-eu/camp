@@ -1,3 +1,4 @@
+import { SIZES, srcSetFor } from "@/lib/responsive-image";
 import type { ReactNode } from "react";
 
 import { ButtonLink } from "./button";
@@ -111,6 +112,8 @@ export function GridBanner({
               <img
                 className="ct-grid-banner__image"
                 src={item.image.src}
+                srcSet={srcSetFor(item.image.src)}
+                sizes={SIZES.half}
                 alt={item.image.alt ?? ""}
                 loading="lazy"
               />

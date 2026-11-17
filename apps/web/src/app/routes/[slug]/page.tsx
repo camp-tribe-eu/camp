@@ -1,4 +1,4 @@
-import { pagePhoto } from '@/lib/page-photos';
+import { pagePhoto, shareImage } from '@/lib/page-photos';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -92,6 +92,11 @@ export async function generateMetadata(props: {
     // is what the near-duplicate guard exists to catch.
     description: route.summary,
     alternates: alternatesFor(`/routes/${slug}`),
+    ...shareImage(
+      pagePhoto('route', slug),
+      `${route.name} — ${route.days}-day camping route`,
+      route.summary ?? undefined,
+    ),
   };
 }
 

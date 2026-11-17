@@ -1,3 +1,4 @@
+import { SIZES, srcSetFor } from "@/lib/responsive-image";
 import type { CSSProperties, ReactNode } from "react";
 
 import { ButtonLink } from "./button";
@@ -98,6 +99,8 @@ export function BoxBanner({
           <img
             className="ct-box-banner__media"
             src={image.src}
+            srcSet={srcSetFor(image.src)}
+            sizes={SIZES.wide}
             alt={image.alt ?? ""}
             loading="lazy"
           />
