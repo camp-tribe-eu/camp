@@ -16,22 +16,21 @@ import { AI_LABEL, pagePhoto } from "@/lib/page-photos";
  *  3. a generated picture prints «AI illustration» wherever it is shown
  *     (AI Act Art. 50(4)), and the owner's own picture does not.
  */
-const KINDS = ["country", "route", "rental", "topic", "topic-country"];
-const table = PHOTOS as Record<string, Record<string, { src: string; alt: string; seed: number; prompt: string; model: string }>>;
+const KINDS = ["country", "route", "topic"];
+const table = PHOTOS as Record<string, Record<string, { src: string; alt: string; prompt: string; model: string }>>;
 const entries = Object.entries(table).flatMap(([k, v]) => Object.entries(v).map(([s, e]) => ({ k, s, ...e })));
 
-test("every recorded picture exists, carries prompt, seed and model, and its alt says it is an illustration", () => {
-  expect(entries.length, "the manifest is empty — the check saw nothing").toBeGreaterThan(100);
+test("every recorded picture exists, carries prompt and model, and its alt says it is an illustration", () => {
+  expect(entries.length, "the manifest is empty — the check saw nothing").toBeGreaterThan(40);
   for (const e of entries) {
     expect(existsSync(path.join(process.cwd(), "public", e.src)), e.src).toBe(true);
-    expect(typeof e.seed, e.src).toBe("number");
     expect(e.prompt.length, e.src).toBeGreaterThan(40);
-    expect(e.model, e.src).toBe("fal-ai/flux/krea");
+    expect(e.model, e.src).toBe("bytedance/seedream/v5.5");
     expect(e.alt, e.src).toContain("(AI illustration)");
   }
 });
 
-test("🔴 only landscape kinds — no campsite, region or company picture", () => {
+test("🔴 one picture per country, route and topic — none for a campsite, region or company", () => {
   expect(Object.keys(table).every((k) => KINDS.includes(k))).toBe(true);
   // The campsite page must not even import the module.
   const spot = readFileSync("src/app/camping/[country]/[region]/[slug]/page.tsx", "utf8");

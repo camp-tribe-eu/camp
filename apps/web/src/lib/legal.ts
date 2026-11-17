@@ -252,7 +252,7 @@ export const LEGAL_PAGES: LegalPage[] = [
     // читача до жодного з них не звертається. Migration
     // 1797930000000-AttributionWeatherForecast.
     // 1.6 (17.11.2026): згенеровані ілюстрації країн, маршрутів, оренди й
-    // тем гайдів — FLUX.1 Krea [dev] через fal.run, підпис «AI illustration»
+    // тем гайдів — Seedream 5.5 через fal.run, підпис «AI illustration»
     // на кожній, ніколи на сторінці кемпінгу чи компанії. Migration
     // 1797960000000-AttributionPagePhotos.
     version: '1.6',

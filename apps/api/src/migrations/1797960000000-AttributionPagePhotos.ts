@@ -11,12 +11,12 @@ import {
  * маршрутів, оренди й тем гайдів (рішення власника 17.11.2026).
  *
  * 🔴 ЩО САМЕ СТВЕРДЖУЄ ТЕКСТ — і кожне з цього тримає код:
- * - згенеровано FLUX.1 Krea [dev] через fal.run, з текстового запиту, без
- *   вихідного знімка (`scripts/page-photos/generate.mjs` не передає
- *   зображення);
+ * - згенеровано Seedream 5.5 через fal.run, з текстового запиту, без
+ *   вихідного знімка (`scripts/page-photos/` не передає зображення);
+ *   seed ця модель не повертає, тож обіцяємо лише запит;
  * - кожне підписане «AI illustration» на самій картинці (`AI_LABEL`,
  *   AI Act ст. 50(4));
- * - запит, seed і модель кожного — у `apps/web/src/data/page-photos.json`;
+ * - запит і модель кожного — у `apps/web/src/data/page-photos.json`;
  * - НІКОЛИ на сторінці кемпінгу чи компанії: там і далі «no AI-generated
  *   images of places nobody has visited».
  * Фото, яке власник поставить сам, підпису не має — це його знімок.
@@ -32,9 +32,9 @@ export class AttributionPagePhotos1797960000000 implements MigrationInterface {
       '## Typefaces {#type}',
       `## Illustrations of countries, routes and topics {#illustrations}
 
-The pictures at the top of country, route, camper-rental and guide pages are AI-generated illustrations, and each one says so on the picture itself: “AI illustration”. They were made with the FLUX.1 Krea [dev] model from Black Forest Labs, run through the hosted service at [fal.run](https://fal.run/fal-ai/flux/krea), from a text prompt alone: no photograph or other picture was supplied. We keep the prompt and the seed of every one on record.
+The pictures at the top of country, route, camper-rental and guide pages are AI-generated illustrations, and each one says so on the picture itself: “AI illustration”. They were made with the Seedream 5.5 model from ByteDance, run through the hosted service at [fal.run](https://fal.run/bytedance/seedream/v5.5/text-to-image), from a text prompt alone: no photograph or other picture was supplied. We keep the prompt of every one on record.
 
-They show the kind of landscape a page is about — a lake in Austria, a coast road in Dalmatia — and not any particular campsite or company. A campsite page never carries one, and a rental company’s page shows its home country, never its vehicles. Where we replace an illustration with a real photograph, the label goes with it.
+They show the kind of landscape and the kind of camping a page is about — a lake in Austria, a coast road in Dalmatia — and not any particular campsite or company. A campsite page never carries one; a region shows its country’s picture, and a rental company’s page shows its home country, never its vehicles. Where we replace an illustration with a real photograph, the label goes with it.
 
 ## Typefaces {#type}`,
     );

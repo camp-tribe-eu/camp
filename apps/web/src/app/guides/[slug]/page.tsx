@@ -115,9 +115,7 @@ export default async function GuidePage(props: { params: Promise<Params> }) {
         background={await bannerBackground(
           "guide-hero",
           "/banners/guides.webp",
-          facets
-            ? (pagePhoto("topic-country", `${facets.country}-${facets.topic}`) ?? pagePhoto("topic", facets.topic))
-            : null,
+          facets ? pagePhoto("topic", facets.topic) : null,
         )}
         tickerText={(facets ? TOPICS[facets.topic] : "Guide").toUpperCase()}
         heading={guide.title}

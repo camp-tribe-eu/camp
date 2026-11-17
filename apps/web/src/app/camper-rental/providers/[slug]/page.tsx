@@ -159,7 +159,7 @@ export default async function ProviderPageView({
           "provider-hero",
           "/banners/camper.webp",
           // The provider's HOME COUNTRY landscape, never "their" vans.
-          pagePhoto("rental", p.homeCountry) ?? pagePhoto("country", p.homeCountry),
+          pagePhoto("country", p.homeCountry),
         )}
         tickerText={p.name.toUpperCase()}
         heading={p.name}

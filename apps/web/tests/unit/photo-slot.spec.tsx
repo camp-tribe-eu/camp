@@ -282,12 +282,12 @@ const guideWorld = (slot: World['slot']): World => {
 };
 
 // 17.11.2026: no owner picture → THIS page's generated picture (lib/page-photos),
-// and only without one the shared drawing. Fixtures: guide fr-ain-water,
-// topic water, provider registered in FI (no rental picture → country).
+// and only without one the shared drawing. Fixtures: guide fr-ain-water and
+// topic water → the topic's picture; provider registered in FI → Finland's.
 const DEFAULT_BG: Record<string, string> = {
-  'guide-hero': pagePhoto('topic-country', 'fr-water')?.src ?? '/banners/guides.webp',
+  'guide-hero': pagePhoto('topic', 'water')?.src ?? '/banners/guides.webp',
   'guide-topic-hero': pagePhoto('topic', 'water')?.src ?? '/banners/guides.webp',
-  'provider-hero': (pagePhoto('rental', 'fi') ?? pagePhoto('country', 'fi'))?.src ?? '/banners/camper.webp',
+  'provider-hero': pagePhoto('country', 'fi')?.src ?? '/banners/camper.webp',
 };
 
 const renderers = {

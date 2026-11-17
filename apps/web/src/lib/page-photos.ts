@@ -16,10 +16,16 @@ import PHOTOS from "@/data/page-photos.json";
  * 🔴 EVERY ONE IS LABELLED where it is shown (`ai: true` → «AI illustration»
  * on the picture): AI Act Art. 50(4) — an image resembling real places must
  * be disclosed as generated, at first sight, not on another page. Prompt,
- * seed and model of each are in `data/page-photos.json`
- * (`scripts/page-photos/generate.mjs`).
+ * and model of each are in `data/page-photos.json`, the full prompt set in
+ * `scripts/page-photos/prompts-*.py` (`promote.mjs` writes the manifest).
+ *
+ * 🔴 ONE PICTURE PER COUNTRY, ROUTE AND TOPIC — owner, 17.11.2026, variant (b):
+ * a region, a rental page and a provider show their COUNTRY's picture; a
+ * region guide shows its TOPIC's. The first Krea batch (577 images, 43%
+ * defective: vans on beaches, tents on roads) was thrown away; every picture
+ * here passed a written checklist twice before it was kept.
  */
-export type PagePhotoKind = "country" | "route" | "rental" | "topic" | "topic-country";
+export type PagePhotoKind = "country" | "route" | "topic";
 
 export interface PagePhoto {
   src: string;

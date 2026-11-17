@@ -169,7 +169,7 @@ export default async function RentalCountryPage({
         className="mt-3"
         headingLevel={1}
         background={
-          pagePhoto("rental", c.code) ?? pagePhoto("country", c.code) ?? { src: "/banners/eu-dawn.webp" }
+          pagePhoto("country", c.code) ?? { src: "/banners/eu-dawn.webp" }
         }
         foreground={countryPhoto ?? undefined}
         tickerText={c.name.toUpperCase()}
