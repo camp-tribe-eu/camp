@@ -857,6 +857,9 @@ export class SpotsService {
       lat: number;
       lon: number;
       near: { name: string; m: number }[];
+      /** CAMP-442/3: the spot type and the amenities answered «yes» — for the result card. */
+      type: string | null;
+      yes: string[];
     }[]
   > {
     // 🔴 CAMP-455. Назва зливається ОДИН РАЗ у внутрішньому запиті, а
@@ -864,9 +867,9 @@ export class SpotsService {
     // підзапит, і п'ять копій його всередині одного предиката зробили б
     // з пошуку по 52 527 рядках п'ять підзапитів на рядок.
     const rows = await this.db.query(
-      `SELECT name, country, region, slug, lat, lon, context
+      `SELECT name, country, region, slug, lat, lon, context, type, amenities
          FROM (
-           SELECT ${mergedNameSql('s')} AS name, s.country, s.region, s.slug,
+           SELECT ${mergedNameSql('s')} AS name, s.country, s.region, s.slug, s.type::text AS type, s.amenities,
                   ST_Y(s.location::geometry) AS lat,
                   ST_X(s.location::geometry) AS lon,
                   s.context, s.website, s.description, s.stars, s.contact
@@ -908,6 +911,12 @@ export class SpotsService {
         lat: Number(r.lat),
         lon: Number(r.lon),
         near,
+        type: (r.type as string) ?? null,
+        // Only a recorded «yes»: «no» and «unknown» are not printed on a
+        // card (three-state data, see AMENITY_KEYS in the web app).
+        yes: Object.entries((r.amenities ?? {}) as Record<string, unknown>)
+          .filter(([, v]) => v === 'yes')
+          .map(([k]) => k),
       };
     });
   }

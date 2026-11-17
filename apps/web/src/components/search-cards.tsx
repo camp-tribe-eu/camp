@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 
-import { countryName, formatDistance } from '@/lib/api';
+import { AMENITY_LABEL_SHORT, SPOT_TYPE_LABEL_SHORT, countryName, formatDistance, type AmenityKey, type SpotType } from '@/lib/api';
 import type { SearchHit } from '@/lib/search';
 import {
   regionTitle,
@@ -30,12 +30,10 @@ import { Flag } from './flag';
 //
 // 🔴 ЩО У КАРТЦІ Є І ЧОГО НЕМАЄ. Є: країна з прапором, назва, регіон,
 // місце поруч і відстань — усе, що індекс пошуку несе про кемпінг.
-// Немає: зручностей («душ, електрика»), які власник просив у ревʼю
-// 442/3. Їх немає в індексі, і додати їх — це зміна формату, який
-// качає кожен відвідувач. Заміряно 15.11.2026 на 52 499 кемпінгах:
-// тип і маска зручностей одним числом на рядок — 261 674 байти
-// (4,98 на рядок), 51 654 байти після gzip -6. Це окреме рішення
-// про вагу індексу, не те, що проходить тихо в картці про верстку.
+// 17.11.2026 (ревʼю 442/3): тепер є й тип із зручностями «так» —
+// хвостовий елемент рядка індексу (`packFacts` у lib/search.ts). Ціна
+// заміряна 15.11.2026: ≈5 байтів на рядок; індекс розбитий по країнах,
+// тож платить лише той, хто шукає в цій країні.
 
 const CARDS_CSS = `
 .ct-sr{display:grid;grid-template-columns:1fr;gap:8px;list-style:none;margin:0;padding:0;text-align:left}
@@ -129,6 +127,20 @@ function Card({ href, flag, kicker, title, lines, cta, testId }: CardProps) {
   );
 }
 
+/**
+ * CAMP-442/3: «Paid · Electricity · Showers · Wi-Fi» — the type and at most
+ * four amenities recorded as «yes». Nothing recorded → no line, never a
+ * «no facilities» that the data does not say.
+ */
+export function factsLine(doc: { type?: SpotType; has?: readonly AmenityKey[] }): string | null {
+  const parts: string[] = [];
+  if (doc.type) parts.push(SPOT_TYPE_LABEL_SHORT[doc.type]);
+  const has = doc.has ?? [];
+  parts.push(...has.slice(0, 4).map((k) => AMENITY_LABEL_SHORT[k]));
+  if (has.length > 4) parts.push(`+${has.length - 4} more`);
+  return parts.length ? parts.join(' · ') : null;
+}
+
 const en = (n: number): string => n.toLocaleString('en-GB');
 const plural = (n: number, one: string, many: string): string =>
   `${en(n)} ${n === 1 ? one : many}`;
@@ -145,7 +157,7 @@ export function CampsiteCards({ hits }: { hits: readonly SearchHit[] }) {
           // Кемпінг без назви так і називається: не порожній рядок і не
           // слаг, видаваний за назву.
           title={hit.doc.name || 'Unnamed campsite'}
-          lines={[regionTitle(hit.doc.region), nearLine(hit.label)]}
+          lines={[regionTitle(hit.doc.region), nearLine(hit.label), factsLine(hit.doc)]}
           cta="View campsite"
           testId="search-card-campsite"
         />
