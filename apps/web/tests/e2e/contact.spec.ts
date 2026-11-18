@@ -367,3 +367,40 @@ test.describe('🔴 CAMP-441/31 — форма на /contact', () => {
     await expect(page.getByRole('status')).toHaveCount(0);
   });
 });
+
+// CAMP-441/33: tabs «campsite / camper», each a form to a filtered result.
+test.describe('CAMP-441/33 — вкладки підбору на /contact', () => {
+  test('кліком і стрілками: одна панель видима, друга схована', async ({ page }) => {
+    await page.goto('/contact');
+    const campsite = page.getByTestId('finder-tab-campsite');
+    const camper = page.getByTestId('finder-tab-camper');
+    await expect(campsite).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('finder-panel-campsite')).toBeVisible();
+    await expect(page.getByTestId('finder-panel-camper')).toBeHidden();
+
+    await camper.click();
+    await expect(camper).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('finder-panel-camper')).toBeVisible();
+    await expect(page.getByTestId('finder-panel-campsite')).toBeHidden();
+
+    await camper.press('ArrowLeft');
+    await expect(campsite).toBeFocused();
+    await expect(campsite).toHaveAttribute('aria-selected', 'true');
+  });
+
+  test('вкладка кемпінгу веде на мапу з обраним типом', async ({ page }) => {
+    await page.goto('/contact');
+    await page.getByTestId('contact-filter-type').selectOption('camper_stop');
+    await page.getByTestId('contact-filters-submit').click();
+    await page.waitForURL(/\/map\?/);
+    expect(page.url()).toContain('types=camper_stop');
+  });
+
+  test('вкладка кемпера веде в каталог компаній', async ({ page }) => {
+    await page.goto('/contact');
+    await page.getByTestId('finder-tab-camper').click();
+    const form = page.getByTestId('finder-panel-camper').locator('form');
+    await expect(form).toHaveAttribute('action', '/camper-rental/providers');
+    await expect(form.locator('select[name="country"] option').nth(1)).toBeAttached();
+  });
+});
