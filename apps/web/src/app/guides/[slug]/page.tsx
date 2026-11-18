@@ -1,3 +1,4 @@
+import { MoreForTheTrip } from '@/components/more-for-the-trip';
 import { pagePhoto } from "@/lib/page-photos";
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -203,6 +204,26 @@ export default async function GuidePage(props: { params: Promise<Params> }) {
           </aside>
         )}
       </div>
+
+      {/* CAMP-443 (4, 9): sections at the bottom — the newest posts and
+          two ways on, the same ending as /routes and /tools. */}
+      <MoreForTheTrip
+        testId="guide-more"
+        features={[
+          {
+            image: { src: '/banners/routes.webp' },
+            heading: 'Road trips',
+            text: 'Routes across Europe, split into stages with campsites at every stop.',
+            cta: { href: '/routes', label: 'See the routes' },
+          },
+          {
+            image: { src: '/banners/tools.webp' },
+            heading: 'Planning tools',
+            text: "A trip cost calculator on this week's fuel prices and a packing list for your season and vehicle.",
+            cta: { href: '/tools', label: 'Open the tools' },
+          },
+        ]}
+      />
     </main>
   );
 }

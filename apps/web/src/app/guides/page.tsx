@@ -1,3 +1,4 @@
+import { MoreForTheTrip } from '@/components/more-for-the-trip';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { countryName } from '@/lib/api';
@@ -180,6 +181,26 @@ export default async function GuidesIndex() {
           )}
         </>
       )}
+
+      {/* CAMP-443 (4, 9): sections at the bottom — the newest posts and
+          two ways on, the same ending as /routes and /tools. */}
+      <MoreForTheTrip
+        testId="guides-more"
+        features={[
+          {
+            image: { src: '/banners/routes.webp' },
+            heading: 'Road trips',
+            text: 'Routes across Europe, split into stages with campsites at every stop.',
+            cta: { href: '/routes', label: 'See the routes' },
+          },
+          {
+            image: { src: '/banners/camper.webp' },
+            heading: 'Rent a camper',
+            text: 'Licence classes, weights, tolls and insurance — what hiring a camper commits you to, country by country.',
+            cta: { href: '/camper-rental', label: 'Choose a country' },
+          },
+        ]}
+      />
     </main>
   );
 }
