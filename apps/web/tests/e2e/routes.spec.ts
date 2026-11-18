@@ -646,3 +646,12 @@ test.describe("a route page", () => {
 });
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// CAMP-443 (27): a route ends with the cost calculator and the other routes.
+test("сторінка маршруту закінчується секціями: вартість і інші маршрути", async ({ page }) => {
+  const [first] = await library();
+  await page.goto(`/routes/${first.slug}`);
+  const more = page.getByTestId("route-more");
+  await expect(more.getByRole("link", { name: "Work out the cost" })).toHaveAttribute("href", "/tools/camper-trip-cost");
+  await expect(more.getByRole("link", { name: "See all routes" })).toHaveAttribute("href", "/routes");
+});

@@ -1,3 +1,4 @@
+import { MoreForTheTrip } from "@/components/more-for-the-trip";
 import { pagePhoto } from "@/lib/page-photos";
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -479,6 +480,26 @@ export default async function ProviderPageView({
           )}
         </aside>
       </div>
+
+      {/* CAMP-445 (2, 3): more below a provider, in the sections the
+          demo stores end with — blog posts and two ways on. */}
+      <MoreForTheTrip
+        testId="provider-more"
+        features={[
+          {
+            image: { src: "/banners/camper.webp" },
+            heading: "Compare rental companies",
+            text: "Every company we list, side by side: where they rent, what they rent and what is included.",
+            cta: { href: "/camper-rental/providers", label: "Compare all" },
+          },
+          {
+            image: { src: "/banners/routes.webp" },
+            heading: "Where to drive it",
+            text: "Road trips across Europe, split into stages with campsites at every stop.",
+            cta: { href: "/routes", label: "See the routes" },
+          },
+        ]}
+      />
     </main>
   );
 }

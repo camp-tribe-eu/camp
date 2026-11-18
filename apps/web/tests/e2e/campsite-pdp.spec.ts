@@ -324,4 +324,15 @@ test.describe('🔴 банери чужих сторінок не вантажа
     await page.waitForTimeout(4000);
     expect(seen, `завантажено чужих банерів: ${seen.length}`).toEqual([]);
   });
+// CAMP-441 (52): «Plan a trip» used to open an empty planner. Now it names
+// THIS campsite as the destination, and the planner reads it back.
+test('«Plan a trip here» веде в планер із цим кемпінгом як ціллю', async ({ page, request }) => {
+  const path = await withoutAnything(request);
+  await page.goto(path);
+  const slug = path.split('/').pop()!;
+  const link = page.locator('[data-testid="spot-actions"]').getByRole('link', { name: 'Plan a trip here' });
+  await expect(link).toHaveAttribute('href', `/plan?to=${encodeURIComponent(slug)}`);
+  await expect(
+    page.locator('[data-testid="spot-actions"]').getByRole('link', { name: 'All campsites map' }),
+  ).toHaveAttribute('href', '/map');
 });

@@ -626,11 +626,14 @@ export default async function CampsitePage(props: { params: Promise<Params> }) {
                 </ButtonLink>
               )}
               <div className="grid grid-cols-2 gap-2">
-                <ButtonLink href="/map" variant="secondary">
-                  Open on map
+                {/* CAMP-441 (52): say what each opens. The planner takes
+                    this campsite as the destination (`?to=`); the map
+                    is the whole of Europe and does not pretend not to be. */}
+                <ButtonLink href={`/plan?to=${encodeURIComponent(spot.slug)}`} variant="secondary">
+                  Plan a trip here
                 </ButtonLink>
-                <ButtonLink href="/plan" variant="secondary">
-                  Plan a trip
+                <ButtonLink href="/map" variant="secondary">
+                  All campsites map
                 </ButtonLink>
               </div>
             </div>

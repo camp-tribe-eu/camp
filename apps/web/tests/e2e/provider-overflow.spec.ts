@@ -76,3 +76,11 @@ test.describe("🔴 сторінка компанії на 375 px", () => {
     expect(m.sw, "горизонтальна прокрутка на 375").toBe(m.iw);
   });
 });
+
+// CAMP-445 (2, 3): a provider page ends with two ways on, like the demo stores.
+test("сторінка компанії закінчується секціями: порівняти всіх і маршрути", async ({ page }) => {
+  await page.goto(await firstProviderPath(page));
+  const more = page.getByTestId("provider-more");
+  await expect(more.getByRole("link", { name: "Compare all" })).toHaveAttribute("href", "/camper-rental/providers");
+  await expect(more.getByRole("link", { name: "See the routes" })).toHaveAttribute("href", "/routes");
+});
