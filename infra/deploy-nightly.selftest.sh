@@ -14,7 +14,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 NIGHTLY="$HERE/bin/camptribe-deploy-nightly"
-EXPECTED=30
+EXPECTED=37
 
 W="$(mktemp -d "${TMPDIR:-/tmp}/camptribe-nightly.XXXXXX")"
 trap 'rm -rf "$W"' EXIT
@@ -93,6 +93,19 @@ STUB_RC=1 run
 eq "$RC" 1; ok $? 'зупинка до перемикання (1) проходить нагору' "код=$RC"
 unset STUB_RC
 
+echo '— 🔴 CAMP-483: замок зайнятий — пропуск, а не збій; слід знімає лише успіх'
+TRACE="$MROOT/failed/camptribe-deploy-nightly.service"
+mkdir -p "$MROOT/failed"; touch "$TRACE"
+STUB_RC=75 run
+eq "$RC" 75; ok $? 'код 75 проходить нагору (юніт рахує його успіхом)' "код=$RC"
+grep -q 'пропущено навмисно' <<<"$OUT"; ok $? 'у журналі сказано, що пропущено навмисно і коли далі' "$OUT"
+[ -e "$TRACE" ]; ok $? '🔴 пропуск НЕ стирає слід учорашнього справжнього збою' ""
+STUB_RC=1 run
+[ -e "$TRACE" ]; ok $? 'збій слід лишає' ""
+STUB_RC=0 run
+[ ! -e "$TRACE" ]; ok $? 'успішний викат слід знімає' ""
+unset STUB_RC
+
 echo '— 🔴 відкат не скасовується сам'
 HIST="$MROOT/deploy-history.jsonl"
 printf '{"action":"deploy","from":"aaaaaaa","to":"%s","ok":true}\n{"action":"rollback","from":"%s","to":"aaaaaaa","ok":true}\n' "${SHA2:0:7}" "${SHA2:0:7}" > "$HIST"
@@ -147,8 +160,12 @@ SVC_ACTIVE="$(active "$SVC")"
 TMR_ACTIVE="$(active "$TMR")"
 grep -q '^ExecStart=/usr/local/bin/camptribe-deploy-nightly$' <<<"$SVC_ACTIVE"
 ok $? 'ExecStart веде на скрипт, без аргументів' "$(active "$SVC" | grep ExecStart)"
-{ grep -q '^OnFailure=camptribe-failed@%n.service$' <<<"$SVC_ACTIVE" && grep -q '^ExecStartPost=/bin/rm -f /srv/camptribe/failed/camptribe-deploy-nightly.service$' <<<"$SVC_ACTIVE"; }
-ok $? 'падіння лишає слід, успіх його знімає' ""
+grep -q '^OnFailure=camptribe-failed@%n.service$' <<<"$SVC_ACTIVE"
+ok $? 'падіння лишає слід (OnFailure)' ""
+grep -q '^SuccessExitStatus=75$' <<<"$SVC_ACTIVE"
+ok $? '🔴 CAMP-483: 75 (замок зайнятий) — не падіння' "$(active "$SVC" | grep -i exitstatus)"
+! grep -q '^ExecStartPost=' <<<"$SVC_ACTIVE"
+ok $? '🔴 ExecStartPost немає: з SuccessExitStatus він стер би слід і після пропуску' ""
 ! grep -qE 'migrate|EnvironmentFile|Environment=.*(KEY|TOKEN|SECRET|PASSWORD)' <<<"$SVC_ACTIVE"
 ok $? '🔴 у юніті немає --migrate, EnvironmentFile і секретів' ""
 H="$(active "$TMR" | sed -n 's/^OnCalendar=\*-\*-\* \([0-9][0-9]\):00:00 UTC$/\1/p')"
