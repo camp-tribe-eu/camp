@@ -125,6 +125,7 @@ main() {
 
   if [ "$remote" = "$live" ]; then
     say "main не змінився з минулого викочування — збірку не починаю, нічого не роблю."
+    clear_trace
     return 0
   fi
 
@@ -145,8 +146,21 @@ main() {
   local rc=0
   "$DEPLOY" deploy --sha "$remote" --ref "$BRANCH" --apply --deployer nightly-timer || rc=$?
   say "camptribe-deploy завершився з кодом ${rc}"
+  if [ "$rc" = 75 ]; then
+    # CAMP-483: замок тримав інший деплой. Не збій — і слід минулого
+    # СПРАВЖНЬОГО збою теж не знімаємо: пропуск нічого не довів.
+    say "⏭ викат пропущено навмисно: інший деплой уже йде. Наступна спроба — завтрашній таймер (13:00 UTC), або руками: camptribe-deploy deploy --sha ${remote} --apply"
+    return 75
+  fi
+  [ "$rc" = 0 ] && clear_trace
   return "$rc"
 }
+
+# Слід тривоги (camptribe-failed@) знімається лише після УСПІХУ — main
+# викочено або викочувати нічого. Раніше це робив ExecStartPost юніта, але з
+# SuccessExitStatus=75 він біг би й після пропуску (CAMP-483) і стирав би
+# слід учорашнього справжнього збою.
+clear_trace() { rm -f "${ROOT}/failed/camptribe-deploy-nightly.service"; }
 
 need_cmds() {
   command -v git >/dev/null 2>&1 || die "на машині немає git"

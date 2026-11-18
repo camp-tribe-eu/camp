@@ -1168,7 +1168,7 @@ new_world f5
 mkdir "$W/root/.deploy.lock"; sleep 300 & HOLDER=$!; echo $HOLDER > "$W/root/.deploy.lock/pid"
 X deploy --sha "$SHA1" --apply
 kill $HOLDER 2>/dev/null; wait $HOLDER 2>/dev/null
-[ $RC -eq 1 ] && grep -q 'уже йде' <<<"$OUT" && [ ! -d "$W/root/releases/$S1" ] && pass "замок тримає живий процес: другий деплой відмовляє й нічого не створює" || fail "замок тримає живий процес: другий деплой відмовляє й нічого не створює" "rc=$RC $OUT"
+[ $RC -eq 75 ] && grep -q 'уже йде' <<<"$OUT" && [ ! -d "$W/root/releases/$S1" ] && pass "замок тримає живий процес: другий деплой відмовляє й нічого не створює" || fail "замок тримає живий процес: другий деплой відмовляє й нічого не створює" "rc=$RC $OUT"
 
 # 🔴 16.11.2026 на проді: нічний таймер (13:00:01) упав на чужому замку, і його `cleanup`
 # на виході вбив слухача порту збірки — тимчасову API РУЧНОГО деплою, що саме збирав веб.
@@ -1182,7 +1182,7 @@ X deploy --sha "$SHA1" --apply
 ALIVE=no; kill -0 $OTHER_API 2>/dev/null && ALIVE=yes
 LOCKPID=$(cat "$W/root/.deploy.lock/pid" 2>/dev/null)
 kill $HOLDER $OTHER_API 2>/dev/null; wait $HOLDER $OTHER_API 2>/dev/null
-[ $RC -eq 1 ] && grep -q 'уже йде' <<<"$OUT" && [ "$ALIVE" = yes ] && [ "$LOCKPID" = "$HOLDER" ] && pass "деплой, що не взяв замка, не чіпає тимчасову API чужого деплою на порту збірки і чужий замок" || fail "деплой, що не взяв замка, не чіпає тимчасову API чужого деплою на порту збірки і чужий замок" "rc=$RC alive=$ALIVE lock=$LOCKPID holder=$HOLDER $OUT"
+[ $RC -eq 75 ] && grep -q 'уже йде' <<<"$OUT" && [ "$ALIVE" = yes ] && [ "$LOCKPID" = "$HOLDER" ] && pass "деплой, що не взяв замка, не чіпає тимчасову API чужого деплою на порту збірки і чужий замок" || fail "деплой, що не взяв замка, не чіпає тимчасову API чужого деплою на порту збірки і чужий замок" "rc=$RC alive=$ALIVE lock=$LOCKPID holder=$HOLDER $OUT"
 
 new_world f6
 X deploy --sha abc123 --apply

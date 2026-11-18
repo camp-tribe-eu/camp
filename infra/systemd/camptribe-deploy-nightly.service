@@ -40,8 +40,9 @@ Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
 ExecStart=/usr/local/bin/camptribe-deploy-nightly
-# 🔴 Слід знімається лише після УСПІШНОГО прогону: для Type=oneshot
-# ExecStartPost не біжить, якщо ExecStart повернув ненуль. Ніч без змін
-# теж успіх — вчорашня тривога знімається тоді, коли деплой справді відбувся
-# або коли нічого було викочувати.
-ExecStartPost=/bin/rm -f /srv/camptribe/failed/camptribe-deploy-nightly.service
+# 🔴 CAMP-483: 75 — «інший деплой уже тримає замок». Це скасування, а не
+# збій: OnFailure не спрацьовує, листа немає, причина — у журналі.
+SuccessExitStatus=75
+# Слід тривоги знімає сам скрипт (clear_trace) і лише після справжнього
+# успіху. ExecStartPost тут більше немає: з SuccessExitStatus=75 він біг би
+# й після пропуску й стирав би слід учорашнього справжнього збою.
