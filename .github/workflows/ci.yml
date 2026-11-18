@@ -2518,9 +2518,25 @@ jobs:
       # Правильніше було б стерегти СКЛАД (скільки через дані, скільки
       # через браузер), а не суму. Це окрема робота; до неї кожне
       # підняття мусить нести розкладку, як цей коміт.
+      #
+      # 🔴 150 → 160, 18.11.2026. `main` був червоний на цих воротах із
+      # 16.11 (щонайменше 24af64ba) і до 9f4fc3d6 включно — щоразу рівно
+      # 152, тож червоний `main` перестав щось казати й міг сховати справжнє
+      # падіння. Розкладка 152 із прогону 44300964801 (6177 тестів):
+      #
+      #   немає WebGL2, firefox-desktop    90  (було 88: +2 у map.spec)
+      #   WebKit/Linux не знімає canvas     8  drought 6 + wildfire 2 — нова
+      #                                        група, причина названа в тесті
+      #   сайт закритий                     8  hubs + thin-pages × 4 проєкти
+      #   немає кешу індексу (CAMP-438)    10  без змін
+      #   error-reporting, без причини     21  без змін
+      #   «server behaviour» (rate-limit)  15  без змін
+      #
+      # Кожен пропуск має названу причину-середовище; нової сліпоти немає.
+      # Запас 8 — не 50: наступне зростання знову зупинить ворота.
       - name: The number of e2e tests that did not run has not grown
         if: always()
-        run: node scripts/ci/check-skips.mjs apps/web/playwright-report/report.json --max 150
+        run: node scripts/ci/check-skips.mjs apps/web/playwright-report/report.json --max 160
 
       # CAMP-60, debt #2. The API from build-site is still running. Ten
       # seconds at twenty concurrent: this asserts the API does not fall

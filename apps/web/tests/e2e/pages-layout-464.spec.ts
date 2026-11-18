@@ -44,7 +44,13 @@ test.describe("🔴 CAMP-464 — /contact", () => {
     await page.goto("/contact");
     // Раніше тут було «форми немає» — тест, який саме це й тримав. Тепер
     // форма є, і тримається, що вона ОДНА й що лист нікуди не дівся.
-    await expect(page.locator("main form")).toHaveCount(1);
+    // CAMP-441/33: the «campsite / camper» finder adds GET forms that only
+    // open /map or the providers list; the message form is still the one
+    // form outside it.
+    const finder = page.getByTestId("contact-finder").locator("form");
+    await expect(finder.first()).toHaveAttribute("method", /get/i);
+    const finderForms = await finder.count();
+    await expect(page.locator("main form")).toHaveCount(finderForms + 1);
     await expect(page.getByTestId("contact-form").locator("form")).toHaveCount(1);
     await expect(page.locator("main a[data-ct-button]")).toHaveCount(1);
     // Дві картки-адреси ведуть на ЛИСТ (звичайним якорем, не `next/link`).
