@@ -1,3 +1,4 @@
+import { MoreForTheTrip } from '@/components/more-for-the-trip';
 import { pagePhoto, shareImage } from '@/lib/page-photos';
 import type { Metadata } from 'next';
 import Link from 'next/link';
@@ -375,6 +376,26 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
         </time>
         .
       </p>
+
+      {/* CAMP-443 (27): the owner asked for one or two sections at the
+          bottom of a route — the same ending /routes and /tools have. */}
+      <MoreForTheTrip
+        testId="route-more"
+        features={[
+          {
+            image: { src: '/banners/tools.webp' },
+            heading: 'What this trip will cost',
+            text: "Fuel on this week's prices, tolls and nights — the trip cost calculator.",
+            cta: { href: '/tools/camper-trip-cost', label: 'Work out the cost' },
+          },
+          {
+            image: { src: '/banners/routes.webp' },
+            heading: 'More road trips',
+            text: 'Other routes across Europe, each split into stages with campsites at every stop.',
+            cta: { href: '/routes', label: 'See all routes' },
+          },
+        ]}
+      />
     </main>
   );
 }
