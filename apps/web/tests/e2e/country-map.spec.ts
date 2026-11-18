@@ -118,7 +118,7 @@ test.describe('CAMP-474: мапа країни', () => {
     const { country } = await busiestCountry(request);
     const tiles: string[] = [];
     page.on('request', (r) => {
-      if (r.url().includes('openfreemap.org') || r.url().includes('maplibre')) tiles.push(r.url());
+      if (new URL(r.url()).hostname.endsWith('.openfreemap.org')) tiles.push(r.url());
     });
     await page.goto(`/camping/${country}`);
     const map = page.getByTestId('country-map');
@@ -127,8 +127,15 @@ test.describe('CAMP-474: мапа країни', () => {
       'мапа вже в першому екрані — тест нічого не доводить').toBe(true);
     await page.waitForTimeout(1500);
     expect(tiles, `до прокрутки завантажено: ${tiles.slice(0, 3).join(', ')}`).toEqual([]);
+    await expect(map).toHaveAttribute('data-map-state', 'loading');
 
+    // After scrolling the map starts: with WebGL it fetches its tiles;
+    // without (CI Firefox) it reaches «failed» — either way it left «loading».
     await map.scrollIntoViewIfNeeded();
-    await expect.poll(() => tiles.length, { timeout: 15_000 }).toBeGreaterThan(0);
+    if (await hasWebGl(page)) {
+      await expect.poll(() => tiles.length, { timeout: 15_000 }).toBeGreaterThan(0);
+    } else {
+      await expect(map).toHaveAttribute('data-map-state', 'failed', { timeout: 15_000 });
+    }
   });
 });
