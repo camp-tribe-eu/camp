@@ -27,6 +27,7 @@
 // closes again until the new text is reviewed too — which is the honest
 // behaviour, because a lawyer read version 1.0, not "the terms".
 
+import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { chooseAction, flagValue } from '../lib/entrypoint.mjs';
@@ -57,12 +58,41 @@ export function versionsFrom(pages) {
 }
 
 /**
+ * 🔴 CAMP-498, hole 1: the fingerprint of the text a reader is shown.
+ *
+ * A version is a number somebody bumps by hand. Until 18.11.2026 this guard
+ * compared only that number, so a section could be rewritten at the same
+ * version and every check stayed green (reproduced on attribution 1.4,
+ * 54 tests green). The record now also holds what was READ: a sha256 of
+ * the document's text as the built page renders it.
+ *
+ * Text, not markup: the <article> with its tags removed and whitespace
+ * collapsed. Re-wrapping a paragraph in a migration, or a class change in
+ * LegalProse, is not a new legal text and must not ask for a re-read; a
+ * changed word is, and does.
+ */
+export function textOf(html) {
+  const m = /<article\b[^>]*>([\s\S]*?)<\/article>/.exec(html);
+  if (!m) return null;
+  return m[1].replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+export function fingerprintsFrom(pages) {
+  const out = {};
+  for (const [slug, html] of Object.entries(pages)) {
+    const text = textOf(html);
+    out[slug] = text ? createHash('sha256').update(text).digest('hex') : null;
+  }
+  return out;
+}
+
+/**
  * Decide whether this build may be published.
  *
  * Pure: `mode`, the versions the build states, and the record. The
  * self-test drives every branch without a build directory.
  */
-export function evaluate(mode, versions, record, today = new Date()) {
+export function evaluate(mode, versions, record, today = new Date(), texts = null) {
   const problems = [];
   const warnings = [];
   const slugs = Object.keys(versions).sort();
@@ -126,6 +156,18 @@ export function evaluate(mode, versions, record, today = new Date()) {
       problems.push(
         `/legal/${slug} is at version ${version} but only ${reviewed} was reviewed — the text changed since`,
       );
+    } else if (texts) {
+      // Same version: was it the same TEXT? (CAMP-498)
+      const read = record.texts?.[slug];
+      const now = texts[slug];
+      if (!read) {
+        say(`/legal/${slug} version ${version}: no fingerprint of the text that was read is recorded (texts.${slug}, sha256 ${now})`);
+      } else if (now !== read) {
+        // Never a warning, for the same reason as a changed version.
+        problems.push(
+          `/legal/${slug} text changed at the same version ${version} — sha256 ${now}, read ${read}. Re-read it and bump the version`,
+        );
+      }
     }
   }
 
@@ -259,7 +301,31 @@ function selfTest() {
   // passed" is a line five scripts in this repository printed, so a CI
   // step grepping for it could be satisfied by somebody else's run; and
   // a case that stopped being reached prints what a passing case prints.
-  const EXPECTED_CASES = 15;
+  // 🔴 CAMP-498: the same version is not the same text.
+  const page = (body) =>
+    `<p data-testid="legal-version">Version 1.0</p><article class="a"><h2>Data</h2><p>${body}</p></article><nav>Also here</nav>`;
+  const fpA = fingerprintsFrom({ terms: page('We keep  nothing.') }).terms;
+  check(
+    're-wrapping and different tags give the same fingerprint',
+    fingerprintsFrom({ terms: '<article><h2 class="z">Data</h2>\n<div>We keep\nnothing.</div></article>' }).terms,
+    fpA,
+  );
+  const withText = { ...signed, texts: { terms: fpA, privacy: fpA } };
+  check(
+    'same version, same text passes',
+    evaluate('public', v, withText, new Date(), { terms: fpA, privacy: fpA }).ok,
+    true,
+  );
+  const fpB = fingerprintsFrom({ terms: page('We keep everything.') }).terms;
+  const changed = evaluate('public', v, withText, new Date(), { terms: fpB, privacy: fpA });
+  check('same version, changed text is refused, and names the page',
+    [changed.ok, changed.problems.length, changed.problems[0]?.startsWith('/legal/terms text changed at the same version 1.0')],
+    [false, 1, true]);
+  check('a changed text is refused even while acknowledged',
+    evaluate('public', v, { ...withText, acknowledgedUntil: '2026-10-31' }, before, { terms: fpB, privacy: fpA }).ok,
+    false);
+  check('a page with no article has no fingerprint', fingerprintsFrom({ terms: '<p>x</p>' }).terms, null);
+  const EXPECTED_CASES = 20;
   if (cases !== EXPECTED_CASES) {
     console.log(`✗ ${cases} cases ran, expected ${EXPECTED_CASES}`);
     failures++;
@@ -330,14 +396,15 @@ function main() {
   }
 
   const versions = versionsFrom(pages);
-  const { ok, problems, warnings, slugs } = evaluate(mode, versions, record);
+  const texts = fingerprintsFrom(pages);
+  const { ok, problems, warnings, slugs } = evaluate(mode, versions, record, new Date(), texts);
 
   for (const slug of slugs) {
     const reviewed = record.pages?.[slug];
     console.log(
       `  /legal/${slug.padEnd(12)} version ${versions[slug] ?? '—'}  ${
         reviewed === versions[slug] ? 'reviewed' : 'not reviewed'
-      }`,
+      }  text ${texts[slug] ?? '—'}`,
     );
   }
 
