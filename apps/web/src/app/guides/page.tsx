@@ -9,6 +9,9 @@ import { Block } from '@/components/layout';
 import { LayeredBanner } from '@/components/layered-banner';
 import { PageSections } from '@/components/page-sections';
 import { pageContent } from '@/lib/page-content';
+import MediaCards from '@/components/media-card';
+import { Flag } from '@/components/flag';
+import { TopicThumb } from '@/components/topic-thumb';
 
 // CAMP-66 — the guides index. CAMP-210 — the catalogue it had to become.
 //
@@ -117,44 +120,38 @@ export default async function GuidesIndex() {
 
           <section className="mt-10">
             <h2 className="text-xl md:text-[25px]">By question</h2>
-            <ul className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {topics.map((t) => (
-                <li key={t.topic}>
-                  <Link
-                    href={`/guides/topic/${t.topic}`}
-                    className="block rounded-card border border-line-2 bg-surface p-4 hover:border-line-blue"
-                  >
-                    <span className="font-semibold text-heading">
-                      {TOPICS[t.topic]}
-                    </span>
-                    <span className="mt-1 block text-sm text-ink-2">
-                      {t.guides.length.toLocaleString('en-GB')} regions
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
+            {/* CAMP-443 (2): the one card of the whole site — picture
+                left, title, text, one named button. */}
+            <div className="mt-4">
+              <MediaCards
+                testId="guide-topic-cards"
+                columns={3}
+                items={topics.map((t) => ({
+                  key: t.topic,
+                  media: <TopicThumb topic={t.topic} />,
+                  title: TOPICS[t.topic],
+                  text: `${t.guides.length.toLocaleString('en-GB')} regions`,
+                  cta: { href: `/guides/topic/${t.topic}`, label: `Guides: ${TOPICS[t.topic]}` },
+                }))}
+              />
+            </div>
           </section>
 
           <section className="mt-10">
             <h2 className="text-xl md:text-[25px]">By country</h2>
-            <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-              {countries.map((c) => (
-                <li key={c.country}>
-                  <Link
-                    href={`/guides/country/${c.country}`}
-                    className="block rounded-card border border-line-2 bg-surface p-3 hover:border-line-blue"
-                  >
-                    <span className="font-semibold text-heading">
-                      {countryName(c.country)}
-                    </span>
-                    <span className="mt-1 block text-sm text-ink-2">
-                      {c.guides.length.toLocaleString('en-GB')}
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
+            <div className="mt-4">
+              <MediaCards
+                testId="guide-country-cards"
+                columns={3}
+                items={countries.map((c) => ({
+                  key: c.country,
+                  media: <Flag code={c.country} />,
+                  title: countryName(c.country),
+                  text: `${c.guides.length.toLocaleString('en-GB')} guides`,
+                  cta: { href: `/guides/country/${c.country}`, label: `Guides for ${countryName(c.country)}` },
+                }))}
+              />
+            </div>
           </section>
 
           {lost.length > 0 && (

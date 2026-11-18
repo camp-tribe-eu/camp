@@ -526,3 +526,18 @@ test.describe("🔴 CAMP-459/460 — /guides і /routes беруть текст 
     });
   }
 });
+
+// CAMP-443 (2): the guides index uses the site's one card — picture left,
+// title, one button that names its subject.
+test("індекс гайдів: картки тем і країн — картинка ліворуч, назва, кнопка", async ({ page }) => {
+  await page.goto("/guides");
+  const topics = page.getByTestId("guide-topic-cards");
+  const first = topics.locator("li").first();
+  await expect(first.locator("img")).toHaveAttribute("src", /\/photos\/topic\/[a-z]+-640\.webp$/);
+  await expect(first.getByRole("link", { name: /^Guides: / })).toHaveAttribute("href", /^\/guides\/topic\//);
+  const countries = page.getByTestId("guide-country-cards");
+  await expect(countries.locator("li").first().getByRole("link", { name: /^Guides for / })).toHaveAttribute(
+    "href",
+    /^\/guides\/country\/[a-z]{2}$/,
+  );
+});

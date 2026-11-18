@@ -8,6 +8,8 @@ import { cardProvenanceLabel, getGuides } from '@/lib/guides';
 import { breadcrumbList, collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
 import { Block } from '@/components/layout';
+import MediaCards from '@/components/media-card';
+import { TopicThumb } from '@/components/topic-thumb';
 
 // CAMP-210 — one of the two facets that make 1 268 guides reachable.
 //
@@ -123,30 +125,25 @@ export default async function GuidesByCountry(props: {
           <h2 className="text-xl md:text-[25px]">
             {TOPICS[group.topic]}
           </h2>
-          <ul className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-            {group.guides.map((g) => (
-              <li key={g.slug}>
-                <Link
-                  href={`/guides/${g.slug}`}
-                  className="block rounded-card border border-line-2 bg-surface p-4 hover:border-line-blue"
-                >
-                  <span className="font-semibold text-heading">{g.title}</span>
-                  {g.summary && (
-                    <span className="mt-1 block text-sm text-ink-2">
-                      {g.summary}
-                    </span>
-                  )}
-                  {/* The label travels with the link, so a reader knows
-                      before they click, not only after. */}
-                  {cardProvenanceLabel(g.provenance) && (
-                    <span className="mt-2 block text-xs uppercase tracking-[0.08em] text-ink-2">
-                      {cardProvenanceLabel(g.provenance)}
-                    </span>
-                  )}
-                </Link>
-              </li>
-            ))}
-          </ul>
+          {/* CAMP-443 (2): the site's one card. The provenance label
+              still travels with the card, as a chip, so a reader knows
+              before they click. */}
+          <div className="mt-4">
+            <MediaCards
+              testId="country-guide-cards"
+              columns={2}
+              items={group.guides.map((g) => ({
+                key: g.slug,
+                media: <TopicThumb topic={group.topic} />,
+                title: g.title,
+                text: g.summary ?? undefined,
+                chips: cardProvenanceLabel(g.provenance)
+                  ? [cardProvenanceLabel(g.provenance) as string]
+                  : undefined,
+                cta: { href: `/guides/${g.slug}`, label: `Read ${g.title}` },
+              }))}
+            />
+          </div>
         </section>
       ))}
 
