@@ -63,6 +63,8 @@ test.describe('CAMP-474: мапа країни', () => {
     await expect(map).toHaveAttribute('data-regions', String(regions));
     await expect(map).toHaveAttribute('data-spots', String(spots));
 
+    // The map loads only when it comes near the screen (speed, 18.11).
+    await map.scrollIntoViewIfNeeded();
     const webgl = await hasWebGl(page);
     if (webgl) {
       await expect(map).toHaveAttribute('data-map-state', 'ready', { timeout: 20_000 });
@@ -104,5 +106,29 @@ test.describe('CAMP-474: мапа країни', () => {
     await expect(page.getByTestId('country-map-credit')).toContainText(
       'OpenFreeMap © OpenMapTiles',
     );
+  });
+
+  // 🔴 Paired with the test above: there the map loads once scrolled to;
+  // here, on a short phone screen, nothing of it is fetched before that.
+  test('🔴 мапа нижче першого екрана нічого не вантажить, поки до неї не догорнули', async ({
+    page,
+    request,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 640 });
+    const { country } = await busiestCountry(request);
+    const tiles: string[] = [];
+    page.on('request', (r) => {
+      if (r.url().includes('openfreemap.org') || r.url().includes('maplibre')) tiles.push(r.url());
+    });
+    await page.goto(`/camping/${country}`);
+    const map = page.getByTestId('country-map');
+    await expect(map).toHaveAttribute('data-regions', /\d+/);
+    expect(await map.evaluate((el) => el.getBoundingClientRect().top > window.innerHeight + 300),
+      'мапа вже в першому екрані — тест нічого не доводить').toBe(true);
+    await page.waitForTimeout(1500);
+    expect(tiles, `до прокрутки завантажено: ${tiles.slice(0, 3).join(', ')}`).toEqual([]);
+
+    await map.scrollIntoViewIfNeeded();
+    await expect.poll(() => tiles.length, { timeout: 15_000 }).toBeGreaterThan(0);
   });
 });

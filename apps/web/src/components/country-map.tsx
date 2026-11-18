@@ -133,7 +133,31 @@ function CountryMapCanvas({ country, countryName, regions, unit = 'region' }: Co
     let map: import('maplibre-gl').Map | null = null;
     setState('loading');
 
+    // 🔴 Speed (18.11.2026, Lighthouse on prod, /camping/fr on a phone):
+    // the map sits below the first screen, yet it fetched ~4 MB of tiles
+    // and 288 kB of MapLibre on load — performance 47, 1.95 s of blocked
+    // main thread. Nothing is fetched until the box is within 300 px of
+    // the screen. Without IntersectionObserver it starts at once, as before.
+    let io: IntersectionObserver | null = null;
+    const near =
+      typeof IntersectionObserver === 'undefined'
+        ? Promise.resolve()
+        : new Promise<void>((resolve) => {
+            io = new IntersectionObserver(
+              (entries) => {
+                if (entries.some((e) => e.isIntersecting)) {
+                  io?.disconnect();
+                  resolve();
+                }
+              },
+              { rootMargin: '300px' },
+            );
+            io.observe(el);
+          });
+
     (async () => {
+      await near;
+      if (cancelled) return;
       const [{ Map: MapLibreMap, AttributionControl, NavigationControl, setWorkerUrl }] =
         await Promise.all([import('maplibre-gl'), import('maplibre-gl/dist/maplibre-gl.css')]);
       if (cancelled) return;
@@ -245,6 +269,7 @@ function CountryMapCanvas({ country, countryName, regions, unit = 'region' }: Co
 
     return () => {
       cancelled = true;
+      io?.disconnect();
       map?.remove();
     };
     // `regions` навмисно замінено на `key` — див. коментар біля ключа.
