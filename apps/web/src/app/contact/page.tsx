@@ -8,6 +8,11 @@ import { PageSections } from "@/components/page-sections";
 import { sectionsBySlot } from "@/lib/page-layout";
 import { LayeredBanner } from "@/components/layered-banner";
 import ContactForm from "@/components/contact-form";
+import FinderTabs, { type FinderTab } from "@/components/finder-tabs";
+import RentalPicker from "@/components/rental-picker";
+import { MapFilterForm } from "@/components/search-widget";
+import { pickerChoices } from "@/lib/rental-picker";
+import { listCamperTypes, listProviders } from "@/lib/rental-providers";
 
 // CAMP-209 завела цю сторінку, CAMP-365 забрала з неї текст.
 //
@@ -57,6 +62,34 @@ export default async function Contact() {
     "/contact",
   );
 
+  const rental = await Promise.all([listProviders(), listCamperTypes()]).catch(() => null);
+  const choices = rental ? pickerChoices(rental[0], rental[1]) : null;
+  const finderTabs: FinderTab[] = [
+    {
+      id: "campsite",
+      label: "A campsite",
+      content: <MapFilterForm testId="contact-filters" prefix="contact" title="Find on the map" />,
+    },
+    ...(choices && choices.countries.length > 0
+      ? [
+          {
+            id: "camper",
+            label: "A camper to rent",
+            content: (
+              <RentalPicker
+                heading="Find a rental company"
+                hint="Where you pick it up and what you want to drive."
+                submitLabel="Show rental companies"
+                action="/camper-rental/providers"
+                countries={choices.countries}
+                types={choices.types}
+              />
+            ),
+          },
+        ]
+      : []),
+  ];
+
   return (
     <main className="mx-auto max-w-wrap px-4 py-10 xl:px-6">
       <script {...jsonLdProps(breadcrumbList(crumbs))} />
@@ -78,6 +111,20 @@ export default async function Contact() {
         minHeight="min(42svh, 340px)"
         textSize={{ desktop: "140px", mobile: "48px" }}
       />
+
+      {/* CAMP-441 (33): before writing, most readers want one of two
+          things — a campsite or a camper. Two tabs, each a form that leads
+          to the filtered result. 🔴 A failing catalogue drops the camper
+          tab, never the page. */}
+      <section aria-labelledby="finder-heading" className="mt-8" data-testid="contact-finder">
+        <h2 id="finder-heading" className="text-xl md:text-[25px]">
+          Looking for a campsite or a camper?
+        </h2>
+        <p className="mt-1 text-ink-2">Most questions we get are answered faster here.</p>
+        <div className="mt-4">
+          <FinderTabs label="What are you looking for" tabs={finderTabs} />
+        </div>
+      </section>
 
       {/* 🔴 ФОРМА Є (CAMP-441, пункт 31 ревʼю), І ВОНА НІЧОГО НЕ ЗБЕРІГАЄ.
           Раніше тут стояв коментар «форми немає»: єдиний відкритий
