@@ -200,6 +200,17 @@ test("фільтри головної ведуть на мапу з тим са�
   await page.getByTestId("home-filters-submit").click();
   await page.waitForURL(/\/map\?/);
   expect(page.url()).toContain("types=rv_park");
+  // The filter buttons live in the map's drawer, which only renders with
+  // WebGL (Firefox in CI has none). The URL above is the contract on every
+  // engine; the pressed state is checked where the map can render.
+  const webgl = await page.evaluate(() => {
+    try {
+      return !!document.createElement("canvas").getContext("webgl2");
+    } catch {
+      return false;
+    }
+  });
+  if (!webgl) return;
   const { openSettings } = await import("./open-map");
   await openSettings(page);
   await expect(page.getByTestId("filter-type-rv_park")).toHaveAttribute("aria-pressed", "true");
