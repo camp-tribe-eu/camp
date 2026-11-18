@@ -290,6 +290,18 @@ test.describe("a route page", () => {
     // become possible.
     const fuel = page.getByTestId("route-fuel-prices");
     await expect(fuel).toBeVisible();
+    // 🔴 Review 443/26: narrower and centred. Measured on the box, not
+    // read off a class: wherever the parent is wider than the theme's
+    // 840px reading container, the card stops at 840 with equal margins.
+    const g = await fuel.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const p = el.parentElement!.getBoundingClientRect();
+      return { w: r.width, left: r.left - p.left, right: p.right - r.right, pw: p.width };
+    });
+    if (g.pw > 860) {
+      expect(g.w, JSON.stringify(g)).toBeLessThanOrEqual(840);
+      expect(Math.abs(g.left - g.right), JSON.stringify(g)).toBeLessThan(2);
+    }
     await expect(fuel).toContainText("European Commission");
     await expect(fuel).toContainText("Country average");
     await expect(fuel).toContainText(
