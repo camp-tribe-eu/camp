@@ -222,7 +222,9 @@ async function settle(page: Page, subject?: string) {
   // `goto` вже дочекався події `load`, а шрифти — вище; далі стабільність
   // забезпечує сам `toHaveScreenshot`, який перезнімає, доки два поспіль
   // не збіжаться.
-  if (subject === 'sections') {
+  // CAMP-441/16: home's lower image rows are lazy too; without this the
+  // full-page shot caught them empty.
+  if (subject === 'sections' || subject === 'home') {
     // 🔴 18.11.2026: the box banner at the bottom is `loading="lazy"`. A
     // full-page shot makes it visible, it starts loading only then, and
     // arrives between the two shots that must match — «failed to take two
