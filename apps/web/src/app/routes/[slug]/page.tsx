@@ -37,7 +37,8 @@ import { pageContent } from '@/lib/page-content';
 import { PERSONA_PAGE } from '@/lib/persona';
 import { personaSection } from '@/lib/persona-labels';
 import { publishableCountries } from '@/lib/rental';
-import { PhotoSlot } from '@/components/photo-slot';
+import { LayeredBanner } from '@/components/layered-banner';
+import { bannerBackground } from '@/lib/photo-slot';
 
 // CAMP-3 / CAMP-45 — one curated route.
 //
@@ -168,26 +169,25 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
         <span>{route.region}</span>
       </nav>
 
-      {/* 🔴 CAMP-459: шапка — читальна колонка. Заголовок на 42px,
-          розтягнутий на 1652, і підводка на 840 під ним починали рядок
-          у різних місцях; тепер обидва в одній колонці. Широкі блоки
-          нижче (цифри, мапа, етапи) лишаються на всю ширину — рішення
-          приймається ПО СЕКЦІЯХ, а не одним класом на сторінку. */}
-      <header className="mx-auto mt-4 max-w-read">
-        <p className="text-xs font-semibold uppercase tracking-[0.1em] text-ink-2">
-          {route.countries.map((c) => countryName(c)).join(' · ')}
-        </p>
-        <h1 className="mt-2 text-3xl leading-tight md:text-[42px]">
-          {route.name}
-        </h1>
-        <Block as="p" measure="read" className="mt-3 text-lg leading-7 text-ink-2">
-          {route.summary}
-        </Block>
-      </header>
-
-      <div className="mt-6">
-        <PhotoSlot slot="route-hero" generated={pagePhoto('route', slug)} />
-      </div>
+      {/* 🔴 БАНЕР НЕСЕ `h1` (CAMP-441/44, ревʼю 16.11 розділ 16): той самий
+          хід, що на /routes і на сторінці гайду. Фон — слот `route-hero`
+          (фото власника з CMS), інакше згенероване фото маршруту, інакше
+          спільний малюнок розділу. Підводка лишається в банері, а не
+          дублюється під ним. */}
+      <LayeredBanner
+        className="mt-4"
+        headingLevel={1}
+        background={await bannerBackground(
+          'route-hero',
+          '/banners/routes.webp',
+          pagePhoto('route', slug),
+        )}
+        tickerText={route.countries.map((c) => countryName(c)).join(' · ').toUpperCase()}
+        heading={route.name}
+        description={route.summary}
+        minHeight="min(42svh, 340px)"
+        textSize={{ desktop: '120px', mobile: '48px' }}
+      />
 
       <RouteFigures
         days={route.days}

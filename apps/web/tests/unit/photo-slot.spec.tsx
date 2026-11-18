@@ -285,6 +285,7 @@ const guideWorld = (slot: World['slot']): World => {
 // and only without one the shared drawing. Fixtures: guide fr-ain-water and
 // topic water → the topic's picture; provider registered in FI → Finland's.
 const DEFAULT_BG: Record<string, string> = {
+  'route-hero': pagePhoto('route', route.slug)?.src ?? '/banners/routes.webp',
   'guide-hero': pagePhoto('topic', 'water')?.src ?? '/banners/guides.webp',
   'guide-topic-hero': pagePhoto('topic', 'water')?.src ?? '/banners/guides.webp',
   'provider-hero': pagePhoto('country', 'fi')?.src ?? '/banners/camper.webp',
@@ -325,26 +326,7 @@ const bannerBackgrounds = (html: string): string[] =>
     (m) => /src="([^"]*)"/.exec(m[0])?.[1] ?? '',
   );
 
-test('🔴 /routes/[slug] без банера: слот стоїть окремим фото, заглушка при порожньому', async () => {
-  const html = await renderers['route-hero'](null);
-  expect(html).toContain('data-photo-slot="route-hero"');
-  // No owner picture: the route's generated one, labelled; none → placeholder.
-  const generated = pagePhoto('route', route.slug);
-  if (generated) {
-    expect(html).toContain(`src="${generated.src}"`);
-    expect(html).toContain('data-testid="ai-label"');
-  } else {
-    expect(html).toContain('data-testid="photo-placeholder"');
-  }
-  expect(html.match(/data-photo-slot="/g)).toHaveLength(1);
-  const filled = await renderers['route-hero']({ src: '/banners/lake.webp', alt: 'Hero' });
-  expect(filled).toContain('src="/banners/lake.webp"');
-  expect(filled).toContain('alt="Hero"');
-  expect(filled).not.toContain('data-testid="photo-placeholder"');
-  expect(filled).not.toContain('data-testid="ai-label"');
-});
-
-for (const key of ['guide-hero', 'guide-topic-hero', 'provider-hero'] as const) {
+for (const key of ['route-hero', 'guide-hero', 'guide-topic-hero', 'provider-hero'] as const) {
   test(`🔴 ${key}: слот живить ФОН банера, окремого фото під банером немає`, async () => {
     const empty = await renderers[key](null);
     // Порожній слот → нинішній фон, нічого не змінилось.
