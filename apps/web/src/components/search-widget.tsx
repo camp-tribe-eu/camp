@@ -87,15 +87,32 @@ export function SearchWidget({ search }: { search: SearchView }) {
           </button>
         </div>
       </form>
+      <MapFilterForm testId="home-filters" prefix="home" title="Or filter the map" />
+    </section>
+  );
+}
+
+/**
+ * The type + facility selects that open the map already filtered. Used on
+ * the home page (under the search field) and on /contact (CAMP-441/33).
+ * Carries its own copy of the widget CSS: React drops the duplicate
+ * `<style href>` when both are on one page.
+ */
+export function MapFilterForm({ testId, prefix, title }: { testId: string; prefix: string; title: string }) {
+  return (
+    <>
+      <style href="ct-find" precedence="ct-components">
+        {FIND_CSS}
+      </style>
       {/* CAMP-441 (15, 17): selects that lead to a filtered result. A plain
           GET to /map — the map reads `types` and `amenities` from the
           address (lib/map-filter.ts), so this works without JavaScript and
           the reader lands on the map already filtered, with its count. */}
-      <form action="/map" method="get" className="ct-find__filters" data-testid="home-filters">
-        <span className="ct-find__sub" id="home-filters-title">Or filter the map</span>
+      <form action="/map" method="get" className="ct-find__filters" data-testid={testId}>
+        <span className="ct-find__sub">{title}</span>
         <label className="ct-find__field">
           <span className="sr-only">Type of place</span>
-          <select name="types" defaultValue="" className={`ct-find__select ${SELECT_CHEVRON_ROOM}`} data-testid="home-filter-type">
+          <select name="types" defaultValue="" className={`ct-find__select ${SELECT_CHEVRON_ROOM}`} data-testid={`${prefix}-filter-type`}>
             <option value="">Any type of place</option>
             {SPOT_TYPES.map((t) => (
               <option key={t} value={t}>
@@ -107,7 +124,7 @@ export function SearchWidget({ search }: { search: SearchView }) {
         </label>
         <label className="ct-find__field">
           <span className="sr-only">Must have</span>
-          <select name="amenities" defaultValue="" className={`ct-find__select ${SELECT_CHEVRON_ROOM}`} data-testid="home-filter-amenity">
+          <select name="amenities" defaultValue="" className={`ct-find__select ${SELECT_CHEVRON_ROOM}`} data-testid={`${prefix}-filter-amenity`}>
             <option value="">Any facilities</option>
             {AMENITY_KEYS.map((a) => (
               <option key={a} value={a}>
@@ -121,11 +138,11 @@ export function SearchWidget({ search }: { search: SearchView }) {
           type="submit"
           data-ct-button="secondary"
           className={`${buttonClasses("secondary", "md")} ct-find__button`}
-          data-testid="home-filters-submit"
+          data-testid={`${prefix}-filters-submit`}
         >
           Show on the map
         </button>
       </form>
-    </section>
+    </>
   );
 }
