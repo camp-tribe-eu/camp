@@ -541,3 +541,12 @@ test("індекс гайдів: картки тем і країн — карт�
     /^\/guides\/country\/[a-z]{2}$/,
   );
 });
+
+// CAMP-443 (4, 9): the index and a single guide end with two ways on.
+test("індекс і гайд закінчуються секціями з іншими розділами", async ({ page, request }) => {
+  await page.goto("/guides");
+  await expect(page.getByTestId("guides-more").getByRole("link", { name: "See the routes" })).toHaveAttribute("href", "/routes");
+  const [first] = await guides(request);
+  await page.goto(`/guides/${first.slug}`);
+  await expect(page.getByTestId("guide-more").getByRole("link", { name: "Open the tools" })).toHaveAttribute("href", "/tools");
+});
