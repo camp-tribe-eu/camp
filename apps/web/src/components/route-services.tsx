@@ -28,7 +28,7 @@ import {
   type ServiceKind,
   type StageServices,
 } from '@/lib/route-services';
-import { Block } from '@/components/layout';
+import { Block, READ_CENTERED } from '@/components/layout';
 
 // CAMP-113 — what a driver needs between the campsites, beside each stop.
 //
@@ -508,8 +508,11 @@ export function RouteFuelPrices({ prices }: { prices: RouteFuelPrice[] }) {
   });
 
   return (
+    // Review 443/26: «картку вартості — вужче й по центру». The whole card
+    // is centred as one section (READ_CENTERED, the theme's 840px policy
+    // container), not its lines — see the note on `read` in layout.tsx.
     <div
-      className="mt-6 rounded-card border border-line-2 bg-surface-2 p-4"
+      className={`mt-6 rounded-card border border-line-2 bg-surface-2 p-4 ${READ_CENTERED}`}
       data-testid="route-fuel-prices"
     >
       <h3 className="text-xs uppercase tracking-[0.08em] text-ink-2">
