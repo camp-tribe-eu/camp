@@ -190,3 +190,18 @@ test.describe("🔴 CAMP-488 — фічі секціями з фото", () => {
     ).toBeVisible();
   });
 });
+
+// CAMP-441 (15, 17): the home selects lead to the map, already filtered.
+// Paired: the type chosen on the home page is the one pressed on the map,
+// and a type NOT chosen is not.
+test("фільтри головної ведуть на мапу з тим самим фільтром", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("home-filter-type").selectOption("rv_park");
+  await page.getByTestId("home-filters-submit").click();
+  await page.waitForURL(/\/map\?/);
+  expect(page.url()).toContain("types=rv_park");
+  const { openSettings } = await import("./open-map");
+  await openSettings(page);
+  await expect(page.getByTestId("filter-type-rv_park")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("filter-type-free")).toHaveAttribute("aria-pressed", "false");
+});
