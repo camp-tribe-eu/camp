@@ -1,6 +1,7 @@
 import { expect, test } from "./api-request";
 import { axeViolations } from "./axe";
 import { HomeSliderSearchFeatures1797700000000 as Seed } from "../../../api/src/migrations/1797700000000-HomeSliderSearchFeatures";
+import { HomeFeaturesRentalBlog1797980000000 as SeedMore } from "../../../api/src/migrations/1797980000000-HomeFeaturesRentalBlog";
 
 // CAMP-488 — перший екран головної: слайдер-воронка, пошукове поле, фічі.
 //
@@ -21,7 +22,11 @@ import { HomeSliderSearchFeatures1797700000000 as Seed } from "../../../api/src/
 const ROWS = Seed.ROWS;
 const SLIDES = ROWS.filter((r) => r.type === "slide");
 const SEARCH = ROWS.find((r) => r.type === "search")!;
-const FEATURES = ROWS.filter((r) => r.type === "image-text");
+// CAMP-441/16: rental and blog rows come from a second seed; the page orders
+// rows by `sort`, so the expectation does too.
+const FEATURES = [...ROWS, ...SeedMore.ROWS]
+  .filter((r) => r.type === "image-text")
+  .sort((a, b) => a.sort - b.sort);
 
 test.describe("🔴 CAMP-488 — слайдер головної", () => {
   test("слайдів рівно стільки, скільки засіяно, і кожен із текстом, фото й кнопкою", async ({
