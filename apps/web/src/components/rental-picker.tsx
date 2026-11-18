@@ -1,4 +1,5 @@
 import { buttonClasses } from "./button";
+import { SelectChevron } from "./select-chevron";
 import type { CamperType } from "@/lib/rental-providers";
 
 // CAMP-461 — віджет вибору на першому екрані оренди.
@@ -29,7 +30,7 @@ const CSS = `
 .ct-pick__field{display:flex;min-width:0;flex-direction:column;gap:6px;font-size:.875rem;font-weight:600;color:var(--color-heading)}
 .ct-pick__label{display:inline-flex;align-items:center;gap:8px}
 .ct-pick__label svg{width:18px;height:18px;flex:none}
-.ct-pick__select{width:100%;height:48px;padding:0 12px;border:1px solid var(--color-control-line);border-radius:calc(var(--r,16px) * .5);background-color:var(--color-surface);color:var(--color-ink);font-size:1rem;font-weight:400}
+.ct-pick__select{width:100%;height:48px;padding:0 40px 0 12px;-webkit-appearance:none;appearance:none;border:1px solid var(--color-control-line);border-radius:calc(var(--r,16px) * .5);background-color:var(--color-surface);color:var(--color-ink);font-size:1rem;font-weight:400}
 .ct-pick__select:focus-visible{outline:2px solid var(--color-heading);outline-offset:2px}
 .ct-pick__submit{width:100%}
 @media(min-width:992px){
@@ -93,19 +94,22 @@ export default function RentalPicker({
           {PIN}
           Pick-up country
         </span>
-        <select
-          name="country"
-          className="ct-pick__select"
-          defaultValue=""
-          data-testid="picker-country"
-        >
-          <option value="">Any country</option>
-          {countries.map((c) => (
-            <option key={c.code} value={c.code}>
-              {c.name}
-            </option>
-          ))}
-        </select>
+        <span className="relative block">
+          <select
+            name="country"
+            className="ct-pick__select"
+            defaultValue=""
+            data-testid="picker-country"
+          >
+            <option value="">Any country</option>
+            {countries.map((c) => (
+              <option key={c.code} value={c.code}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+          <SelectChevron />
+        </span>
       </label>
 
       <label className="ct-pick__field">
@@ -113,19 +117,22 @@ export default function RentalPicker({
           {VAN}
           Vehicle type
         </span>
-        <select
-          name="type"
-          className="ct-pick__select"
-          defaultValue=""
-          data-testid="picker-type"
-        >
-          <option value="">Any type</option>
-          {types.map((t) => (
-            <option key={t.slug} value={t.slug}>
-              {t.name}
-            </option>
-          ))}
-        </select>
+        <span className="relative block">
+          <select
+            name="type"
+            className="ct-pick__select"
+            defaultValue=""
+            data-testid="picker-type"
+          >
+            <option value="">Any type</option>
+            {types.map((t) => (
+              <option key={t.slug} value={t.slug}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+          <SelectChevron />
+        </span>
       </label>
 
       <button
