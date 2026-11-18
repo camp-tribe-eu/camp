@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Checkbox from "./checkbox";
+import { SELECT_CHEVRON_ROOM, SelectChevron } from "./select-chevron";
 import { Flag } from "./flag";
 import MediaCards from "./media-card";
 import { countryName } from "@/lib/api";
@@ -127,21 +128,24 @@ export default function ProviderCatalogue({
               </svg>
               Hands over vehicles in
             </span>
-            <select
-              data-testid="filter-country"
-              className="h-12 rounded border border-line bg-surface px-3 text-base font-normal text-ink"
-              value={filters.country ?? ""}
-              onChange={(e) =>
-                setFilters((f) => ({ ...f, country: e.target.value || null }))
-              }
-            >
-              <option value="">all</option>
-              {countries.map((c) => (
-                <option key={c} value={c}>
-                  {countryName(c)}
-                </option>
-              ))}
-            </select>
+            <div className="relative">
+              <select
+                data-testid="filter-country"
+                className={`h-12 w-full rounded border border-line bg-surface ps-3 text-base font-normal text-ink ${SELECT_CHEVRON_ROOM}`}
+                value={filters.country ?? ""}
+                onChange={(e) =>
+                  setFilters((f) => ({ ...f, country: e.target.value || null }))
+                }
+              >
+                <option value="">all</option>
+                {countries.map((c) => (
+                  <option key={c} value={c}>
+                    {countryName(c)}
+                  </option>
+                ))}
+              </select>
+              <SelectChevron />
+            </div>
           </label>
 
           {/* 🔴 CAMP-371. «Vehicle type the company states», і це не стиль.
@@ -159,24 +163,27 @@ export default function ProviderCatalogue({
               </svg>
               Vehicle type the company states
             </span>
-            <select
-              data-testid="filter-type"
-              className="h-12 rounded border border-line bg-surface px-3 text-base font-normal text-ink"
-              value={filters.camperType ?? ""}
-              onChange={(e) =>
-                setFilters((f) => ({
-                  ...f,
-                  camperType: e.target.value || null,
-                }))
-              }
-            >
-              <option value="">any</option>
-              {types.map((t) => (
-                <option key={t.slug} value={t.slug}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
+            <div className="relative">
+              <select
+                data-testid="filter-type"
+                className={`h-12 w-full rounded border border-line bg-surface ps-3 text-base font-normal text-ink ${SELECT_CHEVRON_ROOM}`}
+                value={filters.camperType ?? ""}
+                onChange={(e) =>
+                  setFilters((f) => ({
+                    ...f,
+                    camperType: e.target.value || null,
+                  }))
+                }
+              >
+                <option value="">any</option>
+                {types.map((t) => (
+                  <option key={t.slug} value={t.slug}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+              <SelectChevron />
+            </div>
           </label>
 
           <label className="flex flex-col gap-2 text-sm font-semibold text-heading">
@@ -186,18 +193,21 @@ export default function ProviderCatalogue({
               </svg>
               Sort by
             </span>
-            <select
-              data-testid="sort"
-              className="h-12 rounded border border-line bg-surface px-3 text-base font-normal text-ink"
-              value={sort}
-              onChange={(e) => setSort(e.target.value as SortKey)}
-            >
-              {SORT_KEYS.map((k) => (
-                <option key={k} value={k}>
-                  {SORT_LABEL[k]}
-                </option>
-              ))}
-            </select>
+            <div className="relative">
+              <select
+                data-testid="sort"
+                className={`h-12 w-full rounded border border-line bg-surface ps-3 text-base font-normal text-ink ${SELECT_CHEVRON_ROOM}`}
+                value={sort}
+                onChange={(e) => setSort(e.target.value as SortKey)}
+              >
+                {SORT_KEYS.map((k) => (
+                  <option key={k} value={k}>
+                    {SORT_LABEL[k]}
+                  </option>
+                ))}
+              </select>
+              <SelectChevron />
+            </div>
           </label>
 
           {/* 🔴 CAMP-461: ГАЛОЧКА З КВАДРАТИКОМ, А НЕ ПІГУЛКА. Власник
