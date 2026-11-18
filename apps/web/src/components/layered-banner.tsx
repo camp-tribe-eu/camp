@@ -3,6 +3,7 @@ import { AI_LABEL } from "@/lib/page-photos";
 import type { CSSProperties, ReactNode } from "react";
 
 import { ButtonLink } from "./button";
+import { HeroImage } from "./hero-image";
 
 /**
  * Багатошаровий банер — CAMP-449, перша частина.
@@ -213,14 +214,12 @@ export function LayeredBanner({
       <div className="ct-banner__slide">
         {/* Шар 1 — фон. Сирий <img>, бо `images.unoptimized: true` у
             next.config: next/image дав би той самий <img> плюс обгортку. */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
+        <HeroImage
           className="ct-banner__background"
           src={background.src}
           srcSet={srcSetFor(background.src)}
           sizes={srcSetFor(background.src) ? SIZES.full : undefined}
           alt={background.alt ?? ""}
-          fetchPriority="high"
         />
         {/* Шар 2 — накладка, з розмиттям або без. */}
         <div className={overlayClass} aria-hidden="true" />

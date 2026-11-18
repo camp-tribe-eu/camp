@@ -292,3 +292,36 @@ test.describe('🔴 CAMP-453 — телефон', () => {
     expect(m.scrollW, 'горизонтальна прокрутка на 375 px').toBeLessThanOrEqual(m.clientW);
   });
 });
+
+// 🔴 18.11.2026, measured on prod: a campsite page downloaded the banners of
+// all 26 country pages and the hubs (33 pictures) — preload hints carried in
+// the prefetched pages' RSC payloads. Paired: the country page DOES fetch its
+// own banner (the watcher sees banner requests); the campsite page fetches
+// none of the country banners it only links to.
+test.describe('🔴 банери чужих сторінок не вантажаться', () => {
+  const countryBanner = /\/photos\/country\/[a-z]{2}(-\d+)?\.webp/;
+  const watch = (page: Page) => {
+    const seen: string[] = [];
+    page.on('request', (r) => {
+      if (countryBanner.test(r.url())) seen.push(new URL(r.url()).pathname);
+    });
+    return seen;
+  };
+
+  test('сторінка країни вантажить свій банер', async ({ page, request }) => {
+    const path = await withoutAnything(request);
+    const country = path.split('/')[2];
+    const seen = watch(page);
+    await page.goto(`/camping/${country}`);
+    await expect.poll(() => seen.length, { timeout: 10_000 }).toBeGreaterThan(0);
+  });
+
+  test('сторінка кемпінгу не вантажить банерів країн', async ({ page, request }) => {
+    const path = await withoutAnything(request);
+    const seen = watch(page);
+    await page.goto(path);
+    await page.waitForLoadState('load');
+    await page.waitForTimeout(4000);
+    expect(seen, `завантажено чужих банерів: ${seen.length}`).toEqual([]);
+  });
+});

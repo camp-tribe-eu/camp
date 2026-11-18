@@ -222,7 +222,29 @@ async function settle(page: Page, subject?: string) {
   // `goto` вже дочекався події `load`, а шрифти — вище; далі стабільність
   // забезпечує сам `toHaveScreenshot`, який перезнімає, доки два поспіль
   // не збіжаться.
-  if (subject === 'sections') return;
+  if (subject === 'sections') {
+    // 🔴 18.11.2026: the box banner at the bottom is `loading="lazy"`. A
+    // full-page shot makes it visible, it starts loading only then, and
+    // arrives between the two shots that must match — «failed to take two
+    // consecutive stable screenshots», 356 839 px, on every run. Every
+    // picture is made eager and waited for (loaded AND decoded) first.
+    await page.evaluate(async () => {
+      const imgs = [...document.images];
+      for (const i of imgs) i.loading = 'eager';
+      await Promise.all(
+        imgs.map((i) =>
+          (i.complete
+            ? Promise.resolve()
+            : new Promise((r) => {
+                i.addEventListener('load', r, { once: true });
+                i.addEventListener('error', r, { once: true });
+              })
+          ).then(() => i.decode().catch(() => {})),
+        ),
+      );
+    });
+    return;
+  }
 
   // Решті сторінок `networkidle` підходить: там мережа справді затихає.
   await page.waitForLoadState('networkidle').catch(() => {});
