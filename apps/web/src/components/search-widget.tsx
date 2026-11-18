@@ -1,5 +1,12 @@
 import { buttonClasses } from "./button";
 import type { SearchView } from "@/lib/slides";
+import {
+  AMENITY_KEYS,
+  AMENITY_LABEL_SHORT,
+  SPOT_TYPES,
+  SPOT_TYPE_LABEL_SHORT,
+} from "@/lib/api";
+import { SELECT_CHEVRON_ROOM, SelectChevron } from "./select-chevron";
 
 /**
  * Пошуковий віджет першого екрана — CAMP-488.
@@ -33,10 +40,16 @@ const FIND_CSS = `
 .ct-find__input::placeholder{color:var(--color-ink-2);font-weight:400;opacity:1}
 .ct-find__input:focus-visible{outline:2px solid var(--color-line-blue);outline-offset:2px}
 .ct-find__button{height:56px;padding:0 32px;font-size:1rem}
+.ct-find__filters{display:grid;gap:8px;margin-top:16px;padding-top:16px;border-top:1px solid var(--color-line-2)}
+.ct-find__sub{font-size:.9375rem;font-weight:600;color:var(--color-heading)}
+.ct-find__field{position:relative;display:block}
+.ct-find__select{display:block;width:100%;min-height:48px;padding:11px 16px;border:1px solid var(--color-line-2);border-radius:calc(var(--r,16px) * .75);background-color:var(--color-surface-2);color:var(--color-heading);font:inherit}
+.ct-find__select:focus-visible{outline:2px solid var(--color-line-blue);outline-offset:2px}
 @media(min-width:768px){
 .ct-find{padding:24px 32px}
 .ct-slider+.ct-find{margin:-48px 24px 0}
 .ct-find__row{flex-direction:row;align-items:stretch}
+.ct-find__filters{grid-template-columns:auto 1fr 1fr auto;align-items:center}
 .ct-find__input{flex:1 1 auto}
 .ct-find__button{flex:0 0 auto}}
 `;
@@ -73,6 +86,45 @@ export function SearchWidget({ search }: { search: SearchView }) {
             {search.button}
           </button>
         </div>
+      </form>
+      {/* CAMP-441 (15, 17): selects that lead to a filtered result. A plain
+          GET to /map — the map reads `types` and `amenities` from the
+          address (lib/map-filter.ts), so this works without JavaScript and
+          the reader lands on the map already filtered, with its count. */}
+      <form action="/map" method="get" className="ct-find__filters" data-testid="home-filters">
+        <span className="ct-find__sub" id="home-filters-title">Or filter the map</span>
+        <label className="ct-find__field">
+          <span className="sr-only">Type of place</span>
+          <select name="types" defaultValue="" className={`ct-find__select ${SELECT_CHEVRON_ROOM}`} data-testid="home-filter-type">
+            <option value="">Any type of place</option>
+            {SPOT_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {SPOT_TYPE_LABEL_SHORT[t]}
+              </option>
+            ))}
+          </select>
+          <SelectChevron />
+        </label>
+        <label className="ct-find__field">
+          <span className="sr-only">Must have</span>
+          <select name="amenities" defaultValue="" className={`ct-find__select ${SELECT_CHEVRON_ROOM}`} data-testid="home-filter-amenity">
+            <option value="">Any facilities</option>
+            {AMENITY_KEYS.map((a) => (
+              <option key={a} value={a}>
+                {AMENITY_LABEL_SHORT[a]}
+              </option>
+            ))}
+          </select>
+          <SelectChevron />
+        </label>
+        <button
+          type="submit"
+          data-ct-button="secondary"
+          className={`${buttonClasses("secondary", "md")} ct-find__button`}
+          data-testid="home-filters-submit"
+        >
+          Show on the map
+        </button>
       </form>
     </section>
   );
