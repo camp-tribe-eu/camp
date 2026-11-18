@@ -1,3 +1,4 @@
+import { MoreForTheTrip } from '@/components/more-for-the-trip';
 import type { Metadata } from 'next';
 import { apiFetch, countryName, getCountries } from '@/lib/api';
 import MapEmbed from '@/components/map-embed';
@@ -178,6 +179,26 @@ export default async function MapPage() {
           ))}
         </ul>
       </section>
+
+      {/* CAMP-441 (19): the theme's sections under the tool — the newest
+          posts and two ways on, the ending every hub page now has. */}
+      <MoreForTheTrip
+        testId="map-more"
+        features={[
+          {
+            image: { src: '/banners/routes.webp' },
+            heading: 'Road trips',
+            text: 'Routes across Europe, split into stages with campsites at every stop.',
+            cta: { href: '/routes', label: 'See the routes' },
+          },
+          {
+            image: { src: '/banners/guides.webp' },
+            heading: 'Guides',
+            text: 'Where the water, the dogs and the step-free pitches are, region by region — counted, not guessed.',
+            cta: { href: '/guides', label: 'Read the guides' },
+          },
+        ]}
+      />
     </main>
   );
 }
