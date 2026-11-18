@@ -1651,3 +1651,11 @@ test.describe('/map filters', () => {
     });
   });
 });
+
+// CAMP-441 (19): /map ends with the theme's sections.
+test('під мапою — секції з іншими розділами', async ({ page }) => {
+  await page.goto('/map');
+  const more = page.getByTestId('map-more');
+  await expect(more.getByRole('link', { name: 'See the routes' })).toHaveAttribute('href', '/routes');
+  await expect(more.getByRole('link', { name: 'Read the guides' })).toHaveAttribute('href', '/guides');
+});
