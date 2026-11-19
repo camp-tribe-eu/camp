@@ -443,6 +443,43 @@ export const MARK_GONE_SQL = `UPDATE camping_spots
   RETURNING osm_ref`;
 
 /**
+ * 🔴 CAMP-475, пункт 4: МАСОВЕ «ЗНИКНЕННЯ» — ЦЕ НАША ПОЛОМКА, А НЕ OSM.
+ *
+ * 11.10.2026 один імпорт позначив зниклими 5 948 кемпінгів — 9–19 %
+ * КОЖНОЇ країни за добу. OpenStreetMap так не змінюється: це імпорт
+ * 24.09 записав `osm_ref` воріт і колонок, і наступний прогін їх «не
+ * знайшов». Тоді нічого не закричало; вони тихо дозріли за 28 діб у 410 і
+ * зупинили викат (CAMP-476).
+ *
+ * Тепер імпорт країни, який позначив би зниклими понад MAX_GONE_SHARE
+ * живих рядків І понад MAX_GONE_FLOOR штук, відкочується й падає з
+ * числами — тобто юніт червоніє, а база лишається як була.
+ *
+ * Обидва пороги з заміру прода (19.11.2026, усі імпорти з 12.10):
+ * найбільше за один імпорт — 1,91 % (SI, 6 із 314), найбільше штук — 20
+ * (NL). Сам лише відсоток червонів би на Мальті (15 кемпінгів: один
+ * зниклий — 6,7 %), тому потрібні обидві умови. Інцидент 11.10 (HR 152
+ * із 794, FR 2 151 із 23 911) перевищує обидві з запасом.
+ */
+export const MAX_GONE_SHARE = 0.05;
+export const MAX_GONE_FLOOR = 20;
+
+export function massGoneProblem(
+  country: string,
+  gone: number,
+  live: number,
+): string | null {
+  if (gone <= MAX_GONE_FLOOR || live <= 0) return null;
+  if (gone / live <= MAX_GONE_SHARE) return null;
+  return (
+    `${country}: цей імпорт позначив би зниклими ${gone} із ${live} живих ` +
+    `кемпінгів (${((gone / live) * 100).toFixed(1)} %, межа ${MAX_GONE_SHARE * 100} % ` +
+    `і понад ${MAX_GONE_FLOOR}). OpenStreetMap так не змінюється — це поломка ` +
+    `імпорту чи витягу (CAMP-475). Відкочено, база без змін.`
+  );
+}
+
+/**
  * 🔴 CAMP-352. Винесено з main() рівно для того, щоб це можна було
  * перевірити тестом.
  *
@@ -1212,11 +1249,23 @@ async function main(): Promise<void> {
     // window is generous on purpose: the gone rule already waits four
     // weeks, so nothing is lost by being slow to suspect.
     const CYCLE_HOURS = 24;
+    const liveBefore = await db.query<{ n: string }>(
+      `SELECT count(*) AS n FROM camping_spots
+        WHERE country = $1 AND missing_since IS NULL`,
+      [COUNTRY],
+    );
     const gone = await db.query(MARK_GONE_SQL, [
       startedAt,
       COUNTRY,
       CYCLE_HOURS,
     ]);
+    // 🔴 CAMP-475: до COMMIT — кидок нижче відкочує всю країну.
+    const massGone = massGoneProblem(
+      COUNTRY,
+      gone.rowCount ?? 0,
+      Number(liveBefore.rows[0]?.n ?? 0),
+    );
+    if (massGone) throw new Error(massGone);
 
     // 🔴 CAMP-256: what the table now holds, judged before COMMIT — see
     // assertStoredEditDates for why it reads the table and not the input.
