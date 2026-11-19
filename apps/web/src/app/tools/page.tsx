@@ -67,8 +67,7 @@ export default async function ToolsIndex() {
         {...jsonLdProps(
           collectionGraph({
             name: page.title,
-            description:
-              "Free planning tools for camper trips in the EU, built on published data.",
+            description: page.metaDescription ?? page.title,
             path: `/${SLUG}`,
             items: cards.map((t) => ({ name: t.title, path: t.href })),
           }),
@@ -91,7 +90,7 @@ export default async function ToolsIndex() {
         background={{ src: "/banners/tools.webp" }}
         tickerText={tickerOf(page)}
         heading={page.title}
-        description="Free planning tools for camper trips in the EU, built on published data."
+        description={page.metaDescription ?? undefined}
         minHeight="min(52svh, 420px)"
         textSize={{ desktop: "160px", mobile: "56px" }}
         className="mt-4"
