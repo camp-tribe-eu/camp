@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 
 import { alternatesFor } from "@/lib/i18n";
 import { breadcrumbList, jsonLdProps } from "@/lib/jsonld";
-import { pageContent } from "@/lib/page-content";
+import { pageContent, tickerOf } from "@/lib/page-content";
 import { PageSections } from "@/components/page-sections";
 import { sectionsBySlot } from "@/lib/page-layout";
 import { LayeredBanner } from "@/components/layered-banner";
@@ -105,7 +105,7 @@ export default async function Contact() {
       <LayeredBanner
         headingLevel={1}
         background={{ src: "/banners/eu-dawn.webp" }}
-        tickerText="WRITE TO US"
+        tickerText={tickerOf(page)}
         heading={page.title}
         description={page.metaDescription ?? undefined}
         minHeight="min(42svh, 340px)"

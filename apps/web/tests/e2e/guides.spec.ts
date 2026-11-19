@@ -550,3 +550,32 @@ test("індекс і гайд закінчуються секціями з ін
   await page.goto(`/guides/${first.slug}`);
   await expect(page.getByTestId("guide-more").getByRole("link", { name: "Open the tools" })).toHaveAttribute("href", "/tools");
 });
+
+// 🔴 CAMP-478: слово на бігучому рядку банера — із CMS. Звіряємо з тим
+// самим API, з якого сторінку будує сервер, а не з літералом: літерал у
+// тесті підтвердив би старий код так само охоче, як новий.
+test.describe("🔴 CAMP-478 — бігучий рядок банера береться з CMS", () => {
+  for (const [slug, path] of [
+    ["tools", "/tools"],
+    ["contact", "/contact"],
+    ["about", "/about"],
+    ["guides", "/guides"],
+    ["routes", "/routes"],
+    ["winter", "/camping/winter"],
+  ] as const) {
+    test(`${path}: слово на банері — те, що в базі`, async ({ page, request }) => {
+      const res = await request.get(`${API}/pages/${slug}`);
+      expect(res.status(), `GET ${API}/pages/${slug}`).toBe(200);
+      const body = (await res.json()) as { title: string; bannerTicker?: string | null };
+      expect(
+        body.bannerTicker?.trim(),
+        "у базі немає слова для банера — міграцію PageBannerTicker не застосовано",
+      ).toBeTruthy();
+
+      await page.goto(path);
+      await expect(page.locator("main .ct-banner__ticker-item").first()).toHaveText(
+        body.bannerTicker!.trim(),
+      );
+    });
+  }
+});

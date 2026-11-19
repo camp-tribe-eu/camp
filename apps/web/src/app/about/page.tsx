@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 
 import { alternatesFor } from "@/lib/i18n";
 import { breadcrumbList, jsonLdProps } from "@/lib/jsonld";
-import { pageContent } from "@/lib/page-content";
+import { pageContent, tickerOf } from "@/lib/page-content";
 import { PageSections } from "@/components/page-sections";
 import { LayeredBanner } from "@/components/layered-banner";
 
@@ -66,7 +66,7 @@ export default async function About() {
       <LayeredBanner
         headingLevel={1}
         background={{ src: "/banners/about.webp" }}
-        tickerText="CAMPTRIBE"
+        tickerText={tickerOf(page)}
         heading={page.title}
         description={page.metaDescription ?? undefined}
         minHeight="min(52svh, 420px)"

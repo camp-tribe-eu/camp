@@ -145,6 +145,7 @@ export const HOME_PAGE: PageView = {
   title: HOME_H1,
   metaTitle: null,
   metaDescription: HOME_META,
+  bannerTicker: null,
   noindex: false,
   sections: [
     section({ type: "hero", heading: HOME_H1, body: HOME_LEAD }),

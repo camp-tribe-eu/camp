@@ -9,7 +9,7 @@ import { alternatesFor } from '@/lib/i18n';
 import { Block } from '@/components/layout';
 import { LayeredBanner } from '@/components/layered-banner';
 import { PageSections } from '@/components/page-sections';
-import { pageContent } from '@/lib/page-content';
+import { pageContent, tickerOf } from '@/lib/page-content';
 import MediaCards from '@/components/media-card';
 import { Flag } from '@/components/flag';
 import { TopicThumb } from '@/components/topic-thumb';
@@ -85,7 +85,7 @@ export default async function GuidesIndex() {
       <LayeredBanner
         headingLevel={1}
         background={{ src: '/banners/guides.webp' }}
-        tickerText="GUIDES"
+        tickerText={page ? tickerOf(page) : "GUIDES"}
         heading={page?.title ?? 'Guides'}
         description={page?.metaDescription ?? undefined}
         minHeight="min(42svh, 340px)"

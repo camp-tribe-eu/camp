@@ -332,6 +332,14 @@
     },
     {
       "collection": "page_translations",
+      "field": "banner_ticker",
+      "interface": "input",
+      "special": "",
+      "readonly": false,
+      "required": false
+    },
+    {
+      "collection": "page_translations",
       "field": "meta_description",
       "interface": "input-multiline",
       "special": "",
