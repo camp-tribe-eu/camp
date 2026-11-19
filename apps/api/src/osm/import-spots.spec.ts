@@ -3,6 +3,9 @@ import {
   mergeUnnamed,
   stagingSelectSql,
   MARK_GONE_SQL,
+  MAX_GONE_FLOOR,
+  MAX_GONE_SHARE,
+  massGoneProblem,
   UPSERT_SPOT_SQL,
   upsertSpotParams,
 } from './import-spots';
@@ -757,5 +760,29 @@ describe('🔴 CAMP-352: staging віддає контур за ТИПОМ ге�
   it('підставляє саме ту таблицю, яку просили', () => {
     expect(stagingSelectSql('zzz_staging')).toContain('"zzz_staging"');
     expect(stagingSelectSql('zzz_staging')).not.toContain('${TABLE}');
+  });
+});
+
+describe('🔴 CAMP-475: mass "gone" is our breakage, not OSM', () => {
+  it('the incident of 11.10.2026 is refused, with the numbers', () => {
+    const msg = massGoneProblem('HR', 152, 794);
+    expect(msg).toContain('152 із 794');
+    expect(msg).toContain('19.1 %');
+    expect(massGoneProblem('FR', 2151, 23911)).not.toBeNull();
+  });
+  it('the worst real week since 12.10 passes (SI 6/314, NL 20/3905)', () => {
+    expect(massGoneProblem('SI', 6, 314)).toBeNull();
+    expect(massGoneProblem('NL', 20, 3905)).toBeNull();
+  });
+  it('a tiny country losing a few is not a mass event (Malta, 2 of 15)', () => {
+    expect(massGoneProblem('MT', 2, 15)).toBeNull();
+  });
+  it('both limits are needed: many but a small share passes, a big share of few passes', () => {
+    expect(massGoneProblem('FR', 300, 23911)).toBeNull();
+    expect(massGoneProblem('CY', MAX_GONE_FLOOR, 60)).toBeNull();
+    expect(massGoneProblem('CY', MAX_GONE_FLOOR + 1, 60)).not.toBeNull();
+  });
+  it('the limits are the measured ones', () => {
+    expect([MAX_GONE_SHARE, MAX_GONE_FLOOR]).toEqual([0.05, 20]);
   });
 });
