@@ -93,6 +93,29 @@ remote_for() {
 # навмисно не розкладаються (це сама розкладка, її самотести й README),
 # тому предмет — усе, що лежить у підтеках, і кожен такий файл мусить
 # мати адресу.
+# 🔴 CAMP-466: МАЖОР POSTGRES НА МАШИНІ ПРОТИ `infra/pg-major`.
+#
+# CI вже звіряє свій образ із `infra/pg-major` (scripts/ci/assert-pg-major.sh).
+# Але другий кінець ніхто не тримав: оновлять сервер до 18 — CI і далі
+# зеленіє на 17, тобто знову перевіряє не ту версію, що працює (саме так
+# CI місяцями сидів на 16 при проді 17). Тут — справжній сервер.
+#
+# Збій читання — це збій, а не «розбіжність версій»: друкуємо те, що
+# прочиталось, а не «сервер 0».
+pg_major_check() { # тека infra -> 0 збігається / 1 ні
+  local want num have
+  want="$(tr -d '[:space:]' < "$1/pg-major" 2>/dev/null)"
+  case "$want" in ''|*[!0-9]*)
+    printf '✗ %s/pg-major не читається або не число: «%s»\n' "$1" "$want"; return 1 ;; esac
+  num="${CAMPTRIBE_FAKE_PG_NUM-$(runuser -u postgres -- psql -XAtqc 'show server_version_num' 2>/dev/null)}"
+  case "$num" in ''|*[!0-9]*)
+    printf '✗ мажор Postgres не прочитався з сервера: «%s» — це збій читання, а не розбіжність\n' "$num"; return 1 ;; esac
+  have=$((num / 10000))
+  if [ "$have" = "$want" ]; then return 0; fi
+  printf '✗ POSTGRES: на машині мажор %s, а infra/pg-major (і образ CI) — %s. CI перевіряє не ту версію, що працює: підніми образ і число разом.\n' "$have" "$want"
+  return 1
+}
+
 drift() {
   local src="$1" missing=0 differs=0 uncovered=0 seen=0 f remote
 
@@ -144,16 +167,24 @@ EOF
     done
   fi
 
+  # Лише там, де є що звіряти: справжня тека з `pg-major` і сервер (або
+  # підставлене число в самотесті). Підроблені теки самотесту його не
+  # мають, а що справжня МАЄ — тримає якір нижче.
+  local pg=0
+  if [ -f "$src/pg-major" ] && { [ -n "${CAMPTRIBE_FAKE_PG_NUM+x}" ] || { command -v runuser >/dev/null 2>&1 && id postgres >/dev/null 2>&1; }; }; then
+    pg_major_check "$src" || pg=1
+  fi
+
   if [ "$seen" -eq 0 ]; then
     printf '✗ у %s не знайдено жодного файла інфраструктури — сторож втратив предмет\n' "$src"
     return 1
   fi
-  if [ "$missing" -eq 0 ] && [ "$differs" -eq 0 ] && [ "$uncovered" -eq 0 ] && [ "$off" -eq 0 ]; then
+  if [ "$missing" -eq 0 ] && [ "$differs" -eq 0 ] && [ "$uncovered" -eq 0 ] && [ "$off" -eq 0 ] && [ "$pg" -eq 0 ]; then
     printf '✓ інфраструктура на машині збігається з репозиторієм: %s файлів, таймерів увімкнено всі\n' "$seen"
     return 0
   fi
-  printf '\n✗ розбіжність: %s без файла, %s відрізняються, %s не накрито правилом, %s таймерів вимкнено (файлів %s)\n' \
-    "$missing" "$differs" "$uncovered" "$off" "$seen"
+  printf '\n✗ розбіжність: %s без файла, %s відрізняються, %s не накрито правилом, %s таймерів вимкнено, мажор Postgres %s (файлів %s)\n' \
+    "$missing" "$differs" "$uncovered" "$off" "$([ "$pg" -eq 0 ] && echo збігається || echo НЕ збігається)" "$seen"
   printf '  Розкласти: ./infra/deploy-infra.sh --apply з ноутбука.\n'
   printf '  Юніт, якого немає на машині АБО вимкнений, не виконується ЖОДНОГО\n'
   printf '  разу — саме так osm_route_poi протух на 18,5 діб (CAMP-113).\n'
@@ -216,6 +247,20 @@ FAKE
   drift "$work/empty" >/dev/null 2>&1
   t '🔴 нуль файлів — це збій, а не чистота' "$?" '1'
 
+  # CAMP-466: мажор Postgres. Число з сервера підставляється.
+  printf '17\n' > "$work/src/pg-major"
+  CAMPTRIBE_FAKE_PG_NUM=170011 pg_major_check "$work/src" >/dev/null 2>&1
+  t 'Postgres 17.11 при pg-major 17 — збігається' "$?" '0'
+  CAMPTRIBE_FAKE_PG_NUM=180002 pg_major_check "$work/src" >/dev/null 2>&1
+  t '🔴 сервер оновили до 18, а pg-major 17 — провал' "$?" '1'
+  out="$(CAMPTRIBE_FAKE_PG_NUM='' pg_major_check "$work/src" 2>&1)"
+  case "$out" in *'збій читання'*) t '🔴 порожнє з сервера — збій читання, а не «сервер 0»' 'так' 'так' ;;
+                 *) t '🔴 порожнє з сервера — збій читання, а не «сервер 0»' "$out" 'збій читання' ;; esac
+  printf 'x\n' > "$work/src/pg-major"
+  CAMPTRIBE_FAKE_PG_NUM=170011 pg_major_check "$work/src" >/dev/null 2>&1
+  t '🔴 pg-major не число — провал' "$?" '1'
+  rm -f "$work/src/pg-major"
+
   # 🔴 ЯКІР НА СПРАВЖНЬОМУ ДЕРЕВІ. Без нього все вище — вправа на
   # тимчасових теках, і сторож міг би стерегти порожнечу.
   # 🔴 ЯКІР ШУКАЄ РОЗКЛАДКУ ТАК САМО, ЯК ЇЇ ШУКАЄ РОБОЧИЙ ШЛЯХ.
@@ -256,6 +301,9 @@ EOF
     t '🔴 тека caddy серед накритого (саме її пропускали)' \
       "$(remote_for "$real_src/caddy/camptribe.eu.caddyfile")" '/etc/caddy/Caddyfile'
     t 'правил тек прочитано пʼять' "$(dir_rules | grep -c .)" '5'
+    # Без цього файла звірка Postgres на машині мовчки пропускається.
+    t '🔴 у справжній теці infra є pg-major (CAMP-466)' \
+      "$([ -f "$real_src/pg-major" ] && echo так || echo ні)" 'так'
     t 'пар caddy прочитано чотири' "$(caddy_rules | grep -c .)" '4'
   else
     t '🔴 справжній deploy-infra.sh знайдено' 'ні' 'так'
