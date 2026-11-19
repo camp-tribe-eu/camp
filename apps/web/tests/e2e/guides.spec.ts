@@ -591,3 +591,28 @@ test.describe("🔴 CAMP-478 — бігучий рядок банера бере
     });
   }
 });
+
+// 🔴 CAMP-478: хаб країн /camping — назва, слово на банері й опис для
+// пошуковика з CMS. Опис ПІД заголовком банера рахує кемпінги й лишається
+// з генератором, тому тут не звіряється.
+test("/camping: заголовок, слово на банері й мета-опис — із бази", async ({
+  page,
+  request,
+}) => {
+  const res = await request.get(`${API}/pages/camping`);
+  expect(res.status(), "сторінки camping у CMS немає").toBe(200);
+  const body = (await res.json()) as {
+    title: string;
+    bannerTicker?: string | null;
+    metaDescription: string | null;
+  };
+  await page.goto("/camping");
+  await expect(page.locator("main h1")).toHaveText(body.title);
+  await expect(page.locator("main .ct-banner__ticker-item").first()).toHaveText(
+    body.bannerTicker!.trim(),
+  );
+  await expect(page.locator('meta[name="description"]')).toHaveAttribute(
+    "content",
+    body.metaDescription!,
+  );
+});
