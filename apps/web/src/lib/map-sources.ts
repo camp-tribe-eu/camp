@@ -40,7 +40,7 @@ export interface MapSource {
   provider: string;
 }
 
-const OFM = process.env.NEXT_PUBLIC_TILES_URL ?? 'https://tiles.openfreemap.org';
+const OFM = 'https://tiles.invalid.example';
 
 /**
  * Attribution is required by OpenFreeMap and by ODbL underneath it.
