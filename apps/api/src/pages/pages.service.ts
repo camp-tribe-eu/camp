@@ -94,6 +94,8 @@ export interface PageView {
   /** Заголовок для пошуковика; `null` → береться `title`. */
   metaTitle: string | null;
   metaDescription: string | null;
+  /** Слово на бігучому рядку банера (CAMP-478); `null` → сторінка вирішує сама. */
+  bannerTicker: string | null;
   noindex: boolean;
   sections: SectionView[];
 }
@@ -141,10 +143,12 @@ export class PagesService {
         title: string;
         meta_title: string | null;
         meta_description: string | null;
+        banner_ticker: string | null;
       }>
     >(
       `
-      SELECT p.id, p.slug, p.noindex, t.title, t.meta_title, t.meta_description
+      SELECT p.id, p.slug, p.noindex, t.title, t.meta_title, t.meta_description,
+             t.banner_ticker
         FROM pages p
         JOIN page_translations t
           ON t.page_id = p.id
@@ -194,6 +198,7 @@ export class PagesService {
       title: page.title,
       metaTitle: page.meta_title,
       metaDescription: page.meta_description,
+      bannerTicker: page.banner_ticker,
       noindex: page.noindex,
       sections: rows.map((r) => ({
         type: r.type,

@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation';
 import { getCountries } from '@/lib/api';
 import { alternatesFor } from '@/lib/i18n';
 import { breadcrumbList, collectionGraph, jsonLdProps } from '@/lib/jsonld';
-import { pageContent } from '@/lib/page-content';
+import { pageContent, tickerOf } from '@/lib/page-content';
 import {
   getWinter,
   winterText,
@@ -105,7 +105,7 @@ export default async function WinterPage() {
         className="mt-4"
         headingLevel={1}
         background={{ src: '/banners/eu-dawn.webp' }}
-        tickerText="WINTER"
+        tickerText={tickerOf(page)}
         heading={page.title}
         description={page.metaDescription ?? undefined}
         minHeight="min(48svh, 380px)"

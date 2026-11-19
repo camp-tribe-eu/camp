@@ -6,7 +6,7 @@ import Breadcrumbs from "@/components/breadcrumbs";
 import { LayeredBanner } from "@/components/layered-banner";
 import { breadcrumbList, collectionGraph, jsonLdProps } from "@/lib/jsonld";
 import { alternatesFor } from "@/lib/i18n";
-import { pageContent } from "@/lib/page-content";
+import { pageContent, tickerOf } from "@/lib/page-content";
 import { PageSections, cardsFrom } from "@/components/page-sections";
 
 // CAMP-55 завела цей розділ, CAMP-365 забрала з нього текст.
@@ -89,7 +89,7 @@ export default async function ToolsIndex() {
       <LayeredBanner
         headingLevel={1}
         background={{ src: "/banners/tools.webp" }}
-        tickerText="PLANNING"
+        tickerText={tickerOf(page)}
         heading={page.title}
         description="Free planning tools for camper trips in the EU, built on published data."
         minHeight="min(52svh, 420px)"

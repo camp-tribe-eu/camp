@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { applyValues, PAGE_VALUES, type PageView } from "@/lib/page-content";
+import { applyValues, PAGE_VALUES, tickerOf, type PageView } from "@/lib/page-content";
 
 // CAMP-365 — шлях «дані з CMS → розмітка». Цей файл існує тому, що
 // рецензія PR #303 довела: жоден із моїх тодішніх сторожів не ловив
@@ -10,6 +10,7 @@ const page = (over: Partial<PageView> = {}): PageView => ({
   title: "Заголовок",
   metaTitle: null,
   metaDescription: null,
+  bannerTicker: null,
   noindex: false,
   sections: [],
   ...over,
@@ -92,4 +93,13 @@ test.describe("🔴 порожнє і відсутнє — одне й те са
   test("непорожній meta_title лишається", () => {
     expect(applyValues(page({ metaTitle: "Свій" })).metaTitle).toBe("Свій");
   });
+});
+
+// CAMP-478: слово на бігучому рядку банера — із CMS, а порожнє поле дає
+// заголовок, а не старий літерал із коду.
+test("бігучий рядок банера: слово з CMS, порожнє → заголовок великими", () => {
+  expect(tickerOf(applyValues(page({ bannerTicker: "WRITE TO US" })))).toBe("WRITE TO US");
+  expect(tickerOf(applyValues(page({ bannerTicker: "   " })))).toBe("ЗАГОЛОВОК");
+  expect(tickerOf(applyValues(page({ bannerTicker: null })))).toBe("ЗАГОЛОВОК");
+  expect(tickerOf(applyValues(page({ bannerTicker: "{{company.name}}" })))).toBe(PAGE_VALUES["company.name"]);
 });

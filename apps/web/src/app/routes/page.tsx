@@ -24,7 +24,7 @@ import RouteLibrary, { type RouteCard } from "@/components/route-library";
 import { Block } from "@/components/layout";
 import { LayeredBanner } from "@/components/layered-banner";
 import { PageSections } from "@/components/page-sections";
-import { pageContent } from "@/lib/page-content";
+import { pageContent, tickerOf } from "@/lib/page-content";
 
 // CAMP-3 / CAMP-45 — the route library index.
 //
@@ -109,7 +109,7 @@ export default async function RoutesIndex() {
       <LayeredBanner
         headingLevel={1}
         background={{ src: "/banners/routes.webp" }}
-        tickerText="ROUTES"
+        tickerText={page ? tickerOf(page) : "ROUTES"}
         heading={page?.title ?? "Camping routes"}
         description={page?.metaDescription ?? undefined}
         minHeight="min(42svh, 340px)"

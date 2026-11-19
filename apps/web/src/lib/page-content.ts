@@ -27,6 +27,9 @@ export interface PageView {
   /** Заголовок для пошуковика; `null` → береться `title`. */
   metaTitle: string | null;
   metaDescription: string | null;
+  /** Слово на бігучому рядку банера (CAMP-478); `null` → див. `tickerOf`.
+   *  Необовʼязкове: API до CAMP-478 поля не віддає. */
+  bannerTicker?: string | null;
   noindex: boolean;
   sections: SectionView[];
 }
@@ -152,6 +155,8 @@ export function applyValues(page: PageView): PageView {
     title: substitute(page.title, PAGE_VALUES),
     metaTitle: empty(sub(page.metaTitle)),
     metaDescription: empty(sub(page.metaDescription)),
+    // `?? null`: старий API без поля не мусить ламати сторінку.
+    bannerTicker: empty(sub(page.bannerTicker ?? null)),
     sections: page.sections.map((s) => ({
       ...s,
       heading: sub(s.heading),
@@ -162,4 +167,13 @@ export function applyValues(page: PageView): PageView {
       ctaLabel: sub(s.ctaLabel),
     })),
   };
+}
+
+/**
+ * Слово на бігучому рядку банера (CAMP-478). З CMS; порожньо — заголовок
+ * сторінки великими літерами. 🔴 Запасне значення — НЕ літерал у коді: інакше
+ * «стерли в CMS» повертало б старе слово, і власник не міг би його прибрати.
+ */
+export function tickerOf(page: Pick<PageView, "bannerTicker" | "title">): string {
+  return page.bannerTicker || page.title.toUpperCase();
 }
