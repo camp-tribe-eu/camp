@@ -566,7 +566,11 @@ test.describe("🔴 CAMP-478 — бігучий рядок банера бере
     test(`${path}: слово на банері — те, що в базі`, async ({ page, request }) => {
       const res = await request.get(`${API}/pages/${slug}`);
       expect(res.status(), `GET ${API}/pages/${slug}`).toBe(200);
-      const body = (await res.json()) as { title: string; bannerTicker?: string | null };
+      const body = (await res.json()) as {
+        title: string;
+        bannerTicker?: string | null;
+        metaDescription: string | null;
+      };
       expect(
         body.bannerTicker?.trim(),
         "у базі немає слова для банера — міграцію PageBannerTicker не застосовано",
@@ -575,6 +579,14 @@ test.describe("🔴 CAMP-478 — бігучий рядок банера бере
       await page.goto(path);
       await expect(page.locator("main .ct-banner__ticker-item").first()).toHaveText(
         body.bannerTicker!.trim(),
+      );
+      // І опис під заголовком банера — той самий рядок, що й для
+      // пошуковика (на /tools до 19.11.2026 був окремий літерал у коді).
+      expect(body.metaDescription?.trim(), "у базі немає опису сторінки").toBeTruthy();
+      // До першої підстановки `{{…}}`: її значення знає сервер, не тест.
+      const lead = body.metaDescription!.split("{{")[0].trim();
+      await expect(page.locator("main .ct-banner__description").first()).toContainText(
+        lead,
       );
     });
   }
