@@ -313,3 +313,26 @@ test.describe('a country page says what it knows — and what it does not', () =
     expect(text).not.toMatch(/\d\s*%/);
   });
 });
+
+// 🔴 CAMP-476, пункт 3: рядок індексу мапи без `country` не кладе
+// сторінку країни. Раніше `r.country.toLowerCase()` кидав на ньому, а
+// `.catch(() => [])` над запитом ловить лише відмову запиту.
+test('a map-index row with no country leaves the country page standing', async () => {
+  let html = '';
+  await withFetch(
+    (url) =>
+      url.includes('/map/regions')
+        ? json([{ region: 'Gozo', slug: 'gozo', spots: 4 }, { country: 'mt', region: 'Gozo', slug: 'gozo', spots: 4 }])
+        : url.includes('/regions')
+          ? json([region('Gozo', 4)])
+          : json({}, 404),
+    async () => {
+      html = await renderAsyncComponent(CountryHub, {
+        params: Promise.resolve({ country: 'mt' }),
+      });
+    },
+  );
+  const text = visibleText(html);
+  expect(text).toContain('Campsites in Malta');
+  expect(text).toContain('Gozo');
+});
