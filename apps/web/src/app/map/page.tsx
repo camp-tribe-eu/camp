@@ -109,7 +109,7 @@ export default async function MapPage() {
         className="group/map flex flex-col gap-3 lg:grid lg:grid-cols-[minmax(340px,420px)_minmax(0,1fr)] lg:grid-rows-[auto_auto_1fr] lg:items-start lg:gap-x-6 lg:gap-y-3 data-[fullscreen=true]:fixed data-[fullscreen=true]:inset-0 data-[fullscreen=true]:z-[70] data-[fullscreen=true]:h-dvh data-[fullscreen=true]:overflow-auto data-[fullscreen=true]:bg-bg data-[fullscreen=true]:p-4 data-[fullscreen=true]:lg:grid"
       >
         <header className="max-lg:order-1 lg:col-start-1 lg:row-start-1">
-          <h1 className="text-3xl md:text-[42px]">Campsite map</h1>
+          <h1 className="text-3xl md:text-[42px]">Campsite map — mutation probe</h1>
           <Block as="p" measure="read" className="mt-3 text-ink-2">
             {onTheMap.toLocaleString('en-GB')} campsites and motorhome parks
             are on this map. Each point is a real entry — nothing is placed
