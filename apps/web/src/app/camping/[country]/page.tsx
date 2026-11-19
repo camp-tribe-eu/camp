@@ -142,7 +142,13 @@ export default async function CountryHub(props: { params: Promise<Params> }) {
   // Рядки індексу цієї країни. Код у індексі — ISO у верхньому регістрі,
   // у шляху сторінки — у нижньому; порівнюємо зведеними.
   const mapRows = allMapRegions.filter(
-    (r) => r.country.toLowerCase() === params.country.toLowerCase() && r.region !== null,
+    // 🔴 CAMP-476: `?.` — рядок індексу без `country` не кладе сторінку
+    // країни; він просто не належить жодній країні. `.catch` вище ловить
+    // лише відмову запиту, не кривий рядок у відповіді.
+    (r) =>
+      typeof r.country === 'string' &&
+      r.country.toLowerCase() === params.country.toLowerCase() &&
+      r.region !== null,
   );
   const lead =
     `${en(spots)} campsites, motorhome parks and camper stops across ` +
