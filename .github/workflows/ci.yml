@@ -236,6 +236,21 @@ jobs:
       - name: Banners are bounded, recorded and disclosed in llms.txt
         run: node scripts/images/check-banners.mjs
 
+      # CAMP-478. Text for readers belongs in the CMS, where the owner can
+      # edit it. The count of words still sitting in code may only go
+      # down; a new paragraph typed into a page turns this red and names
+      # the files. First prove it still goes red on a planted paragraph.
+      - name: Editorial-text ratchet still catches a planted paragraph
+        run: |
+          D="$RUNNER_TEMP/ratchet"; mkdir -p "$D"
+          printf 'export const P = () => <p>This is a paragraph for readers typed into the code.</p>;\n' > "$D/x.tsx"
+          echo 0 > "$D/max"
+          if WEB_SRC="$D" python3 scripts/content/count-editorial-words.py --max-file "$D/max"; then
+            echo "::error::the ratchet passed a planted paragraph — it checks nothing"; exit 1
+          fi
+      - name: No new reader text in code (editorial-words ratchet)
+        run: python3 scripts/content/count-editorial-words.py --max-file scripts/content/editorial-words.max
+
       # CAMP-353. Копія безпекового журналу живе на ноутбуці власника, а
       # не в репозиторії; у її рядках справжні адреси читачів. Сторож
       # дивиться в ІНДЕКС git, бо `.gitignore` описує намір, а не стан.
