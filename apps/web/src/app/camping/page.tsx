@@ -5,6 +5,7 @@ import { countryName, getCountries, mapRegions } from '@/lib/api';
 import { campingLead, printable } from '@/lib/campsite-count';
 import { collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
+import { pageContent, tickerOf } from '@/lib/page-content';
 import { Block, PageShell } from '@/components/layout';
 import { LayeredBanner } from '@/components/layered-banner';
 import { CountryTiles, countryTiles } from '@/components/country-tiles';
@@ -32,20 +33,30 @@ import { BoxBanner } from '@/components/box-banner';
 // для пошуковика на силу одного 429 (CAMP-308) — тому число йде через
 // `printable`, і без нього речення просто не називає числа.
 
-export const metadata: Metadata = {
-  title: 'Campsites in Europe',
-  description:
-    'Browse campsites, motorhome parks and camper stops across Europe by country and region.',
-  alternates: alternatesFor('/camping'),
-};
+// CAMP-478: назва, слово на банері й опис для пошуковика — із CMS
+// (сторінка `camping`). Запасні значення лише на випадок, коли запису ще
+// немає: хаб країн не має зникати через CMS.
+const SLUG = 'camping';
+const FALLBACK_TITLE = 'Campsites in Europe';
+
+export async function generateMetadata(): Promise<Metadata> {
+  const page = await pageContent(SLUG).catch(() => null);
+  return {
+    title: page?.metaTitle ?? page?.title ?? FALLBACK_TITLE,
+    description: page?.metaDescription ?? undefined,
+    alternates: alternatesFor('/camping'),
+  };
+}
 
 export default async function CampingIndex() {
-  const [countries, mapIndex] = await Promise.all([
+  const [countries, mapIndex, page] = await Promise.all([
     getCountries(),
     // The map is decoration over the tiles: a failing index removes the map,
     // never the page (same rule as the country page).
     mapRegions().catch(() => []),
+    pageContent(SLUG).catch(() => null),
   ]);
+  const title = page?.title ?? FALLBACK_TITLE;
   const total = printable(countries.reduce((n, c) => n + c.spots, 0));
   // 🔴 CAMP-490. ЧИСЛО В ТЕКСТІ — ЦЕ ЧИСЛО ПЛИТОК, ІЗ ОДНОГО ДЖЕРЕЛА.
   // Раніше воно йшло з `memberStateCount` (країни з даними, а на порожній
@@ -59,7 +70,7 @@ export default async function CampingIndex() {
       <script
         {...jsonLdProps(
           collectionGraph({
-            name: 'Campsites in Europe',
+            name: title,
             description:
               total === null
                 ? `Campsites across ${memberStates} countries.`
@@ -79,8 +90,8 @@ export default async function CampingIndex() {
       <LayeredBanner
         headingLevel={1}
         background={{ src: '/banners/eu-dawn.webp' }}
-        tickerText="EUROPE"
-        heading="Campsites in Europe"
+        tickerText={page ? tickerOf(page) : 'EUROPE'}
+        heading={title}
         description={campingLead(total, memberStates)}
         cta={{ href: '#countries', label: 'Pick a country' }}
         minHeight="min(70svh, 560px)"
