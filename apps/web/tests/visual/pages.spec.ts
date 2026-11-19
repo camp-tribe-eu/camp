@@ -394,6 +394,17 @@ for (const viewport of VIEWPORTS) {
             // 🔴 But it ACCUMULATES — see budgetSpent below, and CAMP-197
             // for the menu item that lived inside this allowance unseen.
             maxDiffPixelRatio: BUDGET,
+            // 🔴 CAMP-486, друга половина. Для мапи 5 с — це ліміт на ЗНЯТТЯ
+            // кадру, а не на стабілізацію: стабілізацію вже чекає
+            // `waitForMapPainted` (падає з назвою стану, а не таймаутом).
+            // Заміряно трейсом job 135471474688 (19.11.2026, PR #633, лише
+            // документ): остання мережа о 28,2 с, `expectScreenshot` о 29,3 с,
+            // і за 5 с не завершився НАВІТЬ ПЕРШИЙ кадр — у журналі немає
+            // ані другого знімка, ані рядка про пікселі. Повносторінковий
+            // кадр 1280×4198 із WebGL-полотном на програмному GL раннера
+            // часом довший за 5 с. Тому мапі — 15 с саме на зняття; решта
+            // сторінок лишається на типових 5 с.
+            ...(subject.name === 'map' ? { timeout: 15_000 } : {}),
         });
 
         // CAMP-197, measuring step. Reports only — the threshold that
