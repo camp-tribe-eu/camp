@@ -4,7 +4,6 @@ import PlanForm from '@/components/plan-form';
 import { alternatesFor } from '@/lib/i18n';
 import { breadcrumbList, jsonLdProps } from '@/lib/jsonld';
 import { Block } from '@/components/layout';
-import { ProviderNotice } from '@/components/provider-notice';
 
 // CAMP-205 — /plan: форма планувальника маршруту.
 // CAMP-391 — і планувальник за нею: `POST /plan` (apps/api/src/plan/).
@@ -97,7 +96,6 @@ export default function PlanPage() {
           .
         </p>
       </Block>
-      <ProviderNotice />
 
       <PlanForm />
 

@@ -6,7 +6,10 @@ import { expect, test } from '@playwright/test';
 // не переказує своїми словами. Прибрати абзац зі сторінки чи змінити його
 // на екрані — червоне.
 
-for (const path of ['/plan', '/tools/camper-trip-cost']) {
+// /plan не тут: у нього власне застереження `plan-disclaimer` («CampTribe is
+// not a navigation app… at your own discretion and risk») з CAMP-456, його
+// тримає tests/unit/plan-view.spec.ts. Другий блок там був би дублем.
+for (const path of ['/tools/camper-trip-cost']) {
   test(`${path}: the provider notice is the disclaimer's own paragraph`, async ({ page }) => {
     await page.goto(path);
     const shown = (await page.getByTestId('provider-notice-text').innerText()).trim();
