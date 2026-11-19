@@ -20,7 +20,9 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 export class PageBannerTicker1797990000000 implements MigrationInterface {
   name = 'PageBannerTicker1797990000000';
 
-  static readonly TICKERS: ReadonlyArray<readonly [slug: string, ticker: string]> = [
+  static readonly TICKERS: ReadonlyArray<
+    readonly [slug: string, ticker: string]
+  > = [
     ['tools', 'PLANNING'],
     ['contact', 'WRITE TO US'],
     ['about', 'CAMPTRIBE'],
