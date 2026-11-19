@@ -219,8 +219,11 @@ export const LEGAL_PAGES: LegalPage[] = [
     summary:
       'Nobody from CampTribe has visited these campsites. What that means before you drive somewhere.',
     title: 'What we do and do not know',
-    version: '1.0',
-    effectiveFrom: '2026-09-23',
+    // 1.1 (19.11.2026, CAMP-489): «Information, not navigation» — дані від
+    // провайдерів, ризик на користувачеві, ціни й платні дороги старіють.
+    // Міграція 1798030000000-DisclaimerProviderNotNavigator.
+    version: '1.1',
+    effectiveFrom: '2026-11-19',
   },
   {
     slug: 'attribution',
@@ -302,3 +305,13 @@ export const legalPath = (slug: string) => `/legal/${slug}`;
  * розподіл живе тут, щоб підвал і тести читали одне джерело.
  */
 export const DATA_LEGAL_SLUGS: readonly string[] = ['attribution', 'database'];
+
+/**
+ * CAMP-489: абзац, який стоїть на /plan і в калькуляторі вартості, ДОСЛІВНО
+ * той самий, що в розділі «Information, not navigation» сторінки
+ * /legal/disclaimer (міграція 1798030000000). Тут він лише показується;
+ * юридичний текст — у базі, під версією й реєстром прочитань. e2e звіряє,
+ * що сторінка містить цей рядок, тож розійтись мовчки вони не можуть.
+ */
+export const PROVIDER_NOTICE =
+  'CampTribe is an information service, not a navigation system. Distances, prices, tolls, opening seasons and vehicle rules come from third-party data providers and may be incomplete, out of date or different on the ground. You use them at your own discretion and risk.';
