@@ -113,7 +113,9 @@ test.describe('hub crawl path', () => {
 
     // Whichever region the country page lists first — the claim is about
     // the path, not about a particular place.
-    const firstRegion = page.locator('main ul li a').first();
+    // Плитки регіонів, а не «перший список на сторінці»: з CAMP-441 (53)
+    // вище регіонів стоять картки мапи й планувальника — теж `ul li a`.
+    const firstRegion = page.locator('main ul.ct-rtiles__row li a').first();
     const regionHref = await firstRegion.getAttribute('href');
     await firstRegion.click();
     clicks++;

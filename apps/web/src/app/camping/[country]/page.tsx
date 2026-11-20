@@ -6,7 +6,6 @@ import { countryName, getCountries, getHubStats, getRegions, mapRegions } from '
 import { countedAsOf, countryFaq, countryTiles, hubStatsReadAt } from '@/lib/hub-stats';
 import Faq from '@/components/faq';
 import { HubStatTiles } from '@/components/hub-stats';
-import { ButtonLink } from '@/components/button';
 import { breadcrumbList, collectionGraph, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
 import OvernightCoverage from '@/components/overnight-coverage';
@@ -14,6 +13,7 @@ import { Block, PageShell } from '@/components/layout';
 import PostCards from '@/components/post-cards';
 import { postDate, postList } from '@/lib/posts';
 import { BLOG_PATH } from '@/components/blog-index';
+import FeatureRow from '@/components/feature-row';
 import { LayeredBanner } from '@/components/layered-banner';
 import { RegionTicker } from '@/components/region-ticker';
 import { readRegionCard, readRegionCards, RegionTiles } from '@/components/region-tiles';
@@ -231,14 +231,32 @@ export default async function CountryHub(props: { params: Promise<Params> }) {
           (/map and /plan are the whole-Europe tools), so the labels name
           what each one opens and do not pretend to be scoped to this
           country. */}
-      <div className="mt-5 flex flex-wrap gap-2">
-        <ButtonLink href="/map" variant="primary">
-          Open the campsite map
-        </ButtonLink>
-        <ButtonLink href="/plan" variant="secondary">
-          Plan a route
-        </ButtonLink>
-      </div>
+      {/* 🔴 CAMP-441 (53): «замість кнопок — картки: картинка зліва, тайтл,
+          опис, кнопка». Той самий `FeatureRow` з іконкою зліва, що в «Where
+          to go next» калькулятора. Опис каже чесно, що це інструменти на
+          всю Європу і що планувальник поки міряє прямою. */}
+      <nav className="mt-6" aria-label={`Tools for a trip to ${name}`}>
+        <FeatureRow
+          iconSide="left"
+          testId="country-next"
+          items={[
+            {
+              key: 'map',
+              href: '/map',
+              icon: <MapIcon />,
+              title: 'Open the campsite map',
+              text: `Every campsite and motorhome park we know in the EU on one map. Zoom into ${name} to see what is near each one.`,
+            },
+            {
+              key: 'plan',
+              href: '/plan',
+              icon: <RouteIcon />,
+              title: 'Plan a route',
+              text: 'Give a start, a destination and the number of days, and the planner picks a campsite for each night, in straight lines for now.',
+            },
+          ]}
+        />
+      </nav>
 
       {/* 🔴 CAMP-255. Always rendered: a country where nothing is known
           says so in a sentence instead of saying nothing. */}
@@ -346,5 +364,24 @@ export default async function CountryHub(props: { params: Promise<Params> }) {
         align="start"
       />
     </PageShell>
+  );
+}
+
+function MapIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 6.5 9 4l6 2.5L21 4v13.5L15 20l-6-2.5L3 20V6.5Z" />
+      <path d="M9 4v13.5M15 6.5V20" />
+    </svg>
+  );
+}
+
+function RouteIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="6" cy="18" r="2" />
+      <circle cx="18" cy="6" r="2" />
+      <path d="M8 18h7a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h7" />
+    </svg>
   );
 }
