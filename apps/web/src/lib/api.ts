@@ -569,6 +569,11 @@ export interface RegionSummary {
   /** False below the threshold — the page exists but carries `noindex`. */
   indexable: boolean;
   /**
+   * CAMP-441: ISO 3166-2, for the coat of arms on the region card. Optional
+   * because the API deploys separately; null where the code is not exactly one.
+   */
+  iso3166_2?: string | null;
+  /**
    * CAMP-255: how many of this region's campsites have a confirmed
    * overnight answer, counted from OUR rows. Unknown is NOT sent: it is
    * `spots - allowed - forbidden`, derived in `overnightCoverage`, so the

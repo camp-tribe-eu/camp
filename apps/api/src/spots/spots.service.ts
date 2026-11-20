@@ -579,6 +579,8 @@ export class SpotsService {
       slug: string;
       spots: number;
       indexable: boolean;
+      /** ISO 3166-2 of the region, or null where it is not exactly one. */
+      iso3166_2: string | null;
       overnightAllowed: number;
       overnightForbidden: number;
       overnightReadAt: string | null;
@@ -605,6 +607,7 @@ export class SpotsService {
         GROUP BY 1 ORDER BY 2 DESC, 1`,
       [country],
     );
+    const iso = await this.regionIsoCodes(country);
     return rows.map(
       (r: {
         region: string;
@@ -617,11 +620,39 @@ export class SpotsService {
         slug: slugifyRegion(r.region),
         spots: r.spots,
         indexable: r.spots >= REGION_INDEX_THRESHOLD,
+        iso3166_2: iso.get(r.region) ?? null,
         overnightAllowed: r.overnight_allowed,
         overnightForbidden: r.overnight_forbidden,
         overnightReadAt: r.overnight_read_at,
       }),
     );
+  }
+
+  /**
+   * CAMP-441: region name → ISO 3166-2, for the coat of arms on the region
+   * card. A region is matched by name + country on `ne_admin1`, the table
+   * the campsite's region came from. 🔴 A name that Natural Earth gives two
+   * different codes in one country (Veszprém: HU-VE and HU-VM) maps to
+   * NOTHING: a coat of the wrong county is a false symbol, no coat is
+   * only a flag. A database without `ne_admin1` (a fresh dev database)
+   * answers an empty map, so the regions still list.
+   */
+  private async regionIsoCodes(country: string): Promise<Map<string, string>> {
+    try {
+      const rows: { name: string; iso: string }[] = await this.db.query(
+        `SELECT name, min(iso_3166_2) AS iso
+           FROM ne_admin1
+          WHERE iso_a2 = upper($1) AND iso_3166_2 IS NOT NULL
+            AND iso_3166_2 <> ''
+          GROUP BY name
+         HAVING count(DISTINCT iso_3166_2) = 1`,
+        [country],
+      );
+      return new Map(rows.map((r) => [r.name, r.iso]));
+    } catch (e) {
+      if ((e as { code?: string }).code === '42P01') return new Map();
+      throw e;
+    }
   }
 
   /**

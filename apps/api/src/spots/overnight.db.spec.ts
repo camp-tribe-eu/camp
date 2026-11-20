@@ -635,6 +635,33 @@ describe('what the counts and the map say', () => {
     });
   });
 
+  // CAMP-441: the ISO 3166-2 the region card's coat of arms is looked up by.
+  it('🔴 iso3166_2: null without ne_admin1, the code where exactly one, null where two', async () => {
+    const svc = () => new SpotsService(asDataSource());
+    // A database without the Natural Earth table still lists its regions.
+    const bare = await svc().regions('HR');
+    expect(bare.map((r) => r.iso3166_2)).toEqual(bare.map(() => null));
+    try {
+      await db.query(`CREATE TABLE ne_admin1 (
+        name varchar, iso_a2 varchar, iso_3166_2 varchar);
+        INSERT INTO ne_admin1 VALUES
+          ('Istria', 'HR', 'HR-18'),
+          ('Gozo', 'HR', 'HR-X1'), ('Gozo', 'HR', 'HR-X2'),
+          ('Istria', 'SI', 'SI-999')`);
+      const regions = await svc().regions('HR');
+      // Matched by name AND country: the Slovenian row must not leak in.
+      expect(regions.find((r) => r.region === 'Istria')!.iso3166_2).toBe(
+        'HR-18',
+      );
+      // Two codes for one name: a coat of the wrong one is a false symbol.
+      expect(regions.find((r) => r.region === 'Gozo')!.iso3166_2).toBeNull();
+      // The counts are untouched by the extra lookup.
+      expect(regions.find((r) => r.region === 'Istria')!.spots).toBe(6);
+    } finally {
+      await db.query('DROP TABLE IF EXISTS ne_admin1');
+    }
+  });
+
   it('markers carry the status, and unknown stays unknown', async () => {
     const res = await new MapQueryService(asDataSource()).points(
       BOX,

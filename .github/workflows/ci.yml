@@ -236,6 +236,17 @@ jobs:
       - name: Banners are bounded, recorded and disclosed in llms.txt
         run: node scripts/images/check-banners.mjs
 
+      # 🔴 CAMP-441. Region coats of arms: only Public domain / CC0 files,
+      # every file in the manifest and every entry a file, no script in an
+      # SVG, and llms.txt saying what the emblems are.
+      - name: Coat guard still catches a stray file and a wrong licence
+        run: |
+          set -o pipefail
+          node scripts/images/check-coats.mjs --self-test | tee /dev/stderr \
+            | grep -c 'check-coats self-test:' >/dev/null
+      - name: Coats of arms are all Public domain or CC0 and all recorded
+        run: node scripts/images/check-coats.mjs
+
       # CAMP-478. Text for readers belongs in the CMS, where the owner can
       # edit it. The count of words still sitting in code may only go
       # down; a new paragraph typed into a page turns this red and names

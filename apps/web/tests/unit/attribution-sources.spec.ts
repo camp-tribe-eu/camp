@@ -237,6 +237,17 @@ const NOT_A_SOURCE: Readonly<Record<string, Exception>> = {
     "apps/web/src/",
     "scripts/seo/",
   ),
+  // ── CAMP-441: герби регіонів ──
+  "commons.wikimedia.org": because(
+    "the Commons file page of each region coat of arms, recorded in coats.json and served at /coats/sources.json; only Public domain and CC0 files are used, which owe no credit, and the CAMP-441 brief left the /legal pages untouched. Whether the attribution page should name Wikimedia Commons anyway is the owner's call, open on the PR",
+    "apps/web/src/data/coats.json",
+    "scripts/images/check-coats.mjs",
+    "scripts/images/fetch-coats.mjs",
+  ),
+  "query.wikidata.org": because(
+    "the SPARQL endpoint the coat fetcher asks which Commons file is a region's coat of arms; asked once at fetch time by a script, nothing is served from it",
+    "scripts/images/fetch-coats.mjs",
+  ),
   "w3.org": because(
     "an XML namespace and a specification reference in the sitemap writer and its schemas",
     "apps/web/src/lib/sitemap.ts",
