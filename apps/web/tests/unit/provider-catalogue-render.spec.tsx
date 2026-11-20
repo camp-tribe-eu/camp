@@ -191,8 +191,26 @@ test.describe("фільтр за типом у розмітці", () => {
 
   test("рядок компанії каже, які типи вона назвала і скільки моделей без типу", () => {
     const html = render(TYPED);
-    expect(html).toContain("types stated: campervan · 2 without a stated type");
-    expect(html).toContain("types stated: campervan, caravan");
+    // Видимий текст, бо між словами тепер стоять іконки (CAMP-444).
+    const text = html.replace(/<[^>]+>/g, "").replace(/\s+/g, " ");
+    expect(text).toContain("types stated: campervan · 2 without a stated type");
+    expect(text).toContain("types stated: campervan, caravan");
     expect(html).toContain("no vehicle type stated for its 3 models");
   });
+});
+
+// CAMP-444 (рішення власника 20.11.2026): тип — іконкою-силуетом поруч із
+// назвою, бо фото машин компаній без договору не показуємо.
+test("🔴 кожен названий тип — своя іконка й назва поруч, текст не злипається", () => {
+  const html = render(TYPED);
+  const bravo = /data-testid="row-types"[^>]*>((?:(?!data-testid="row-types")[\s\S])*?)<\/p>/g;
+  const rows = [...html.matchAll(bravo)].map((m) => m[1]);
+  const withTwo = rows.find((r) => r.includes('data-camper-type="caravan"'));
+  expect(withTwo, "рядок bravo (van + caravan)").toBeTruthy();
+  for (const slug of ["van", "caravan"]) {
+    const chip = new RegExp(`data-camper-type="${slug}"[^>]*>\\s*<svg[^>]*data-camper-icon="${slug}"`);
+    expect(withTwo, `${slug}: немає власної іконки`).toMatch(chip);
+  }
+  const text = withTwo!.replace(/<[^>]+>/g, "");
+  expect(text).toContain("campervan, caravan");
 });
