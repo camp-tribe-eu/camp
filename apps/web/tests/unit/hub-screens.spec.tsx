@@ -400,8 +400,9 @@ test.describe('the country page', () => {
       href: /href="([^"]*)"/.exec(m[1])?.[1] ?? '',
       text: visibleText(m[2]).trim(),
     }));
-    const map = anchors.find((a) => a.text === 'Open the campsite map');
-    const plan = anchors.find((a) => a.text === 'Plan a route');
+    // CAMP-441 (53): тепер це картки, тож текст посилання — тайтл + опис.
+    const map = anchors.find((a) => a.text.startsWith('Open the campsite map'));
+    const plan = anchors.find((a) => a.text.startsWith('Plan a route'));
     expect(map?.href).toBe('/map');
     expect(plan?.href).toBe('/plan');
     for (const a of [map!, plan!]) {

@@ -242,13 +242,13 @@ test('RegionTiles без жодного регіону не малює нічо�
 
 // ── Склад сторінки ─────────────────────────────────────────────────────────
 
-test('🔴 склад: h1 у банері → тікер → лічильники → дві кнопки → картки регіонів → два банери → банер про нас', async () => {
+test('🔴 склад: h1 у банері → тікер → лічильники → дві картки-переходи → картки регіонів → два банери → банер про нас', async () => {
   const html = await countryHtml();
   const order = [
     '<h1 class="ct-banner__heading">Campsites in Slovenia</h1>',
     'role="marquee"',
     'aria-label="Key figures"',
-    'data-ct-button="primary"',
+    'data-testid="country-next"',
     'class="ct-rtiles__row"',
     '<section class="ct-grid-banner',
     '<section class="ct-box-banner',
@@ -260,16 +260,25 @@ test('🔴 склад: h1 у банері → тікер → лічильник�
   expect(html.match(/<h1\b/g)?.length, 'h1 має бути рівно один').toBe(1);
 });
 
-test('CTA з ієрархією: «Open the campsite map» — головна (primary), «Plan a route» — тиха (secondary)', async () => {
+// CAMP-441 (53): замість двох кнопок — дві картки «іконка зліва, тайтл,
+// опис» (FeatureRow), що ведуть на мапу й планувальник.
+test('дві картки: мапа й планувальник — іконка, тайтл, опис, посилання', async () => {
   const html = await countryHtml();
-  const anchors = [...html.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/g)].map((m) => ({
-    attrs: m[1],
-    text: visibleText(m[2]).trim(),
+  const nav = /<ul\b[^>]*data-testid="country-next"[\s\S]*?<\/ul>/.exec(html)?.[0] ?? '';
+  expect(nav, 'карток немає').not.toBe('');
+  const cards = [...nav.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/g)].map((m) => ({
+    href: /href="([^"]*)"/.exec(m[1])?.[1],
+    html: m[2],
+    text: visibleText(m[2]),
   }));
-  const map = anchors.find((a) => a.text === 'Open the campsite map');
-  const plan = anchors.find((a) => a.text === 'Plan a route');
-  expect(map?.attrs).toContain('data-ct-button="primary"');
-  expect(plan?.attrs).toContain('data-ct-button="secondary"');
+  expect(cards.map((c) => c.href)).toEqual(['/map', '/plan']);
+  for (const c of cards) {
+    expect(c.html, `${c.href}: немає іконки`).toContain('ct-feat__icon');
+    expect(c.html, `${c.href}: немає опису`).toContain('ct-feat__text');
+  }
+  expect(cards[0].text).toContain('Open the campsite map');
+  expect(cards[1].text).toContain('in straight lines for now');
+  expect(html).not.toMatch(/data-ct-button="[^"]*"[^>]*href="\/plan"|href="\/plan"[^>]*data-ct-button/);
   expect(html).toContain('href="#regions"');
   expect(html).toContain('id="regions"');
 });
