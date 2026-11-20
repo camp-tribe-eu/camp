@@ -4,6 +4,7 @@ import { QueryRunner } from 'typeorm';
 import { PrivacyOwnerVerifyLink1797810000000 } from '../migrations/1797810000000-PrivacyOwnerVerifyLink';
 import { PrivacyTripStorage1797850000000 } from '../migrations/1797850000000-PrivacyTripStorage';
 import { PrivacyContactForm1797950000000 } from '../migrations/1797950000000-PrivacyContactForm';
+import { PrivacyNewsletter1798050000000 } from '../migrations/1798050000000-PrivacyNewsletter';
 import { seededLegalPages } from './legal-seeded';
 
 // CAMP-456 поверх CAMP-505: дві міграції правили політику приватності
@@ -13,6 +14,7 @@ import { seededLegalPages } from './legal-seeded';
 const owner = new PrivacyOwnerVerifyLink1797810000000();
 const trip = new PrivacyTripStorage1797850000000();
 const contact = new PrivacyContactForm1797950000000();
+const newsletter = new PrivacyNewsletter1798050000000();
 
 /** Мінімальна «база»: один рядок політики, запити — ті, що шле legal-update. */
 function fakeDb(start: { version: string; body: string }) {
@@ -71,7 +73,7 @@ describe('політика приватності: 3.0 поверх 2.9', () => 
 
   it('🔴 те саме — у тексті, який віддає сид-реєстр (його читають сторожі сторінки)', () => {
     const privacy = seededLegalPages().find((p) => p.slug === 'privacy');
-    expect(privacy?.version).toBe('3.1');
+    expect(privacy?.version).toBe('3.2');
     expect(privacy?.body).toContain('There are two ways to prove it is yours');
     expect(privacy?.body).toContain('camptribe.trips');
   });
@@ -101,12 +103,12 @@ describe('політика приватності: 3.0 поверх 2.9', () => 
         ts,
       );
     expect(m).not.toBeNull();
-    expect(m?.[1]).toBe(contact.page.version);
-    expect(m?.[2]).toBe(contact.page.effectiveFrom);
+    expect(m?.[1]).toBe(newsletter.page.version);
+    expect(m?.[2]).toBe(newsletter.page.effectiveFrom);
     const review = JSON.parse(
       readFileSync(join(root, 'scripts/seo/legal-review.json'), 'utf8'),
     ) as { pages: Record<string, string>; note: string };
-    expect(review.pages.privacy).toBe(contact.page.version);
+    expect(review.pages.privacy).toBe(newsletter.page.version);
     // у журналі читання названо обидві зміни: 2.9 (CAMP-505) і 3.0 (CAMP-456)
     expect(review.note).toContain('PRIVACY 2.8 → 2.9');
     expect(review.note).toContain('CAMP-505');
@@ -115,6 +117,16 @@ describe('політика приватності: 3.0 поверх 2.9', () => 
     // і 3.1 (CAMP-441), чернетка, що чекає погодження власника
     expect(review.note).toContain('PRIVACY 3.0 → 3.1');
     expect(review.note).toContain('NOT YET APPROVED BY THE OWNER');
+    // і 3.2 (CAMP-441/7), теж чернетка
+    expect(review.note).toContain('PRIVACY 3.1 → 3.2');
+  });
+
+  it('🔴 відбиток тексту 3.2 НЕ вписано: його ставлять після викладки, а до того сторож лише попереджає', () => {
+    const root = join(__dirname, '..', '..', '..', '..');
+    const review = JSON.parse(
+      readFileSync(join(root, 'scripts/seo/legal-review.json'), 'utf8'),
+    ) as { texts: Record<string, string> };
+    expect(review.texts.privacy).toBeUndefined();
   });
 });
 
@@ -150,5 +162,38 @@ describe('політика приватності: 3.1 поверх 3.0 (фор�
   it('база зі старим 2.9 не приймається мовчки', async () => {
     const db = fakeDb({ version: '2.9', body: owner.page.body });
     await expect(contact.up(db.runner)).rejects.toThrow(/не знає/);
+  });
+});
+
+describe('політика приватності: 3.2 поверх 3.1 (підписка на листи, CAMP-441/7)', () => {
+  it('3.2 будується з тексту 3.1 і нічого з нього не губить', () => {
+    expect(newsletter.previous.body).toBe(contact.page.body);
+    expect(newsletter.previous.version).toBe('3.1');
+    expect(newsletter.page.version).toBe('3.2');
+    expect(newsletter.page.body).toContain('### Writing to us {#writing}');
+    expect(newsletter.page.body).toContain('camptribe.trips');
+  });
+
+  it('розділ про листи має якір, а «How long we keep it» — свій рядок', () => {
+    const body = newsletter.page.body;
+    expect(body).toContain(
+      '### Our letters, if you ask for them {#newsletter}',
+    );
+    expect(body).toContain('- **Addresses for our letters:**');
+  });
+
+  it('up() з бази 3.1 дає 3.2, down() повертає 3.1', async () => {
+    const db = fakeDb({ version: '3.1', body: contact.page.body });
+    await newsletter.up(db.runner);
+    expect(db.row.version).toBe('3.2');
+    expect(db.row.body).toBe(newsletter.page.body);
+    await newsletter.down(db.runner);
+    expect(db.row.version).toBe('3.1');
+    expect(db.row.body).toBe(contact.page.body);
+  });
+
+  it('база зі старим 3.0 не приймається мовчки', async () => {
+    const db = fakeDb({ version: '3.0', body: trip.page.body });
+    await expect(newsletter.up(db.runner)).rejects.toThrow(/не знає/);
   });
 });

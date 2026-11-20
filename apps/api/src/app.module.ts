@@ -33,7 +33,9 @@ import { WebcamsModule } from './webcams/webcams.module';
 import { ForecastModule } from './forecast/forecast.module';
 import { ProblemReportsModule } from './reports/problem-reports.module';
 import { ContactModule } from './contact/contact.module';
+import { NewsletterModule } from './newsletter/newsletter.module';
 import { ProblemReport } from './entities/problem-report.entity';
+import { NewsletterSubscriber } from './entities/newsletter-subscriber.entity';
 import { ClientError } from './entities/client-error.entity';
 import { NotFoundHit } from './entities/not-found-hit.entity';
 import { SpotClaim } from './entities/spot-claim.entity';
@@ -115,6 +117,8 @@ export const REASONS = loadMeasuredReasons();
         AirQualityModelled,
         // «Report a problem»: what a reader says is wrong about a campsite.
         ProblemReport,
+        // CAMP-441/7: адреси на листи, з подвійним підтвердженням.
+        NewsletterSubscriber,
         // CAMP-504: денні лічильники подій, без персональних даних.
         SpotEventDaily,
         ZeroResultSearchDaily,
@@ -147,6 +151,8 @@ export const REASONS = loadMeasuredReasons();
     ProblemReportsModule,
     // «Write to us»: a letter to the project mailbox, nothing stored.
     ContactModule,
+    // CAMP-441/7: підписка на листи — подвійне підтвердження, своя таблиця.
+    NewsletterModule,
     // CAMP-391: the HTTP entry to the planner — `POST /plan`, in its own throttle
     // bucket, over a read-only transaction.
     PlanModule,

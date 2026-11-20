@@ -64,7 +64,20 @@ test.describe("🔴 CAMP-448 — колонки підвалу з CMS", () => {
 });
 
 test.describe("🔴 CAMP-448 — правові посилання: кожне один раз", () => {
-  const html = renderComponent(SiteFooter, { nav: COLUMNS });
+  // 🔴 Поле підписки (CAMP-441/7) веде на РОЗДІЛ політики, `/legal/privacy#newsletter`,
+  // у реченні згоди. Це не друга копія посилання на сторінку — це якір усередині
+  // неї, і його читає `newsletter-form.spec.tsx`. Тут блок вирізано, щоб цей
+  // перелік лишався переліком ПРАВИЛ підвалу, а не всіх адрес, що ведуть на /legal.
+  const html = renderComponent(SiteFooter, { nav: COLUMNS }).replace(
+    /<section\b[^>]*data-testid="footer-newsletter"[\s\S]*?<\/section>/,
+    "",
+  );
+  test("вирізано саме поле підписки, а не щось більше", () => {
+    const whole = renderComponent(SiteFooter, { nav: COLUMNS });
+    expect(whole).toContain('data-testid="footer-newsletter"');
+    expect(html).not.toContain('data-testid="footer-newsletter"');
+    expect(html).toContain('aria-label="Legal"');
+  });
 
   test("жодна адреса /legal/* не повторюється в підвалі", () => {
     const legal = hrefs(html).filter((h) => h.startsWith("/legal/"));

@@ -25,6 +25,7 @@ import { AttributionBannerImages1796600000000 } from '../migrations/179660000000
 import { AttributionWeatherForecast1797930000000 } from '../migrations/1797930000000-AttributionWeatherForecast';
 import { AttributionPagePhotos1797960000000 } from '../migrations/1797960000000-AttributionPagePhotos';
 import { DisclaimerProviderNotNavigator1798030000000 } from '../migrations/1798030000000-DisclaimerProviderNotNavigator';
+import { PrivacyNewsletter1798050000000 } from '../migrations/1798050000000-PrivacyNewsletter';
 
 /**
  * Правові документи такими, якими їх лишають у базі ВСІ міграції разом.
@@ -93,6 +94,8 @@ const UPDATES: ReadonlyArray<SeededLegalPage> = [
   new AttributionPagePhotos1797960000000().page,
   // CAMP-489: «ми інформаційний сервіс, не навігація»; ризик на користувачеві.
   new DisclaimerProviderNotNavigator1798030000000().page,
+  // CAMP-441/7: підписка на листи в підвалі — згода, подвійне підтвердження.
+  new PrivacyNewsletter1798050000000().page,
 ];
 
 export function seededLegalPages(): SeededLegalPage[] {
