@@ -11,6 +11,7 @@ import {
   type Provider,
 } from "@/lib/rental-providers";
 import { renderClient } from "./render-component";
+import { visibleText } from "./rendered-text";
 
 // 🔴 CAMP-427, дірка в пункті 2 «Способу перевірки» — і CAMP-428.
 //
@@ -192,7 +193,7 @@ test.describe("фільтр за типом у розмітці", () => {
   test("рядок компанії каже, які типи вона назвала і скільки моделей без типу", () => {
     const html = render(TYPED);
     // Видимий текст, бо між словами тепер стоять іконки (CAMP-444).
-    const text = html.replace(/<[^>]+>/g, "").replace(/\s+/g, " ");
+    const text = visibleText(html).replace(/\s+/g, " ");
     expect(text).toContain("types stated: campervan · 2 without a stated type");
     expect(text).toContain("types stated: campervan, caravan");
     expect(html).toContain("no vehicle type stated for its 3 models");
@@ -211,6 +212,6 @@ test("🔴 кожен названий тип — своя іконка й на�
     const chip = new RegExp(`data-camper-type="${slug}"[^>]*>\\s*<svg[^>]*data-camper-icon="${slug}"`);
     expect(withTwo, `${slug}: немає власної іконки`).toMatch(chip);
   }
-  const text = withTwo!.replace(/<[^>]+>/g, "");
+  const text = visibleText(withTwo!);
   expect(text).toContain("campervan, caravan");
 });
