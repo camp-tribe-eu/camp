@@ -337,6 +337,15 @@ export default function TariffTable({
         </div>
       )}
 
+      {/* 🔴 Вимога власника 20.11.2026: дата поруч із ціною вже є (вище,
+          «last updated»), а застереження «уточнюйте ціну в день
+          бронювання» мусить бути ВИДИМИМ, не лише у спливному блоці.
+          Ціна — від джерела на дату вище; ми не продавець. */}
+      <p className="mt-3 text-sm leading-6 text-ink-2" data-testid="tariffs-confirm">
+        Prices can change after the source publishes them. Confirm the price
+        with the campsite on the day you book: the campsite sets it, not us.
+      </p>
+
       {/* 🔴 CAMP-475. Застереження, яким оплачено показ недатованої ціни.
           Воно НЕ ховається у спливному блоці цілком: речення про те, що
           ціну встановлює оператор, стоїть у розмітці завжди, і читач
