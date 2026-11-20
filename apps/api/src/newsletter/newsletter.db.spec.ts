@@ -390,6 +390,23 @@ describe('confirm', () => {
     expect((await row('a@example.eu')).status).toBe('pending');
   });
 
+  it('🔴 an old confirm link never resurrects an UNSUBSCRIBED address, even if its hash is still in the row', async () => {
+    // The code clears the hash on unsubscribe, so this row is one the code does
+    // not make — which is the point: the status guard in `confirm` is the
+    // second wall, and it is tested on a row that gets past the first.
+    const token = 'C'.repeat(43);
+    await db.query(
+      `INSERT INTO newsletter_subscribers (email, status, confirm_token_hash, confirm_token_expires_at, unsubscribed_at)
+       VALUES ('gone@example.eu', 'unsubscribed', $1, now() + interval '1 hour', now())`,
+      [sha(token)],
+    );
+    const res = await follow(
+      `https://camptribe.eu/api/newsletter/confirm?token=${token}`,
+    );
+    expect(res.location).toBe('https://camptribe.eu/newsletter/link-invalid');
+    expect((await row('gone@example.eu')).status).toBe('unsubscribed');
+  });
+
   it('the UNSUBSCRIBE token cannot confirm, and the confirm token cannot unsubscribe', async () => {
     await subscribe('a@example.eu');
     const t = tokens(sent[0]);

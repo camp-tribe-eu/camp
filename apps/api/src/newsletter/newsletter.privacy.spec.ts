@@ -1,7 +1,11 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { seededLegalPages } from '../pages/legal-seeded';
-import { CONFIRM_TTL_HOURS, PENDING_KEPT_DAYS } from './newsletter.service';
+import {
+  CONFIRM_TTL_HOURS,
+  PENDING_KEPT_DAYS,
+  RESEND_GAP_MINUTES,
+} from './newsletter.service';
 
 // Політика приватності (3.2, «Our letters, if you ask for them») каже, що
 // робить підписка. Кожне число й кожне «не» в тому тексті звіряється тут з
@@ -129,5 +133,16 @@ describe('«Our letters» says what the code does', () => {
   it('the letter links to the same section', () => {
     const svc = readFileSync(join(__dirname, 'newsletter.service.ts'), 'utf8');
     expect(svc).toContain('/legal/privacy#newsletter');
+  });
+
+  it('🔴 the gap between two letters to one address is the number the register states, and the register is read, not the constant alone', () => {
+    // The db spec derives its boundary FROM `RESEND_GAP_MINUTES`, so a change
+    // of that constant would move the test with it. The number is a decision,
+    // and it is written down in the register (§15): this pins the two together.
+    const register = readFileSync(join(root, 'docs/GDPR-REGISTER.md'), 'utf8');
+    expect(register).toContain(
+      `не частіше одного листа на адресу за ${RESEND_GAP_MINUTES} хв`,
+    );
+    expect(RESEND_GAP_MINUTES).toBe(10);
   });
 });
