@@ -1,4 +1,5 @@
 import { buttonClasses } from "./button";
+import { CamperTypeIcon } from "@/components/camper-type-icon";
 import { SelectChevron } from "./select-chevron";
 import type { CamperType } from "@/lib/rental-providers";
 
@@ -33,8 +34,19 @@ const CSS = `
 .ct-pick__select{width:100%;height:48px;padding:0 40px 0 12px;-webkit-appearance:none;appearance:none;border:1px solid var(--color-control-line);border-radius:calc(var(--r,16px) * .5);background-color:var(--color-surface);color:var(--color-ink);font-size:1rem;font-weight:400}
 .ct-pick__select:focus-visible{outline:2px solid var(--color-heading);outline-offset:2px}
 .ct-pick__submit{width:100%}
+.ct-pick__legend{padding:0;font-size:.875rem;font-weight:600;color:var(--color-heading)}
+.ct-pick__types{grid-column:1 / -1;min-width:0;margin:0;padding:0;border:0}
+.ct-pick__tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:6px}
+.ct-pick__tile{position:relative;display:block;cursor:pointer}
+.ct-pick__tile input{position:absolute;inset:0;opacity:0;margin:0;cursor:pointer}
+.ct-pick__tile-box{display:flex;min-height:76px;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:10px 6px;border:1px solid var(--color-control-line);border-radius:calc(var(--r,16px) * .5);background-color:var(--color-surface);color:var(--color-ink-2);font-size:.8125rem;font-weight:500;line-height:1.2;text-align:center}
+.ct-pick__tile-box svg{width:44px;height:20px;flex:none}
+.ct-pick__tile input:checked+.ct-pick__tile-box{border-color:var(--color-heading);box-shadow:inset 0 0 0 1px var(--color-heading);color:var(--color-heading);font-weight:700}
+.ct-pick__tile input:focus-visible+.ct-pick__tile-box{outline:2px solid var(--color-heading);outline-offset:2px}
+@media(hover:hover){.ct-pick__tile:hover .ct-pick__tile-box{border-color:var(--color-heading)}}
 @media(min-width:992px){
-.ct-pick{grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;align-items:end;gap:16px;padding:20px 24px}
+.ct-pick{grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:16px;padding:20px 24px}
+.ct-pick__tiles{grid-template-columns:repeat(6,minmax(0,1fr))}
 .ct-pick__submit{width:auto;min-width:220px}
 }
 `;
@@ -89,6 +101,36 @@ export default function RentalPicker({
         {hint ? <p className="ct-pick__hint">{hint}</p> : null}
       </div>
 
+      {/* 🔴 CAMP-444 (ревʼю 444/9–10, рішення власника 20.11.2026): тип —
+          плитками з НАШОЮ іконкою-силуетом, а не системним списком. Справжні
+          радіокнопки під плитками: клавіатура, читач екрана й відправка
+          форми працюють як у будь-якого `<input type="radio">`; імʼя поля
+          те саме (`type`), тож каталог і посилання не змінюються. Фото
+          машин компаній без договору не показуємо — тому силует. */}
+      <fieldset className="ct-pick__types" data-testid="picker-type">
+        <legend className="ct-pick__label ct-pick__legend">
+          {VAN}
+          Vehicle type
+        </legend>
+        <div className="ct-pick__tiles">
+          <label className="ct-pick__tile">
+            <input type="radio" name="type" value="" defaultChecked />
+            <span className="ct-pick__tile-box">
+              Any type
+            </span>
+          </label>
+          {types.map((t) => (
+            <label key={t.slug} className="ct-pick__tile">
+              <input type="radio" name="type" value={t.slug} />
+              <span className="ct-pick__tile-box" data-camper-type={t.slug}>
+                <CamperTypeIcon slug={t.slug} />
+                {t.name}
+              </span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
       <label className="ct-pick__field">
         <span className="ct-pick__label">
           {PIN}
@@ -112,28 +154,6 @@ export default function RentalPicker({
         </span>
       </label>
 
-      <label className="ct-pick__field">
-        <span className="ct-pick__label">
-          {VAN}
-          Vehicle type
-        </span>
-        <span className="relative block">
-          <select
-            name="type"
-            className="ct-pick__select"
-            defaultValue=""
-            data-testid="picker-type"
-          >
-            <option value="">Any type</option>
-            {types.map((t) => (
-              <option key={t.slug} value={t.slug}>
-                {t.name}
-              </option>
-            ))}
-          </select>
-          <SelectChevron />
-        </span>
-      </label>
 
       <button
         type="submit"
