@@ -56,6 +56,10 @@ const PERSONAL = new Map([
   // персональні дані — тож реєстр мусить її називати, і сторож цього вимагає.
   ["spot-event-daily", "spot-event-daily"],
   ["zero-result-search-daily", "zero-result-search-daily"],
+  // CAMP-441/7. Підписка на листи: адреса пошти людини, яка попросила писати
+  // їй, і дати її запиту. Без акаунта й без `user_id`, але адреса — це
+  // персональні дані за означенням.
+  ["newsletter-subscriber", "newsletter-subscriber"],
 ]);
 
 // Сутності БЕЗ даних про людину — довідники місць, погоди, тарифів.

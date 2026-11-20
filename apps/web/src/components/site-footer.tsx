@@ -11,6 +11,7 @@ import type { SocialLink } from "@/lib/site-settings";
 import { Block } from "@/components/layout";
 import { CookieSettingsLink } from "./cookie-consent";
 import { CurrentYear } from "./current-year";
+import NewsletterForm from "./newsletter-form";
 import { LanguageSwitch } from "./language-switch";
 
 /**
@@ -241,6 +242,12 @@ export function SiteFooter({
               </li>
             </ul>
           </nav>
+        </div>
+
+        {/* 3б. Підписка на листи (CAMP-441/7): адреса, подвійне підтвердження,
+             своя таблиця. Острів клієнтський; без скрипта він каже, що писати. */}
+        <div className="mt-8 border-t border-line-2 pt-6">
+          <NewsletterForm />
         </div>
 
         {/* 4. Звідки дані. ODbL вимагає атрибуції там, де дані

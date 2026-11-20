@@ -39,6 +39,7 @@ import {
   AirQualityStation,
 } from './entities/air-quality.entity';
 import { ProblemReport } from './entities/problem-report.entity';
+import { NewsletterSubscriber } from './entities/newsletter-subscriber.entity';
 
 export const AppDataSource = new DataSource({
   // CAMP-338 + CAMP-433: тип, адреса й пояс сесії — один перелік на два
@@ -84,6 +85,8 @@ export const AppDataSource = new DataSource({
     AirQualityModelled,
     // «Report a problem»: a reader's note that a campsite's data is wrong.
     ProblemReport,
+    // CAMP-441/7: адреси, що попросили листи; подвійне підтвердження.
+    NewsletterSubscriber,
   ],
   migrations: ['src/migrations/*.ts'],
   synchronize: false,

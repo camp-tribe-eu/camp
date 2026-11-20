@@ -39,16 +39,21 @@ export type MailKind =
   // 🔴 «Write to us» (CAMP-441/31) — ТРЕТІЙ ВИД, ЩО ЙДЕ НЕ КОРИСТУВАЧЕВІ, і
   // перший, що йде НАМ: на нашу ж скриньку, з тим, що написала людина.
   // Без посилання: нічого, що можна клацнути, у ньому немає.
-  | 'contact_message';
+  | 'contact_message'
+  // 🔴 CAMP-441/7 — ЧЕТВЕРТИЙ ВИД, ЩО ЙДЕ НЕ КОРИСТУВАЧЕВІ: на адресу, яку
+  // ввела людина в підвалі сайту, а це могла бути й чужа. Посилання тут
+  // безпечне, бо клік лише ПІДТВЕРДЖУЄ підписку (або відписує); і саме тому
+  // лист каже першим рядком «нічого не робіть» — див. `newsletterConfirmMessage`.
+  | 'newsletter_confirm';
 
 /**
  * Види, у листі яких є посилання, що будується з `LINK_PATH`.
- * `claim_spot` — без посилання; `claim_owner_link` — своє, з токеном, але
- * не тим самим шляхом, тож лежить окремо від `LINK_PATH`.
+ * `claim_spot` — без посилання; `claim_owner_link` і `newsletter_confirm` —
+ * свої, з токеном, але не тим самим шляхом, тож лежать окремо від `LINK_PATH`.
  */
 export type LinkMailKind = Exclude<
   MailKind,
-  'claim_spot' | 'claim_owner_link' | 'contact_message'
+  'claim_spot' | 'claim_owner_link' | 'contact_message' | 'newsletter_confirm'
 >;
 
 export type MailMessage = {
@@ -496,5 +501,66 @@ export function contactMessage(
     text,
     html,
     replyTo: visitor.email,
+  };
+}
+
+/**
+ * CAMP-441/7 — лист подвійного підтвердження: єдиний лист, який ця підписка
+ * шле. Новин цим кодом не розсилається.
+ *
+ * 🔴 ТРИ РІШЕННЯ, І КОЖНЕ ЧЕРЕЗ ТЕ, ЩО АДРЕСУ МІГ ВВЕСТИ НЕ ВЛАСНИК СКРИНЬКИ.
+ *
+ * 1. «НІЧОГО НЕ РОБІТЬ» ПЕРШИМ І ПОВНОЦІННИМ: без кліку нічого не почнеться, а
+ *    адреса зникне сама. Людина, яка цього не просила, бачить вихід одразу.
+ * 2. ПОСИЛАННЯ «ВІДПИСАТИСЯ» У ТОМУ Ж ЛИСТІ: хто не хоче чекати, відписує адресу
+ *    одним кліком. Інакше єдиний спосіб — написати нам.
+ * 3. ЩО МИ ТРИМАЄМО І ДЕ ПРО ЦЕ ПРОЧИТАТИ — прямо в листі, бо це перший наш
+ *    контакт із цією адресою (ст. 14 GDPR для того, хто міг нічого не надавати).
+ *    Повний текст — політика приватності, посилання на розділ.
+ */
+export function newsletterConfirmMessage(
+  to: string,
+  confirmLink: string,
+  unsubscribeLink: string,
+  privacyUrl: string,
+  hours: number,
+): MailMessage {
+  const subject = 'Confirm your email address for CampTribe news';
+  const lines = [
+    'Someone asked to get occasional news from CampTribe at this address. We hope it was you.',
+    '',
+    'If it was not you, do nothing. We have sent nothing but this letter, we will send nothing more, and the address is deleted from our list within 7 days.',
+    '',
+    `If it was you, confirm with this link: ${confirmLink}`,
+    '',
+    `The link works once, for ${hours} hours. Until you open it, you are not subscribed.`,
+    '',
+    `Do not want to wait for the address to be deleted? Open this link and we mark it as unsubscribed at once: ${unsubscribeLink}`,
+    '',
+    `What we hold is this email address and the dates of your request. Details and your rights: ${privacyUrl}`,
+    '',
+    'CampTribe',
+  ];
+  const button =
+    `<p><a href="${esc(confirmLink)}" style="display:inline-block;padding:10px 18px;` +
+    `background:#404B62;color:#ffffff;text-decoration:none;border-radius:8px">` +
+    `Confirm my email address</a></p>`;
+  const html =
+    `<p>${esc(lines[0])}</p>` +
+    `<p>${esc(lines[2])}</p>` +
+    `<p>If it was you, confirm here:</p>` +
+    button +
+    `<p>${esc(lines[6])}</p>` +
+    `<p>Do not want to wait for the address to be deleted? ` +
+    `<a href="${esc(unsubscribeLink)}">Mark it as unsubscribed at once</a>.</p>` +
+    `<p>What we hold is this email address and the dates of your request. ` +
+    `Details and your rights: <a href="${esc(privacyUrl)}">${esc(privacyUrl)}</a></p>` +
+    `<p>CampTribe</p>`;
+  return {
+    to,
+    kind: 'newsletter_confirm',
+    subject,
+    text: lines.join('\n'),
+    html,
   };
 }

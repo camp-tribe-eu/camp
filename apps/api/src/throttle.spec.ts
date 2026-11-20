@@ -478,7 +478,7 @@ describe('🔴 the login, mail, consent and plan decorators agree with their rou
   // кошик входу вдесятеро щедріший (10 за 60 с проти 10 за 600 с), і
   // маршрут, що шле листи, там підняв би стелю бомбардування чужої
   // скриньки з 60 листів на годину до 600.
-  it('and the routes it names are the nine that can send a letter', () => {
+  it('and the routes it names are the ten that can send a letter', () => {
     expect([...MAIL_ROUTES].sort()).toEqual([
       'account/email',
       'auth/forgot',
@@ -486,6 +486,8 @@ describe('🔴 the login, mail, consent and plan decorators agree with their rou
       'auth/signup',
       // CAMP-441/31: форма «Write to us» — лист на скриньку проєкту.
       'contact',
+      // CAMP-441/7: лист підтвердження підписки — на адресу, яку ввела людина.
+      'newsletter',
       // CAMP-51: єдині два, що шлють лист НЕ нашому користувачеві, а на
       // публічну адресу кемпінгу з тегів OSM.
       'spot-claims',
@@ -513,6 +515,11 @@ describe('🔴 the login, mail, consent and plan decorators agree with their rou
     expect(bucketOf('/spot-claims/by-email/confirm')).toBe('mail');
     expect(bucketOf('/contact')).toBe('mail');
     expect(bucketOf('/contact/x')).not.toBe('mail');
+    // CAMP-441/7: POST шле лист — відро `mail`; два GET із токеном листів не
+    // шлють — звичайне.
+    expect(bucketOf('/newsletter')).toBe('mail');
+    expect(bucketOf('/newsletter/confirm')).not.toBe('mail');
+    expect(bucketOf('/newsletter/unsubscribe')).not.toBe('mail');
     // А те, що лише схоже, — ні: інакше перевірка нічого не розрізняє.
     expect(bucketOf('/spot-claims/other')).not.toBe('mail');
   });

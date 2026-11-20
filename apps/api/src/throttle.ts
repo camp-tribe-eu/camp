@@ -292,6 +292,12 @@ export const MAIL_ROUTES = [
   // власний адресат, але ціна та сама: лист із нашого домену. Не
   // `ordinary` (120 на хвилину — 7 200 листів на годину власнику).
   'contact',
+  // CAMP-441/7: підписка шле лист підтвердження на адресу, яку ввела
+  // ЛЮДИНА, — тобто можливо чужу. Це найточніше «бомбардування чужої
+  // скриньки», яке відро `mail` і існує стримувати. Лише `POST /newsletter`:
+  // `GET /newsletter/confirm|unsubscribe` листів не шлють і лишаються в
+  // `ordinary` (точна рівність нижче їх не зачіпає).
+  'newsletter',
 ] as const;
 
 /** Is this a route that can send a letter? Normalised like isLoginPath. */
