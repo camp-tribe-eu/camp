@@ -125,7 +125,32 @@ const render = {
    * «a component suspended while responding to synchronous input» — і
    * з нього не видно, що саме змінилось.
    */
-  routes: () => renderAsyncComponent(RoutesIndex, {}),
+  // 🔴 CAMP-533: ПІД ПІДМІНОЮ, як решта рендерів цього файла. Без неї
+  // сторінка йшла в живий API і падала `fetch failed` там, де його не
+  // піднято, — тобто тест перевіряв ноутбук розробника, а не код.
+  // Невідомий запит падає з власною адресою, а не з мережевою помилкою.
+  routes: async () => {
+    let html = "";
+    await withFetch(
+      (url) => {
+        if (url.includes("/routes/content")) {
+          return json(
+            /\/routes\/content\/.+/.test(url)
+              ? CURATED_ROUTES[0]
+              : { routes: CURATED_ROUTES },
+          );
+        }
+        // Сторінка `routes` у CMS: «немає запису» — сторінка бере свої
+        // запасні заголовок і опис. Цього файла стосується лише розмітка.
+        if (url.includes("/pages/")) return new Response("{}", { status: 404 });
+        throw new Error(`unexpected request in a unit test: ${url}`);
+      },
+      async () => {
+        html = await renderAsyncComponent(RoutesIndex, {});
+      },
+    );
+    return html;
+  },
 };
 
 /** The countries as the API emitted them, captured 15.10.2026. */
