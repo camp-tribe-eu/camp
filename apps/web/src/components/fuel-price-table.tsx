@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { euros, FUEL, longDate, ranked } from '@/lib/fuel';
 import { Block } from '@/components/layout';
+import { Flag } from '@/components/flag';
 
 // CAMP-55 — this week's road-fuel prices, all 27 member states.
 //
@@ -81,6 +82,13 @@ export default function FuelPriceTable({
                   }`}
                 >
                   <th scope="row" className="py-2 pr-3 text-left font-normal">
+                    {/* CAMP-458 (ревʼю 443/8): прапор ліворуч від назви, як у
+                        плитках країн — той самий `Flag`, `alt` порожній, бо
+                        назва стоїть поруч. */}
+                    <Flag
+                      code={c.code}
+                      className="me-2 inline-block h-[0.9em] w-auto rounded-[2px] align-[-0.1em]"
+                    />
                     {c.code === here ? (
                       // The page you are already on does not link to itself.
                       c.name

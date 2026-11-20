@@ -36,11 +36,15 @@ function walk(dir: string, out: string[] = []): string[] {
 
 /** Код без коментарів: `/* *\/`, `//` і `#` на початку рядка. */
 export function codeOf(src: string): string {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .split('\n')
-    .filter((l) => !/^\s*(\/\/|#)/.test(l))
-    .join('\n');
+  return (
+    src
+      // Блочний коментар стає стількома ж порожніми рядками: номери рядків
+      // у повідомленні лишаються справжніми.
+      .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ''))
+      .split('\n')
+      .map((l) => (/^\s*(\/\/|#)/.test(l) ? '' : l))
+      .join('\n')
+  );
 }
 
 /** Хости Open-Meteo API у коді (точний збіг частини, не підрядок). */
@@ -70,17 +74,16 @@ describe('🔴 CAMP-484: no code calls the Open-Meteo API', () => {
     expect(files.length).toBeGreaterThan(200);
   });
 
-  it('no file names an API host in code', () => {
-    const offenders = files
-      .map(
-        (f) =>
-          [
-            relative(ROOT, f),
-            apiHosts(codeOf(readFileSync(f, 'utf8'))),
-          ] as const,
-      )
-      .filter(([, h]) => h.length > 0)
-      .map(([f, h]) => `${f}: ${h.join(', ')}`);
+  it('no file names an API host in code — and says which line', () => {
+    // Картка CAMP-484: «сторож називає файл і рядок». `codeOf` тримає
+    // нумерацію рядків (коментар-рядок стає порожнім, а не зникає).
+    const offenders = files.flatMap((f) =>
+      codeOf(readFileSync(f, 'utf8'))
+        .split('\n')
+        .flatMap((line, i) =>
+          apiHosts(line).map((h) => `${relative(ROOT, f)}:${i + 1}: ${h}`),
+        ),
+    );
     expect(offenders).toEqual([]);
   });
 

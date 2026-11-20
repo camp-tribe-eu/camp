@@ -31,7 +31,7 @@ import RouteSources, { type RouteSourceEntry } from '@/components/route-sources'
 import RouteStageServices, {
   RouteFuelPrices,
 } from '@/components/route-services';
-import { Block } from '@/components/layout';
+import { Block, READ_CENTERED } from '@/components/layout';
 import RouteRental from '@/components/route-rental';
 import { pageContent } from '@/lib/page-content';
 import { PERSONA_PAGE } from '@/lib/persona';
@@ -260,10 +260,15 @@ export default async function RoutePage(props: { params: Promise<Params> }) {
       </section>
 
       <section aria-labelledby="stages-heading" className="mt-12">
-        <h2 id="stages-heading" className="text-xl md:text-[25px]">
+        {/* 🔴 CAMP-459: заголовок і вступ — ОДНА читальна колонка по центру,
+            як «What this route is for» і картка пального під ними. Заміряно
+            на проді 19.11 (вікно 1700): `h2` 1652 ліворуч, абзац 840
+            ЛІВОРУЧ, картка 840 ПО ЦЕНТРУ — три різні лінії в одній секції.
+            Широким лишається тільки сам перелік етапів. */}
+        <h2 id="stages-heading" className={`text-xl md:text-[25px] ${READ_CENTERED}`}>
           The stages
         </h2>
-        <Block as="p" measure="read" className="mt-2 text-sm text-ink-2">
+        <Block as="p" measure="read" className={`mt-2 text-sm text-ink-2 ${READ_CENTERED}`}>
           {/* 🔴 The selection rule, on the page. It is the ODbL Produced
               Work boundary and it is also simply useful: a reader should
               know this is a sample and not a listing. */}

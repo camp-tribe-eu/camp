@@ -302,6 +302,21 @@ test.describe("a route page", () => {
       expect(g.w, JSON.stringify(g)).toBeLessThanOrEqual(840);
       expect(Math.abs(g.left - g.right), JSON.stringify(g)).toBeLessThan(2);
     }
+    // 🔴 CAMP-459: «The stages» — заголовок, вступ і картка пального стоять
+    // на ОДНІЙ лінії. Заміряно 19.11: заголовок 1652 ліворуч, абзац 840
+    // ліворуч, картка 840 по центру — три лінії в одній секції.
+    if (g.pw > 860) {
+      const lefts = await page.evaluate(() => {
+        const h = document.getElementById("stages-heading")!;
+        const p = h.nextElementSibling as HTMLElement;
+        const f = document.querySelector('[data-testid="route-fuel-prices"]')!;
+        return [h, p, f].map((e) => Math.round(e.getBoundingClientRect().left));
+      });
+      expect(
+        Math.max(...lefts) - Math.min(...lefts),
+        `heading, intro and fuel card left edges: ${lefts.join(", ")}`,
+      ).toBeLessThan(2);
+    }
     await expect(fuel).toContainText("European Commission");
     await expect(fuel).toContainText("Country average");
     await expect(fuel).toContainText(
