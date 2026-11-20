@@ -139,3 +139,26 @@ test.describe('CAMP-474: мапа країни', () => {
     }
   });
 });
+
+// 🔴 CAMP-441 (46): «вибір регіону не виводить користувача одразу зі
+// сторінки». Клік по колу лишає читача на сторінці країни й показує
+// підказку з назвою, числом і посиланням; перехід — лише за посиланням.
+test('клік по колу регіону відкриває підказку, а не переходить', async ({ page, request }) => {
+  const { country } = await busiestCountry(request);
+  await page.goto(`/camping/${country}`);
+  const map = page.getByTestId('country-map');
+  await map.scrollIntoViewIfNeeded();
+  test.skip(!(await hasWebGl(page)), 'no WebGL in this browser');
+  await expect(map).toHaveAttribute('data-map-state', 'ready', { timeout: 20_000 });
+  const probe = await map.getAttribute('data-probe');
+  expect(probe, 'мапа не назвала точку кола').toMatch(/^\d+,\d+$/);
+  const [x, y] = probe!.split(',').map(Number);
+  const url = page.url();
+  await map.click({ position: { x, y } });
+  const pop = page.getByTestId('country-map-popup');
+  await expect(pop).toBeVisible();
+  expect(page.url(), 'клік по колу перевів зі сторінки').toBe(url);
+  await expect(pop).toContainText(/\d[\d,]* campsites?/);
+  const link = pop.getByRole('link', { name: /^See campsites in / });
+  await expect(link).toHaveAttribute('href', new RegExp(`^/camping/${country}/`));
+});
