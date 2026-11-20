@@ -67,13 +67,13 @@ function legend(state: MapState, country: string, regions: number, spots: number
     return (
       `${regions} ${regions === 1 ? 'country' : 'countries'} on the map, ` +
       `${spots} campsites between them. A larger circle is a country with more of ` +
-      `them; select one to open it.`
+      `them; select one to see its campsites.`
     );
   }
   return (
     `${regions} ${regions === 1 ? 'region' : 'regions'} of ${country} on the map, ` +
     `${spots} campsites between them. A larger circle is a region with more of ` +
-    `them; select one to open it.`
+    `them; select one to see its campsites.`
   );
 }
 
@@ -87,6 +87,15 @@ const COUNTRY_MAP_CSS = `
 .ct-cmap__frame{position:relative;overflow:hidden;padding-top:59.945%;min-height:260px;border-radius:calc(var(--r,16px) * .75);border:1px solid var(--color-line-2);background-color:var(--color-surface-2)}
 @media(min-width:992px){.ct-cmap__frame{padding-top:41.06%}}
 .ct-cmap__frame .ct-cmap__canvas{position:absolute;top:0;left:0;width:100%;height:100%}
+.ct-cmap__pop{display:flex;flex-direction:column;gap:4px;padding:4px 18px 2px 2px;font-size:.875rem;line-height:1.35;color:var(--color-ink)}
+.ct-cmap__pop strong{color:var(--color-heading);font-size:1rem}
+.ct-cmap__pop a{margin-top:4px;font-weight:600;color:var(--color-heading);text-decoration:underline;text-underline-offset:2px}
+.ct-cmap .maplibregl-popup-content{background-color:var(--color-surface);border-radius:calc(var(--r,16px) * .5);box-shadow:0 8px 24px rgb(0 0 0 / .18)}
+.ct-cmap .maplibregl-popup-close-button{color:var(--color-ink-2);font-size:18px;padding:0 6px}
+.ct-cmap .maplibregl-popup-anchor-bottom .maplibregl-popup-tip{border-top-color:var(--color-surface)}
+.ct-cmap .maplibregl-popup-anchor-top .maplibregl-popup-tip{border-bottom-color:var(--color-surface)}
+.ct-cmap .maplibregl-popup-anchor-left .maplibregl-popup-tip{border-right-color:var(--color-surface)}
+.ct-cmap .maplibregl-popup-anchor-right .maplibregl-popup-tip{border-left-color:var(--color-surface)}
 .ct-cmap__legend{margin-top:8px;font-size:.875rem;line-height:1.5;color:var(--color-ink-2)}
 .ct-cmap__credit{margin-top:4px;font-size:.75rem;color:var(--color-ink-2)}
 `;
@@ -158,7 +167,7 @@ function CountryMapCanvas({ country, countryName, regions, unit = 'region' }: Co
     (async () => {
       await near;
       if (cancelled) return;
-      const [{ Map: MapLibreMap, AttributionControl, NavigationControl, setWorkerUrl }] =
+      const [{ Map: MapLibreMap, AttributionControl, NavigationControl, Popup, setWorkerUrl }] =
         await Promise.all([import('maplibre-gl'), import('maplibre-gl/dist/maplibre-gl.css')]);
       if (cancelled) return;
 
@@ -247,11 +256,39 @@ function CountryMapCanvas({ country, countryName, regions, unit = 'region' }: Co
           ],
           { padding: 28, animate: false, maxZoom: MAX_ZOOM },
         );
+        // 🔴 CAMP-441 (46): «вибір регіону не виводить користувача одразу
+        // зі сторінки». Клік по колу більше не переходить: він відкриває
+        // підказку з назвою, числом і посиланням — перехід стає свідомим
+        // другим кліком. Вміст будується через textContent, а не HTML:
+        // назви регіонів приходять із даних.
+        let popup: import('maplibre-gl').Popup | null = null;
         map.on('click', 'region-circles', (e) => {
-          const p = e.features?.[0]?.properties as
-            | { name?: string; href?: string | null }
+          const f = e.features?.[0];
+          const p = f?.properties as
+            | { name?: string; href?: string | null; count?: number }
             | undefined;
-          if (p?.href) window.location.assign(p.href);
+          if (!p || !map) return;
+          const box = document.createElement('div');
+          box.className = 'ct-cmap__pop';
+          box.dataset.testid = 'country-map-popup';
+          const title = document.createElement('strong');
+          title.textContent = p.name ?? '';
+          const n = Number(p.count ?? 0);
+          const line = document.createElement('span');
+          line.textContent = `${n.toLocaleString('en-GB')} ${n === 1 ? 'campsite' : 'campsites'}`;
+          box.append(title, line);
+          if (p.href) {
+            const a = document.createElement('a');
+            a.href = p.href;
+            a.textContent = `See campsites in ${p.name ?? ''}`;
+            box.append(a);
+          }
+          const at = (f?.geometry as { coordinates?: [number, number] } | undefined)?.coordinates;
+          popup?.remove();
+          popup = new Popup({ closeButton: true, offset: 12, maxWidth: '260px' })
+            .setLngLat(at ?? e.lngLat)
+            .setDOMContent(box)
+            .addTo(map);
         });
         map.on('mouseenter', 'region-circles', () => {
           if (map) map.getCanvas().style.cursor = 'pointer';
@@ -259,6 +296,12 @@ function CountryMapCanvas({ country, countryName, regions, unit = 'region' }: Co
         map.on('mouseleave', 'region-circles', () => {
           if (map) map.getCanvas().style.cursor = '';
         });
+        // Точка найбільшого кола на полотні — для e2e, щоб клікнути саме
+        // в коло, а не навмання (CAMP-441/46). Лише число, нічого не
+        // відкриває.
+        const big = features.reduce((a, b) => (b.properties.count > a.properties.count ? b : a));
+        const at = map.project(big.geometry.coordinates as [number, number]);
+        if (box.current) box.current.dataset.probe = `${Math.round(at.x)},${Math.round(at.y)}`;
         setState('ready');
       });
     })().catch(() => {
