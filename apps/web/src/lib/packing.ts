@@ -96,8 +96,32 @@ export function packingList(input: PackingInput): PackingGroup[] {
         qty: plural(people, 'person', 'people'),
       },
       { id: 'pillows', label: 'Pillows', qty: plural(people, 'pillow') },
+      // 🔴 CAMP-458 (ревʼю власника 443/10): узимку в списку не було
+      // ізоляції ВІД ЗЕМЛІ — лише спальник «rated for the cold». На
+      // мерзлій землі холод іде знизу, і літній килимок його не тримає.
       ...(tent
-        ? [{ id: 'mats', label: 'Sleeping mats', qty: plural(people, 'mat') }]
+        ? [
+            cold
+              ? {
+                  id: 'mats',
+                  label: 'Insulated sleeping mats, R-value 4 or higher',
+                  qty: plural(people, 'mat'),
+                  note: 'Cold ground draws heat faster than cold air. A summer mat is not enough on frozen ground.',
+                }
+              : { id: 'mats', label: 'Sleeping mats', qty: plural(people, 'mat') },
+          ]
+        : []),
+      ...(tent && cold
+        ? [{ id: 'foam', label: 'A closed-cell foam pad under each mat', qty: plural(people, 'pad') }]
+        : []),
+      ...(!tent && cold
+        ? [
+            {
+              id: 'screens',
+              label: 'Thermal screens for the windscreen and cab windows',
+              note: 'The cab glass is where the cold gets in overnight.',
+            },
+          ]
         : []),
       ...(cold
         ? [{ id: 'thermal', label: 'Extra blanket or thermal liner', qty: plural(people, 'set') }]
