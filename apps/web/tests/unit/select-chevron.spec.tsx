@@ -111,3 +111,17 @@ test("🔴 rental picker: vehicle type is a group of icon tiles over real radios
   }
   expect(html, "no type <select> left behind").not.toMatch(/<select[^>]*name="type"/);
 });
+
+// CAMP-444 (ревʼю 444/25): «glass» — розмиття під панеллю там, де браузер
+// його вміє, і суцільний фон як запасний варіант (правило за @supports).
+test("rental picker: glass panel behind @supports, solid background otherwise", () => {
+  const html = renderComponent(RentalPicker, {
+    heading: "Find a rental company",
+    submitLabel: "Show rental companies",
+    action: "/camper-rental/providers",
+    countries: [{ code: "DE", name: "Germany" }],
+    types: [{ slug: "van", name: "Campervan", position: 10 }],
+  });
+  expect(html).toMatch(/\.ct-pick\{[^}]*background-color:var\(--color-surface\)/);
+  expect(html).toMatch(/@supports[^{]*backdrop-filter[^{]*\{\.ct-pick\{[^}]*backdrop-filter:blur\(/);
+});

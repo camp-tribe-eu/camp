@@ -25,6 +25,7 @@ export interface PickerCountry {
 
 const CSS = `
 .ct-pick{position:relative;z-index:5;display:grid;gap:12px;padding:16px;border:1px solid var(--color-line-2);border-radius:var(--r,16px);background-color:var(--color-surface);box-shadow:0 12px 32px rgb(0 0 0 / .14)}
+@supports ((-webkit-backdrop-filter:blur(1px)) or (backdrop-filter:blur(1px))){.ct-pick{background-color:color-mix(in srgb,var(--color-surface) 78%,transparent);-webkit-backdrop-filter:blur(14px) saturate(1.2);backdrop-filter:blur(14px) saturate(1.2)}}
 .ct-pick__head{display:flex;flex-direction:column;gap:2px;grid-column:1 / -1}
 .ct-pick__title{font-weight:700;line-height:1.2;color:var(--color-heading);font-size:1.125rem}
 .ct-pick__hint{color:var(--color-ink-2);font-size:.875rem;line-height:1.4}
@@ -101,6 +102,9 @@ export default function RentalPicker({
         {hint ? <p className="ct-pick__hint">{hint}</p> : null}
       </div>
 
+      {/* CAMP-444 (ревʼю 444/25, «glass-ефект панелі пошуку»): напівпрозорий
+          фон теми з розмиттям того, що під панеллю (банер). Без підтримки
+          `backdrop-filter` — звичайний суцільний фон, читабельність та сама. */}
       {/* 🔴 CAMP-444 (ревʼю 444/9–10, рішення власника 20.11.2026): тип —
           плитками з НАШОЮ іконкою-силуетом, а не системним списком. Справжні
           радіокнопки під плитками: клавіатура, читач екрана й відправка
