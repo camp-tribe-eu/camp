@@ -3,12 +3,8 @@ import { Block } from "@/components/layout";
 import { Shell } from "@/components/account-view";
 import { CONTACT_EMAIL, PRIVACY_EMAIL } from "@/lib/legal";
 
-// Де закінчується посилання з листа підписки: API перенаправляє сюди після
-// `GET /newsletter/confirm` та `/unsubscribe` (apps/api/src/newsletter).
-//
-// 🔴 ТРИ СТОРІНКИ, А НЕ ОДНА СО СТАНОМ У АДРЕСІ: сайт статичний, і сторінка,
-// що читає `?status=` у браузері, у виданому HTML нічого б не казала —
-// а правду про результат читач має побачити навіть без скрипта.
+// Що кнопка на /newsletter/confirm чи /unsubscribe показує після відповіді API
+// (components/newsletter-link-action.tsx): зроблено, або посилання не підійшло.
 //
 // 🔴 КОЖЕН ТЕКСТ ГОВОРИТЬ ЛИШЕ ТЕ, ЩО ЗРОБИЛО ПОСИЛАННЯ. «Link-invalid» не каже
 // «вас відписано» й не каже «вас не підписано»: токен не підійшов, і більше ми

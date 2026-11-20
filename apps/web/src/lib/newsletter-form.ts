@@ -77,7 +77,7 @@ export function interpret(status: number): SubscribeOutcome {
  */
 export const SENT_TITLE = "Check your inbox to confirm";
 export const SENT_BODY =
-  "We have sent a letter with a confirmation link, unless this address is already on our list. You are not subscribed until you open the link, and we send nothing else until then.";
+  "We have sent a letter with a confirmation link, unless this address is already on our list. You are not subscribed until you press “Confirm” on the page that link opens, and we send nothing else until then.";
 
 export function messageFor(outcome: Exclude<SubscribeOutcome, "sent">): string {
   switch (outcome) {
@@ -115,6 +115,61 @@ export async function sendSubscription(
       body: JSON.stringify(body),
     });
     return interpret(res.status);
+  } catch {
+    return "failed";
+  }
+}
+
+// ── посилання з листа: сторінка сайту + кнопка ────────────────────────
+//
+// 🔴 ВІДКРИТТЯ ПОСИЛАННЯ НІЧОГО НЕ МІНЯЄ. Поштові сканери (Safe Links, проксі
+// Gmail, корпоративні шлюзи) відкривають усі посилання з листа самі; зміну
+// робить лише кнопка на сторінці — `POST /newsletter/confirm|unsubscribe` із
+// токеном У ТІЛІ (не в адресі запиту: адресу пише журнал вебсервера).
+
+export type LinkAction = "confirm" | "unsubscribe";
+
+/** Такий токен ми видаємо (base64url від 32 байтів); те саме, що `TOKEN_SHAPE` в API. */
+const TOKEN = /^[A-Za-z0-9_-]{43,128}$/;
+
+/** Токен із `?token=…` адреси сторінки; порожній рядок — токена немає чи він не нашого вигляду. */
+export function tokenFrom(search: string): string {
+  const t = new URLSearchParams(search).get("token") ?? "";
+  return TOKEN.test(t) ? t : "";
+}
+
+export type LinkOutcome =
+  /** 200: зроблено. */
+  | "done"
+  /** 400: посилання прострочене, використане чи не те. */
+  | "invalid"
+  | "throttled"
+  | "unavailable"
+  | "failed";
+
+export function interpretLink(status: number): LinkOutcome {
+  if (status >= 200 && status < 300) return "done";
+  if (status === 400) return "invalid";
+  if (status === 429) return "throttled";
+  return "failed";
+}
+
+/** Натиснути кнопку: один POST, токен у тілі, без облікових даних. Порожня адреса API нічого не шле. */
+export async function sendLinkAction(
+  action: LinkAction,
+  token: string,
+  api: string = NEWSLETTER_API,
+  fetchImpl: Fetch = (i, init) => fetch(i, init),
+): Promise<LinkOutcome> {
+  if (api === "") return "unavailable";
+  try {
+    const res = await fetchImpl(`${api}/newsletter/${action}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      credentials: "omit",
+      body: JSON.stringify({ token }),
+    });
+    return interpretLink(res.status);
   } catch {
     return "failed";
   }

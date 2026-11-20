@@ -157,8 +157,8 @@ export default function NewsletterForm() {
               6(1)(a)), and the click on the link in the letter is the consent;
               the policy section it links to is the same text. */}
           <p id={`${id}-consent`} data-testid="newsletter-consent" className="mt-3">
-            We will send you one letter to confirm this address. Until you open the link in it
-            you are not subscribed and we send you nothing else. After that, occasional news
+            We will send you one letter to confirm this address. Until you press “Confirm” on the
+            page its link opens you are not subscribed and we send you nothing else. After that, occasional news
             about CampTribe. We keep your address and the dates of your request in our own
             database, on our own server, and share it with nobody; you can unsubscribe with one
             click from any letter. Details in the{" "}

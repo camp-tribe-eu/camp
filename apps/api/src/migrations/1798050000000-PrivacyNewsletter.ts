@@ -26,7 +26,9 @@ import {
  *     що ні: IP, браузер, акаунт, куки;
  *   · кому видно: нікому, крім нас, — наша база на нашому сервері, жодного
  *     сервісу розсилок;
- *   · підстава — згода; її доказ — клік по посиланню з листа й дати в рядку;
+ *   · підстава — згода; її доказ — натискання «Confirm» на сторінці, яку відкриває
+ *     посилання з листа (саме відкриття нічого не міняє: сканери відкривають
+ *     посилання самі), і дати в рядку;
  *   · строк: непідтверджена — 7 днів від першого запиту; підтверджена — до
  *     відписки; після відписки — лише адреса з позначкою, щоб не писати знову;
  *   · як відкликати: посилання в кожному листі (підтвердження вже його має).
@@ -54,7 +56,7 @@ export class PrivacyNewsletter1798050000000 implements MigrationInterface {
       '### Reporting a problem with a campsite page {#reports}',
       `### Our letters, if you ask for them {#newsletter}
 
-The form in the footer of every page asks for one thing: your email address, so that we can send you occasional CampTribe news. It works in two steps, and you are not subscribed until the second. When you press “Subscribe”, your browser sends the address to our server, which writes one row in our own database and sends you one letter asking you to confirm. Until you open the link in that letter, we send you nothing else and the address is not on any list.
+The form in the footer of every page asks for one thing: your email address, so that we can send you occasional CampTribe news. It works in two steps, and you are not subscribed until the second. When you press “Subscribe”, your browser sends the address to our server, which writes one row in our own database and sends you one letter asking you to confirm. Until you press “Confirm” on the page the link in that letter opens, we send you nothing else and the address is not on any list. Opening the link changes nothing by itself; only the button on the page does, so a mail scanner that opens the links in your mail cannot subscribe or unsubscribe you.
 
 The row holds this, and nothing else:
 
@@ -65,12 +67,12 @@ The row holds this, and nothing else:
 
 We do not store your IP address, your browser or an account with the address, and the form sets no cookie. It is protected against floods in the same way as the contact form, and none of that is stored with your address — see [Writing to us](/legal/privacy#writing).
 
-Somebody may type an address that is not theirs. The one letter we send says so in its first lines: if it was not you, do nothing, and the address is deleted; or open the unsubscribe link in the same letter, and we mark it as unsubscribed at once.
+Somebody may type an address that is not theirs. The one letter we send says so in its first lines: if it was not you, do nothing, and the address is deleted; or open the unsubscribe link in the same letter and press “Unsubscribe”, and we mark it as unsubscribed at once.
 
 - **Who sees it:** only us. The address stays in our database on our own server at Hetzner Online GmbH (Germany), and our mail server there carries the letter. It is not given to a mailing-list service, and not shared, sold or rented.
-- **Legal basis:** your consent — Article 6(1)(a) GDPR. The consent is the click on the link in the confirmation letter; the dates in the row are how we show it.
+- **Legal basis:** your consent — Article 6(1)(a) GDPR. The consent is pressing “Confirm” on the page the link in that letter opens; the dates in the row are how we show it.
 - **Kept for:** an address that has not been confirmed is deleted 7 days after the first request. Our server clears such addresses whenever somebody subscribes or confirms, not on a clock of its own, so if nobody does for a while the deletion can come later than the seventh day; the address is used for nothing in that time. A confirmed address is kept until you unsubscribe. After that we keep the address, marked as unsubscribed, only so that we do not write to you again; if you would rather it were gone completely, write to us and we delete it.
-- **Withdrawing consent:** with the unsubscribe link, which every letter we send you carries — one click, no sign-in — or by writing to [{{privacy.email}}](mailto:{{privacy.email}}). Withdrawing is as easy as giving it, and it does not make anything we did before it unlawful.
+- **Withdrawing consent:** with the unsubscribe link, which every letter we send you carries — open it and press “Unsubscribe”: one click, no sign-in — or by writing to [{{privacy.email}}](mailto:{{privacy.email}}). Withdrawing is as easy as giving it, and it does not make anything we did before it unlawful.
 - **Your rights:** to see, correct or delete the address, to object, and to complain, as under [Your rights](/legal/privacy#rights).
 
 ### Reporting a problem with a campsite page {#reports}`,

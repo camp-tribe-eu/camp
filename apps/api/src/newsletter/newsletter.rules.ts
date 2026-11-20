@@ -142,3 +142,18 @@ export function parseSubscription(body: unknown): ParseResult {
 export const TOKEN_SHAPE = /^[A-Za-z0-9_-]{43,128}$/;
 export const isTokenShaped = (v: unknown): v is string =>
   typeof v === 'string' && TOKEN_SHAPE.test(v);
+
+export type LinkActionResult = { ok: true; token: string } | { ok: false };
+
+/**
+ * Тіло `POST /newsletter/confirm|unsubscribe`: рівно `{ token }`, і токен —
+ * такого вигляду, який ми видаємо. Усе інше — відмова до бази.
+ */
+export function parseLinkAction(body: unknown): LinkActionResult {
+  if (!isRecord(body)) return { ok: false };
+  const keys = Object.keys(body);
+  if (keys.length !== 1 || keys[0] !== 'token') return { ok: false };
+  return isTokenShaped(body.token)
+    ? { ok: true, token: body.token }
+    : { ok: false };
+}

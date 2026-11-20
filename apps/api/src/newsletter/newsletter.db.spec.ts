@@ -43,7 +43,6 @@ let failSend = false;
 let deliveries: Array<Promise<void>> = [];
 const savedEnv = {
   WEB: process.env.WEB_BASE_URL,
-  API: process.env.NEXT_PUBLIC_API_BASE_URL,
   TRUST: process.env.TRUST_PROXY_CLIENT_IP,
 };
 
@@ -72,7 +71,6 @@ beforeAll(async () => {
   } as unknown as QueryRunner);
 
   process.env.WEB_BASE_URL = 'https://camptribe.eu';
-  process.env.NEXT_PUBLIC_API_BASE_URL = 'https://camptribe.eu/api';
   process.env.TRUST_PROXY_CLIENT_IP = '1';
   const mailer: Mailer = {
     sender: {
@@ -125,7 +123,6 @@ afterAll(async () => {
   }
   for (const [k, v] of [
     ['WEB_BASE_URL', savedEnv.WEB],
-    ['NEXT_PUBLIC_API_BASE_URL', savedEnv.API],
     ['TRUST_PROXY_CLIENT_IP', savedEnv.TRUST],
   ] as const) {
     if (v === undefined) delete process.env[k];
@@ -159,12 +156,34 @@ async function subscribe(email: string, extra: Record<string, unknown> = {}) {
   return { status: res.status, text };
 }
 
+// 🔴 What the page's button does: read the token from the link and POST it in
+// the BODY. Opening the link itself (a GET) is `openLink` below and changes nothing.
 const follow = async (link: string) => {
-  // Посилання з листа веде на публічну адресу; тут той самий шлях — на наш сокет.
-  const path =
-    new URL(link).pathname.replace(/^\/api/, '') + new URL(link).search;
-  const res = await fetch(`${base}${path}`, { redirect: 'manual' });
-  return { status: res.status, location: res.headers.get('location') };
+  const u = new URL(link);
+  const which = u.pathname.split('/').pop()!;
+  const res = await fetch(`${base}/newsletter/${which}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token: u.searchParams.get('token') }),
+  });
+  const ok = res.status === 200;
+  return {
+    status: res.status,
+    result: ok
+      ? which === 'confirm'
+        ? 'confirmed'
+        : 'unsubscribed'
+      : 'link-invalid',
+  };
+};
+
+/** What a mail scanner does: GET the link, on the site AND on the API path it would map to. */
+const openLink = async (link: string) => {
+  const u = new URL(link);
+  const which = u.pathname.split('/').pop()!;
+  return fetch(`${base}/newsletter/${which}${u.search}`, {
+    redirect: 'manual',
+  });
 };
 
 const tokens = (m: MailMessage) => ({
@@ -203,10 +222,15 @@ describe('a new address', () => {
     expect(t.confirm.length).toBeGreaterThanOrEqual(43); // 32 bytes, base64url
     expect(t.unsub.length).toBeGreaterThanOrEqual(43);
     expect(t.confirm).not.toBe(t.unsub);
-    // The link points at the API's public address, not at the request's host.
+    // The links point at PAGES of the site (webBase from configuration), not at the API.
     expect(
       t.confirmLink.startsWith(
-        'https://camptribe.eu/api/newsletter/confirm?token=',
+        'https://camptribe.eu/newsletter/confirm?token=',
+      ),
+    ).toBe(true);
+    expect(
+      t.unsubLink.startsWith(
+        'https://camptribe.eu/newsletter/unsubscribe?token=',
       ),
     ).toBe(true);
 
@@ -285,9 +309,7 @@ describe('🔴 the answer does not say who is on the list', () => {
     // confirmed
     await subscribe('b@example.eu');
     const b = tokens(sent[sent.length - 1]);
-    expect((await follow(b.confirmLink)).location).toBe(
-      'https://camptribe.eu/newsletter/confirmed',
-    );
+    expect((await follow(b.confirmLink)).result).toBe('confirmed');
     replies.push(await subscribe('b@example.eu'));
     // unsubscribed
     await subscribe('c@example.eu');
@@ -326,13 +348,9 @@ describe('🔴 the answer does not say who is on the list', () => {
     expect(sent).toHaveLength(2);
     const second = tokens(sent[1]);
     expect(second.confirm).not.toBe(first.confirm);
-    expect((await follow(first.confirmLink)).location).toBe(
-      'https://camptribe.eu/newsletter/link-invalid',
-    );
+    expect((await follow(first.confirmLink)).result).toBe('link-invalid');
     expect((await row('a@example.eu')).status).toBe('pending');
-    expect((await follow(second.confirmLink)).location).toBe(
-      'https://camptribe.eu/newsletter/confirmed',
-    );
+    expect((await follow(second.confirmLink)).result).toBe('confirmed');
   });
 
   it('a pending address asked again just BEFORE the gap gets nothing', async () => {
@@ -347,15 +365,30 @@ describe('🔴 the answer does not say who is on the list', () => {
   });
 });
 
+describe('🔴 a mail scanner that OPENS the links changes nothing', () => {
+  it('GET on the confirm and the unsubscribe link, any number of times: the row is byte-for-byte the same', async () => {
+    await subscribe('a@example.eu');
+    const t = tokens(sent[0]);
+    const before = await row('a@example.eu');
+    for (let i = 0; i < 3; i++) {
+      for (const link of [t.confirmLink, t.unsubLink]) {
+        const res = await openLink(link);
+        expect(res.status).toBe(404); // there is no GET route to change anything
+      }
+    }
+    expect(await row('a@example.eu')).toEqual(before);
+    expect(before.status).toBe('pending');
+    // …and the same token, POSTed by the button, then works.
+    expect((await follow(t.confirmLink)).result).toBe('confirmed');
+  });
+});
+
 describe('confirm', () => {
   it('a good link confirms: status, date, and the token is spent (single use)', async () => {
     await subscribe('a@example.eu');
     const t = tokens(sent[0]);
     const ok = await follow(t.confirmLink);
-    expect(ok).toEqual({
-      status: 302,
-      location: 'https://camptribe.eu/newsletter/confirmed',
-    });
+    expect(ok).toEqual({ status: 200, result: 'confirmed' });
     const r = await row('a@example.eu');
     expect(r.status).toBe('confirmed');
     expect(r.confirmed_at).toBeInstanceOf(Date);
@@ -363,7 +396,7 @@ describe('confirm', () => {
     expect(r.confirm_token_expires_at).toBeNull();
     // The second click on the same link says it is not valid, and changes nothing.
     const again = await follow(t.confirmLink);
-    expect(again.location).toBe('https://camptribe.eu/newsletter/link-invalid');
+    expect(again.result).toBe('link-invalid');
     expect((await row('a@example.eu')).confirmed_at).toEqual(r.confirmed_at);
   });
 
@@ -373,9 +406,7 @@ describe('confirm', () => {
     await db.query(
       `UPDATE newsletter_subscribers SET confirm_token_expires_at = now() - interval '1 second'`,
     );
-    expect((await follow(t.confirmLink)).location).toBe(
-      'https://camptribe.eu/newsletter/link-invalid',
-    );
+    expect((await follow(t.confirmLink)).result).toBe('link-invalid');
     const r = await row('a@example.eu');
     expect(r.status).toBe('pending');
     expect(r.confirmed_at).toBeNull();
@@ -384,9 +415,9 @@ describe('confirm', () => {
   it('an unknown (well-formed) token fails and changes nothing', async () => {
     await subscribe('a@example.eu');
     const res = await follow(
-      `https://camptribe.eu/api/newsletter/confirm?token=${'A'.repeat(43)}`,
+      `https://camptribe.eu/newsletter/confirm?token=${'A'.repeat(43)}`,
     );
-    expect(res.location).toBe('https://camptribe.eu/newsletter/link-invalid');
+    expect(res.result).toBe('link-invalid');
     expect((await row('a@example.eu')).status).toBe('pending');
   });
 
@@ -401,9 +432,9 @@ describe('confirm', () => {
       [sha(token)],
     );
     const res = await follow(
-      `https://camptribe.eu/api/newsletter/confirm?token=${token}`,
+      `https://camptribe.eu/newsletter/confirm?token=${token}`,
     );
-    expect(res.location).toBe('https://camptribe.eu/newsletter/link-invalid');
+    expect(res.result).toBe('link-invalid');
     expect((await row('gone@example.eu')).status).toBe('unsubscribed');
   });
 
@@ -411,16 +442,14 @@ describe('confirm', () => {
     await subscribe('a@example.eu');
     const t = tokens(sent[0]);
     const wrong = await follow(
-      `https://camptribe.eu/api/newsletter/confirm?token=${t.unsub}`,
+      `https://camptribe.eu/newsletter/confirm?token=${t.unsub}`,
     );
-    expect(wrong.location).toBe('https://camptribe.eu/newsletter/link-invalid');
+    expect(wrong.result).toBe('link-invalid');
     expect((await row('a@example.eu')).status).toBe('pending');
     const wrong2 = await follow(
-      `https://camptribe.eu/api/newsletter/unsubscribe?token=${t.confirm}`,
+      `https://camptribe.eu/newsletter/unsubscribe?token=${t.confirm}`,
     );
-    expect(wrong2.location).toBe(
-      'https://camptribe.eu/newsletter/link-invalid',
-    );
+    expect(wrong2.result).toBe('link-invalid');
     expect((await row('a@example.eu')).status).toBe('pending');
   });
 });
@@ -429,9 +458,7 @@ describe('unsubscribe', () => {
   it('sets unsubscribed with a date, from pending and from confirmed alike', async () => {
     await subscribe('a@example.eu');
     const a = tokens(sent[0]);
-    expect((await follow(a.unsubLink)).location).toBe(
-      'https://camptribe.eu/newsletter/unsubscribed',
-    );
+    expect((await follow(a.unsubLink)).result).toBe('unsubscribed');
     const ra = await row('a@example.eu');
     expect(ra.status).toBe('unsubscribed');
     expect(ra.unsubscribed_at).toBeInstanceOf(Date);
@@ -452,18 +479,16 @@ describe('unsubscribe', () => {
     await follow(t.unsubLink);
     const first = (await row('a@example.eu')).unsubscribed_at;
     await new Promise((r) => setTimeout(r, 20));
-    expect((await follow(t.unsubLink)).location).toBe(
-      'https://camptribe.eu/newsletter/unsubscribed',
-    );
+    expect((await follow(t.unsubLink)).result).toBe('unsubscribed');
     expect((await row('a@example.eu')).unsubscribed_at).toEqual(first);
   });
 
   it('an unknown token unsubscribes nobody — and does not claim it did', async () => {
     await subscribe('a@example.eu');
     const res = await follow(
-      `https://camptribe.eu/api/newsletter/unsubscribe?token=${'B'.repeat(43)}`,
+      `https://camptribe.eu/newsletter/unsubscribe?token=${'B'.repeat(43)}`,
     );
-    expect(res.location).toBe('https://camptribe.eu/newsletter/link-invalid');
+    expect(res.result).toBe('link-invalid');
     expect((await row('a@example.eu')).status).toBe('pending');
   });
 
@@ -478,9 +503,7 @@ describe('unsubscribe', () => {
     expect(r.unsubscribed_at).toBeNull();
     const t2 = tokens(sent[1]);
     expect(r.confirm_token_hash).toBe(sha(t2.confirm));
-    expect((await follow(t1.unsubLink)).location).toBe(
-      'https://camptribe.eu/newsletter/link-invalid',
-    );
+    expect((await follow(t1.unsubLink)).result).toBe('link-invalid');
   });
 });
 

@@ -13,11 +13,7 @@ import { DEFAULT_LIMIT, MAIL_LIMIT } from '../throttle';
 import { ApiThrottlerGuard } from '../throttle.guard';
 import { NewsletterController } from './newsletter.controller';
 import { MIN_FILL_MS } from './newsletter.rules';
-import {
-  CONFIRM_TTL_HOURS,
-  NewsletterService,
-  apiBaseFrom,
-} from './newsletter.service';
+import { CONFIRM_TTL_HOURS, NewsletterService } from './newsletter.service';
 
 // Підписка на листи — крізь справжній Nest-застосунок, справжній сокет і
 // справжній throttler. Бази тут НЕМАЄ навмисно: `db` — заглушка, яка ЛІЧИТЬ
@@ -31,12 +27,10 @@ let app: INestApplication;
 let base: string;
 let sent: MailMessage[];
 let dbCalls: string[];
-const savedWeb = process.env.WEB_BASE_URL;
 
 async function boot(opts: { mailer?: Mailer | null } = {}) {
   sent = [];
   dbCalls = [];
-  process.env.WEB_BASE_URL = 'https://camptribe.eu';
   const mailer: Mailer | null =
     opts.mailer === undefined
       ? {
@@ -89,8 +83,6 @@ const get = (path: string) => fetch(`${base}${path}`, { redirect: 'manual' });
 
 afterEach(async () => {
   await app?.close();
-  if (savedWeb === undefined) delete process.env.WEB_BASE_URL;
-  else process.env.WEB_BASE_URL = savedWeb;
 });
 
 describe('POST /newsletter — what never reaches the database', () => {
@@ -157,81 +149,68 @@ describe('the mail bucket (a letter to an address the caller typed)', () => {
   });
 });
 
-describe('GET /newsletter/confirm and /unsubscribe — the links', () => {
+const postLink = (which: 'confirm' | 'unsubscribe', body: unknown) =>
+  fetch(`${base}/newsletter/${which}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+describe('the links in the letter open a PAGE; only a POST changes anything', () => {
   beforeEach(() => boot());
 
-  it.each(['confirm', 'unsubscribe'])(
-    '%s without a token, or with junk, goes to link-invalid and never asks the database',
+  it.each(['confirm', 'unsubscribe'] as const)(
+    '🔴 GET /newsletter/%s does not exist: 404, and the database is never asked',
     async (which) => {
-      for (const q of [
-        '',
-        '?token=',
-        '?token=abc',
-        `?token=${'a'.repeat(43)}!`,
-        '?token=a&token=b',
+      const res = await get(`/newsletter/${which}?token=${'a'.repeat(43)}`);
+      expect(res.status).toBe(404);
+      expect(dbCalls).toEqual([]);
+    },
+  );
+
+  it.each(['confirm', 'unsubscribe'] as const)(
+    'POST /newsletter/%s with junk is a 400 invalid_link and never asks the database',
+    async (which) => {
+      for (const body of [
+        {},
+        { token: '' },
+        { token: 'abc' },
+        { token: `${'a'.repeat(43)}!` },
+        { token: ['a'.repeat(43)] },
+        { token: 'a'.repeat(43), extra: 1 },
+        [],
       ]) {
-        const res = await get(`/newsletter/${which}${q}`);
-        expect(res.status).toBe(302);
-        expect(res.headers.get('location')).toBe(
-          'https://camptribe.eu/newsletter/link-invalid',
-        );
+        const res = await postLink(which, body);
+        expect(res.status).toBe(400);
+        expect(await res.json()).toMatchObject({ code: 'invalid_link' });
       }
       expect(dbCalls).toEqual([]);
     },
   );
 
-  it('a well-formed but unknown token also lands on link-invalid (the stub finds no row)', async () => {
-    const res = await get(`/newsletter/confirm?token=${'a'.repeat(43)}`);
-    expect(res.headers.get('location')).toBe(
-      'https://camptribe.eu/newsletter/link-invalid',
+  it('the token is read from the BODY: the same token in the query string does nothing', async () => {
+    const res = await fetch(
+      `${base}/newsletter/confirm?token=${'a'.repeat(43)}`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      },
     );
+    expect(res.status).toBe(400);
+    expect(dbCalls).toEqual([]);
+  });
+
+  it('a well-formed but unknown token is a 400 (the stub finds no row)', async () => {
+    const res = await postLink('confirm', { token: 'a'.repeat(43) });
+    expect(res.status).toBe(400);
     expect(dbCalls.length).toBeGreaterThan(0);
-  });
-
-  it('the redirect goes to the configured site, never to what the request says', async () => {
-    const res = await fetch(`${base}/newsletter/confirm?token=zz`, {
-      redirect: 'manual',
-      headers: { host: 'evil.example', 'x-forwarded-host': 'evil.example' },
-    });
-    expect(res.headers.get('location')).toBe(
-      'https://camptribe.eu/newsletter/link-invalid',
-    );
-  });
-
-  it('without WEB_BASE_URL there is nowhere honest to send the reader: 503', async () => {
-    delete process.env.WEB_BASE_URL;
-    const res = await get('/newsletter/confirm?token=zz');
-    expect(res.status).toBe(503);
-  });
-});
-
-describe('apiBaseFrom — where the links in the letter point', () => {
-  it('uses the public API address the browser uses, without a trailing slash', () => {
-    expect(
-      apiBaseFrom(
-        { NEXT_PUBLIC_API_BASE_URL: 'https://camptribe.eu/api/' },
-        'https://x.example',
-      ),
-    ).toBe('https://camptribe.eu/api');
-  });
-  it('falls back to /api on the site, for an empty or unusable value', () => {
-    for (const v of [
-      undefined,
-      '',
-      '  ',
-      'not a url',
-      'javascript:alert(1)',
-      'ftp://x.example/api',
-    ])
-      expect(
-        apiBaseFrom({ NEXT_PUBLIC_API_BASE_URL: v }, 'https://camptribe.eu'),
-      ).toBe('https://camptribe.eu/api');
   });
 });
 
 describe('the confirmation letter', () => {
-  const confirm = 'https://camptribe.eu/api/newsletter/confirm?token=AAA';
-  const unsub = 'https://camptribe.eu/api/newsletter/unsubscribe?token=BBB';
+  const confirm = 'https://camptribe.eu/newsletter/confirm?token=AAA';
+  const unsub = 'https://camptribe.eu/newsletter/unsubscribe?token=BBB';
   const privacy = 'https://camptribe.eu/legal/privacy#newsletter';
   const m = newsletterConfirmMessage(
     'anna@example.eu',
@@ -254,6 +233,10 @@ describe('the confirmation letter', () => {
     expect(m.text.indexOf('do nothing')).toBeGreaterThan(-1);
     expect(m.text.indexOf('do nothing')).toBeLessThan(m.text.indexOf(confirm));
     expect(m.text).toContain('you are not subscribed');
+    // …and says that opening the link is not enough.
+    expect(m.text).toContain('Opening the link changes nothing by itself');
+    expect(m.text).toContain('“Confirm my subscription”');
+    expect(m.text).toContain('press “Unsubscribe”');
   });
 
   it('is its own kind, goes to the one address, and does not set a reply-to', () => {

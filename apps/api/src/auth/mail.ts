@@ -517,6 +517,11 @@ export function contactMessage(
  * 3. ЩО МИ ТРИМАЄМО І ДЕ ПРО ЦЕ ПРОЧИТАТИ — прямо в листі, бо це перший наш
  *    контакт із цією адресою (ст. 14 GDPR для того, хто міг нічого не надавати).
  *    Повний текст — політика приватності, посилання на розділ.
+ *
+ * 🔴 ПОСИЛАННЯ НІЧОГО НЕ МІНЯЄ: воно веде на сторінку сайту, а підтвердження чи
+ * відписку робить кнопка на ній. Поштові сканери відкривають усі посилання
+ * самі, і лист мусить казати це вголос: людина, яка бачить «лише відкрийте»,
+ * не знає, що без кнопки нічого не сталося.
  */
 export function newsletterConfirmMessage(
   to: string,
@@ -531,11 +536,11 @@ export function newsletterConfirmMessage(
     '',
     'If it was not you, do nothing. We have sent nothing but this letter, we will send nothing more, and the address is deleted from our list within 7 days.',
     '',
-    `If it was you, confirm with this link: ${confirmLink}`,
+    `If it was you, open this link and press the “Confirm my subscription” button: ${confirmLink}`,
     '',
-    `The link works once, for ${hours} hours. Until you open it, you are not subscribed.`,
+    `Opening the link changes nothing by itself; the button does. The confirmation works once, for ${hours} hours, and until you press it you are not subscribed.`,
     '',
-    `Do not want to wait for the address to be deleted? Open this link and we mark it as unsubscribed at once: ${unsubscribeLink}`,
+    `Do not want to wait for the address to be deleted? Open this link and press “Unsubscribe”, and we mark it as unsubscribed at once: ${unsubscribeLink}`,
     '',
     `What we hold is this email address and the dates of your request. Details and your rights: ${privacyUrl}`,
     '',
@@ -544,15 +549,15 @@ export function newsletterConfirmMessage(
   const button =
     `<p><a href="${esc(confirmLink)}" style="display:inline-block;padding:10px 18px;` +
     `background:#404B62;color:#ffffff;text-decoration:none;border-radius:8px">` +
-    `Confirm my email address</a></p>`;
+    `Open the confirmation page</a></p>`;
   const html =
     `<p>${esc(lines[0])}</p>` +
     `<p>${esc(lines[2])}</p>` +
-    `<p>If it was you, confirm here:</p>` +
+    `<p>If it was you, open this page and press the “Confirm my subscription” button:</p>` +
     button +
     `<p>${esc(lines[6])}</p>` +
     `<p>Do not want to wait for the address to be deleted? ` +
-    `<a href="${esc(unsubscribeLink)}">Mark it as unsubscribed at once</a>.</p>` +
+    `<a href="${esc(unsubscribeLink)}">Open this page and press “Unsubscribe”</a>, and we mark it as unsubscribed at once.</p>` +
     `<p>What we hold is this email address and the dates of your request. ` +
     `Details and your rights: <a href="${esc(privacyUrl)}">${esc(privacyUrl)}</a></p>` +
     `<p>CampTribe</p>`;

@@ -145,4 +145,21 @@ describe('«Our letters» says what the code does', () => {
     );
     expect(RESEND_GAP_MINUTES).toBe(10);
   });
+
+  it('🔴 the consent is described as the button, and the controller has no GET that could do it', () => {
+    expect(section).toContain(
+      'The consent is pressing “Confirm” on the page the link in that letter opens',
+    );
+    expect(section).toContain(
+      'open the unsubscribe link in the same letter and press “Unsubscribe”',
+    );
+    expect(section).toContain('Opening the link changes nothing by itself');
+    const controller = readFileSync(
+      join(__dirname, 'newsletter.controller.ts'),
+      'utf8',
+    );
+    expect(controller).not.toMatch(/@Get\(/);
+    expect(controller).toMatch(/@Post\('confirm'\)/);
+    expect(controller).toMatch(/@Post\('unsubscribe'\)/);
+  });
 });

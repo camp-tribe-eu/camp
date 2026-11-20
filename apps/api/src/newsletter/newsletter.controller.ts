@@ -1,18 +1,14 @@
 import {
   Body,
   Controller,
-  Get,
   HttpCode,
   HttpException,
   Post,
-  Query,
-  Redirect,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { webBaseFrom } from '../auth/mail';
 import { MAIL_LIMIT } from '../throttle';
 import {
-  isTokenShaped,
+  parseLinkAction,
   parseSubscription,
   type NewsletterProblem,
 } from './newsletter.rules';
@@ -38,20 +34,14 @@ function invalid(problems: NewsletterProblem[]): HttpException {
   );
 }
 
-/**
- * Куди веде сторінка результату: сайт, з налаштувань, ніколи із запиту.
- * Без `WEB_BASE_URL` перенаправляти нікуди — 503, а не відносна адреса, яка
- * вказала б на сам API.
- */
-function resultUrl(page: 'confirmed' | 'unsubscribed' | 'link-invalid') {
-  const base = webBaseFrom(process.env.WEB_BASE_URL);
-  if (base === null) {
-    throw new HttpException(
-      { code: 'site_unconfigured', message: 'WEB_BASE_URL is not set.' },
-      503,
-    );
-  }
-  return { url: `${base}/newsletter/${page}`, statusCode: 302 };
+function invalidLink(): HttpException {
+  return new HttpException(
+    {
+      code: 'invalid_link',
+      message: 'This link has expired, was already used, or is not valid.',
+    },
+    400,
+  );
 }
 
 /**
@@ -67,9 +57,17 @@ function resultUrl(page: 'confirmed' | 'unsubscribed' | 'link-invalid') {
  *   503 { code: 'mail_unavailable' } немає відправника (залежить лише від
  *                                    налаштувань, тож однакова для всіх адрес)
  *
- *   GET /newsletter/confirm?token=…      → 302 на /newsletter/confirmed
- *   GET /newsletter/unsubscribe?token=…  → 302 на /newsletter/unsubscribed
- *   обидва: невідомий чи прострочений токен → 302 на /newsletter/link-invalid
+ *   POST /newsletter/confirm      { "token": "…" }   200 { ok: true } | 400 { code: 'invalid_link' }
+ *   POST /newsletter/unsubscribe  { "token": "…" }   те саме
+ *
+ * 🔴 ЦЕ POST, А НЕ GET, І ЦЕ НЕ СМАК. Посилання в листі веде на СТОРІНКУ сайту
+ * (`/newsletter/confirm?token=…`), яка на відкритті нічого не міняє, а кнопка на
+ * ній шле сюди токен ТІЛОМ. Поштові сканери (Safe Links, проксі Gmail,
+ * корпоративні шлюзи) відкривають усі посилання з листа самі: стан, що
+ * міняється на GET, підтверджував би підписку без людини — і «згода» не
+ * доводила б нічого (ст. 6(1)(a)) — а так само сканер відписував би людей.
+ * GET-маршрутів тут немає зовсім: `GET /newsletter/confirm` — 404.
+ * Токен у тілі, а не в адресі: адресу пише журнал вебсервера, тіло — ні.
  *
  * 🔴 ВІДКРИТО ДЛЯ КОГО ЗАВГОДНО, і мусить бути: підписується не власник акаунта.
  * Жодної куки, жодного акаунта, жодного IP у таблиці.
@@ -100,18 +98,24 @@ export class NewsletterController {
     return { ok: true };
   }
 
-  @Get('confirm')
-  @Redirect()
-  async confirm(@Query('token') token: unknown) {
-    const ok = isTokenShaped(token) && (await this.newsletter.confirm(token));
-    return resultUrl(ok ? 'confirmed' : 'link-invalid');
+  @Post('confirm')
+  @HttpCode(200)
+  async confirm(@Body() body: unknown): Promise<{ ok: true }> {
+    const parsed = parseLinkAction(body);
+    if (parsed.ok === false || !(await this.newsletter.confirm(parsed.token)))
+      throw invalidLink();
+    return { ok: true };
   }
 
-  @Get('unsubscribe')
-  @Redirect()
-  async unsubscribe(@Query('token') token: unknown) {
-    const ok =
-      isTokenShaped(token) && (await this.newsletter.unsubscribe(token));
-    return resultUrl(ok ? 'unsubscribed' : 'link-invalid');
+  @Post('unsubscribe')
+  @HttpCode(200)
+  async unsubscribe(@Body() body: unknown): Promise<{ ok: true }> {
+    const parsed = parseLinkAction(body);
+    if (
+      parsed.ok === false ||
+      !(await this.newsletter.unsubscribe(parsed.token))
+    )
+      throw invalidLink();
+    return { ok: true };
   }
 }

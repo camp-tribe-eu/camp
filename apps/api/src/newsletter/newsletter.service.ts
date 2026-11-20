@@ -33,29 +33,6 @@ export type SubscribeResult = {
   delivery: Promise<void>;
 };
 
-/**
- * Куди веде посилання з листа: API, а не сайт. Береться з налаштувань і
- * ніколи із запиту — `Host` керує нападник (див. `webBaseFrom`).
- * `NEXT_PUBLIC_API_BASE_URL` — та сама адреса, з якої браузер читає API
- * (спільне походження, Caddy зрізає `/api`); без неї — `/api` на домені сайту.
- */
-export function apiBaseFrom(
-  env: Record<string, string | undefined>,
-  webBase: string,
-): string {
-  const raw = (env.NEXT_PUBLIC_API_BASE_URL ?? '').trim().replace(/\/+$/, '');
-  if (raw !== '') {
-    try {
-      const u = new URL(raw);
-      if (u.protocol === 'https:' || u.protocol === 'http:')
-        return `${u.origin}${u.pathname.replace(/\/+$/, '')}`;
-    } catch {
-      /* падаємо на запасну нижче */
-    }
-  }
-  return `${webBase}/api`;
-}
-
 @Injectable()
 export class NewsletterService {
   private readonly log = new Logger(NewsletterService.name);
@@ -82,10 +59,7 @@ export class NewsletterService {
     );
   }
 
-  async subscribe(
-    sub: ParsedSubscription,
-    env: Record<string, string | undefined> = process.env,
-  ): Promise<SubscribeResult> {
+  async subscribe(sub: ParsedSubscription): Promise<SubscribeResult> {
     const done = Promise.resolve();
     // 🔴 Скрипт отримує те саме, що людина, і нічого не відбувається.
     if (sub.spam) return { outcome: 'accepted', delivery: done };
@@ -138,11 +112,12 @@ export class NewsletterService {
     );
     if (rows.length === 0) return { outcome: 'accepted', delivery: done };
 
-    const api = apiBaseFrom(env, webBase);
+    // 🔴 ПОСИЛАННЯ ВЕДУТЬ НА СТОРІНКИ САЙТУ, а не в API: відкриття нічого не
+    // міняє, зміну робить кнопка (POST). База — з налаштувань, не із запиту.
     const message = newsletterConfirmMessage(
       sub.email,
-      `${api}/newsletter/confirm?token=${encodeURIComponent(confirm)}`,
-      `${api}/newsletter/unsubscribe?token=${encodeURIComponent(unsubscribe)}`,
+      `${webBase}/newsletter/confirm?token=${encodeURIComponent(confirm)}`,
+      `${webBase}/newsletter/unsubscribe?token=${encodeURIComponent(unsubscribe)}`,
       `${webBase}/legal/privacy#newsletter`,
       CONFIRM_TTL_HOURS,
     );

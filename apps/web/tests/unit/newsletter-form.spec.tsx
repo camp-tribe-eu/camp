@@ -2,10 +2,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { SiteFooter } from "@/components/site-chrome";
-import { NewsletterResultView, RESULTS, type NewsletterResult } from "@/components/newsletter-result";
-import { metadata as confirmedMeta } from "@/app/newsletter/confirmed/page";
-import { metadata as unsubscribedMeta } from "@/app/newsletter/unsubscribed/page";
-import { metadata as invalidMeta } from "@/app/newsletter/link-invalid/page";
+import { NewsletterResultView, type NewsletterResult } from "@/components/newsletter-result";
+import ConfirmPage, { metadata as confirmMeta } from "@/app/newsletter/confirm/page";
+import UnsubscribePage, { metadata as unsubscribeMeta } from "@/app/newsletter/unsubscribe/page";
 import {
   FILL_MARGIN_MS,
   MAX_EMAIL,
@@ -13,7 +12,10 @@ import {
   SENT_BODY,
   SENT_TITLE,
   interpret,
+  interpretLink,
   messageFor,
+  sendLinkAction,
+  tokenFrom,
   requestBody,
   sendSubscription,
   validateEmail,
@@ -74,7 +76,7 @@ test.describe("the footer carries the field", () => {
     expect(p, "no consent sentence").not.toBeNull();
     const text = visibleText(p![0]);
     expect(text).toContain("We will send you one letter to confirm this address");
-    expect(text).toContain("you are not subscribed and we send you nothing else");
+    expect(text).toContain("Until you press “Confirm” on the page its link opens you are not subscribed and we send you nothing else");
     expect(text).toContain("your address and the dates of your request");
     expect(text).toContain("in our own database, on our own server");
     expect(text).toContain("share it with nobody");
@@ -160,7 +162,7 @@ test.describe("what the page does with the answer", () => {
   test("🔴 success never claims a letter was sent, because the API answers the same for every address", () => {
     expect(SENT_TITLE).toBe("Check your inbox to confirm");
     expect(SENT_BODY).toContain("unless this address is already on our list");
-    expect(SENT_BODY).toContain("You are not subscribed until you open the link");
+    expect(SENT_BODY).toContain("You are not subscribed until you press “Confirm” on the page that link opens");
   });
 
   test("every failure has its own words and none of them says «subscribed»", () => {
@@ -205,51 +207,141 @@ test.describe("what the page does with the answer", () => {
   });
 });
 
-test.describe("where the links in the letter land", () => {
+const TOKEN = "T".repeat(43);
+
+test.describe("🔴 the link in the letter opens a page that changes nothing", () => {
+  const confirmHtml = () => renderComponent(ConfirmPage, {});
+  const unsubscribeHtml = () => renderComponent(UnsubscribePage, {});
+
+  test("rendering the page makes no request at all (a scanner that fetches it triggers nothing)", () => {
+    const real = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = (() => {
+      calls += 1;
+      return Promise.resolve(new Response("{}"));
+    }) as typeof fetch;
+    try {
+      confirmHtml();
+      unsubscribeHtml();
+    } finally {
+      globalThis.fetch = real;
+    }
+    expect(calls).toBe(0);
+  });
+
+  test("confirm: one sentence and the button «Confirm my subscription», disabled before hydration", () => {
+    const html = confirmHtml();
+    const text = visibleText(html);
+    expect(text).toContain("Confirm your subscription");
+    expect(text).toContain("Until you do, you are not subscribed.");
+    expect(text).toContain("Confirm my subscription");
+    const button = /<button\b[^>]*>/.exec(html);
+    expect(button, "no button").not.toBeNull();
+    expect(button![0]).toMatch(/\sdisabled(=""|\s|\/|>)/);
+    expect(button![0]).toMatch(/type="button"/);
+    expect(html).not.toMatch(/<form\b/);
+  });
+
+  test("unsubscribe: the sentence and the button «Unsubscribe»", () => {
+    const html = unsubscribeHtml();
+    const text = visibleText(html);
+    expect(text).toContain("stop CampTribe letters");
+    expect(html).toMatch(/<button\b[^>]*>[^<]*Unsubscribe/);
+  });
+
+  test("without JavaScript the page says so and gives an address", () => {
+    for (const html of [confirmHtml(), unsubscribeHtml()])
+      expect(html).toMatch(/<noscript>[\s\S]*needs JavaScript[\s\S]*privacy@camptribe\.eu[\s\S]*<\/noscript>/);
+  });
+
+  test("🔴 the ONLY call to the API in the component is inside the button handler, never in an effect", () => {
+    const src = readFileSync(join(__dirname, "../../src/components/newsletter-link-action.tsx"), "utf8");
+    expect(src.match(/sendLinkAction\(/g)).toHaveLength(1);
+    const call = src.indexOf("await sendLinkAction(");
+    const press = src.indexOf("const press = async");
+    expect(press).toBeGreaterThan(-1);
+    expect(call).toBeGreaterThan(press);
+    // every useEffect body is free of the call
+    for (const m of src.matchAll(/useEffect\(\(\) => \{([\s\S]*?)\}, \[[^\]]*\]\);/g))
+      expect(m[1]).not.toContain("sendLinkAction");
+    expect(src).toMatch(/onClick=\{\(\) => void press\(\)\}/);
+  });
+
+  test("tokenFrom reads only a token of the shape we issue", () => {
+    expect(tokenFrom(`?token=${TOKEN}`)).toBe(TOKEN);
+    for (const bad of ["", "?token=", "?token=abc", `?token=${TOKEN}!`, `?t=${TOKEN}`]) expect(tokenFrom(bad)).toBe("");
+  });
+
+  test("🔴 the button POSTs the token in the BODY, never in the address, with no credentials", async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const out = await sendLinkAction("confirm", TOKEN, "https://camptribe.eu/api", async (url, init) => {
+      calls.push({ url, init });
+      return new Response("{}", { status: 200 });
+    });
+    expect(out).toBe("done");
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe("https://camptribe.eu/api/newsletter/confirm");
+    expect(calls[0].url).not.toContain(TOKEN);
+    expect(calls[0].init.method).toBe("POST");
+    expect(calls[0].init.credentials).toBe("omit");
+    expect(JSON.parse(String(calls[0].init.body))).toEqual({ token: TOKEN });
+    await sendLinkAction("unsubscribe", TOKEN, "https://camptribe.eu/api", async (url) => {
+      calls.push({ url, init: {} });
+      return new Response("{}", { status: 200 });
+    });
+    expect(calls[1].url).toBe("https://camptribe.eu/api/newsletter/unsubscribe");
+  });
+
+  test("an empty API address sends nothing; 400 is «invalid»; a network failure is «failed»", async () => {
+    let called = 0;
+    expect(await sendLinkAction("confirm", TOKEN, "", async () => { called += 1; return new Response("{}"); })).toBe("unavailable");
+    expect(called).toBe(0);
+    expect(interpretLink(400)).toBe("invalid");
+    expect(interpretLink(429)).toBe("throttled");
+    expect(interpretLink(503)).toBe("failed");
+    expect(await sendLinkAction("confirm", TOKEN, "https://x.example", async () => { throw new TypeError("n"); })).toBe("failed");
+  });
+
   const html = (state: NewsletterResult) => renderComponent(NewsletterResultView, { state });
 
-  test("🔴 each page says what the link did — and only that", () => {
-    expect(visibleText(html("confirmed"))).toContain("your address is confirmed");
+  test("🔴 each result says what the button did — and only that", () => {
     expect(visibleText(html("confirmed"))).toContain("You are subscribed");
     expect(visibleText(html("unsubscribed"))).toContain("You are unsubscribed");
     expect(visibleText(html("unsubscribed"))).toContain("we will not write to you again");
     const bad = visibleText(html("link-invalid"));
     expect(bad).toContain("This link does not work");
     expect(bad).toContain("Nothing was changed");
-    // a failed link must not claim a result it did not have
     expect(bad).not.toMatch(/You are subscribed|You are unsubscribed/);
   });
 
-  test("the pages that mention the privacy section or an address link to real ones", () => {
+  test("the results link to real places", () => {
     expect(html("confirmed")).toContain('href="/legal/privacy#newsletter"');
     expect(html("unsubscribed")).toContain('href="mailto:privacy@camptribe.eu"');
     expect(html("link-invalid")).toContain('href="mailto:hello@camptribe.eu"');
   });
 
-  test("🔴 «48 hours» on the dead-link page is the API's TTL", () => {
+  test("🔴 «48 hours» on the dead-link result is the API's TTL", () => {
     expect(API_SERVICE).toMatch(/CONFIRM_TTL_HOURS = 48\b/);
     expect(visibleText(html("link-invalid"))).toContain("works for 48 hours");
   });
 
-  test("all three pages are noindex, nofollow and send no referrer", () => {
-    for (const m of [confirmedMeta, unsubscribedMeta, invalidMeta]) {
+  test("both pages are noindex, nofollow and send no referrer", () => {
+    for (const m of [confirmMeta, unsubscribeMeta]) {
       expect(m.robots).toEqual({ index: false, follow: false });
       expect((m as { referrer?: string }).referrer).toBe("no-referrer");
     }
-    expect(confirmedMeta.title).toBe(RESULTS.confirmed.title);
-    expect(invalidMeta.title).toBe(RESULTS["link-invalid"].title);
+    expect(confirmMeta.title).toBe("Confirm your subscription");
+    expect(unsubscribeMeta.title).toBe("Unsubscribe");
   });
 
-  test("the redirects the API makes land on routes that exist", () => {
-    const controller = readFileSync(
-      join(__dirname, "../../../api/src/newsletter/newsletter.controller.ts"),
-      "utf8",
-    );
-    for (const page of ["confirmed", "unsubscribed", "link-invalid"]) {
-      expect(controller).toContain(`'${page}'`);
-      expect(
-        readFileSync(join(__dirname, `../../src/app/newsletter/${page}/page.tsx`), "utf8").length,
-      ).toBeGreaterThan(0);
-    }
+  test("🔴 the links in the letter point at these pages, and the API has no GET route for them", () => {
+    expect(API_SERVICE).toContain("${webBase}/newsletter/confirm?token=");
+    expect(API_SERVICE).toContain("${webBase}/newsletter/unsubscribe?token=");
+    const controller = readFileSync(join(__dirname, "../../../api/src/newsletter/newsletter.controller.ts"), "utf8");
+    expect(controller).not.toMatch(/@Get\(/);
+    expect(controller).toMatch(/@Post\('confirm'\)/);
+    expect(controller).toMatch(/@Post\('unsubscribe'\)/);
+    for (const page of ["confirm", "unsubscribe"])
+      expect(readFileSync(join(__dirname, `../../src/app/newsletter/${page}/page.tsx`), "utf8").length).toBeGreaterThan(0);
   });
 });
