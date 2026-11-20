@@ -173,3 +173,24 @@ test('the plain-text form carries every item and a checkbox', () => {
   }
   expect(text.split('[ ]').length - 1).toBe(countItems(list));
 });
+
+// 🔴 CAMP-458: winter insulates from the GROUND, not only from the air.
+test('winter in a tent: insulated mats and a foam pad under each', () => {
+  const cold = packingList({ ...base, vehicle: 'car-and-tent', season: 'cold' });
+  const sleeping = cold.find((g) => g.id === 'sleeping')!.items;
+  const mats = sleeping.find((i) => i.id === 'mats')!;
+  expect(mats.label).toMatch(/Insulated/);
+  expect(sleeping.map((i) => i.id)).toContain('foam');
+  const warm = packingList({ ...base, vehicle: 'car-and-tent', season: 'warm' });
+  const warmIds = warm.find((g) => g.id === 'sleeping')!.items.map((i) => i.id);
+  expect(warmIds).not.toContain('foam');
+  expect(warm.find((g) => g.id === 'sleeping')!.items.find((i) => i.id === 'mats')!.label).toBe('Sleeping mats');
+});
+
+test('winter in a camper: thermal screens for the cab, no tent mats', () => {
+  const ids = packingList({ ...base, vehicle: 'motorhome', season: 'cold' })
+    .find((g) => g.id === 'sleeping')!.items.map((i) => i.id);
+  expect(ids).toContain('screens');
+  expect(ids).not.toContain('foam');
+  expect(ids).not.toContain('mats');
+});
