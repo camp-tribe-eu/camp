@@ -125,3 +125,19 @@ test("rental picker: glass panel behind @supports, solid background otherwise", 
   expect(html).toMatch(/\.ct-pick\{[^}]*background-color:var\(--color-surface\)/);
   expect(html).toMatch(/@supports[^{]*backdrop-filter[^{]*\{\.ct-pick\{[^}]*backdrop-filter:blur\(/);
 });
+
+// CAMP-444 (ревʼю 444/24): кроки пронумеровані — 1 тип, 2 країна; номер
+// звучить словами для читача екрана, кружечок під aria-hidden.
+test("rental picker: numbered steps, spoken as words", () => {
+  const html = renderComponent(RentalPicker, {
+    heading: "Find a rental company",
+    submitLabel: "Show rental companies",
+    action: "/camper-rental/providers",
+    countries: [{ code: "DE", name: "Germany" }],
+    types: [{ slug: "van", name: "Campervan", position: 10 }],
+  });
+  const steps = [...html.matchAll(/class="ct-pick__step" aria-hidden="true">(\d)</g)].map((m) => m[1]);
+  expect(steps).toEqual(["1", "2"]);
+  expect(html.indexOf("Step 1: ")).toBeLessThan(html.indexOf("Vehicle type"));
+  expect(html.indexOf("Step 2: ")).toBeLessThan(html.indexOf("Pick-up country"));
+});
