@@ -1,5 +1,5 @@
 import { formatKm, STRAIGHT_LINE_LABEL } from '@/lib/routes';
-import type { RouteGeometryResult } from '@/lib/route-geometry';
+import type { RoadGeometry, RouteGeometryResult } from '@/lib/route-geometry';
 
 // CAMP-3 / CAMP-45 — the numbers at the top of a route page, including
 // the ones that are not there.
@@ -89,6 +89,22 @@ function MissingFigure({
   );
 }
 
+/**
+ * CAMP-457: what a road figure rests on. The vehicle is named because the
+ * figure is for THAT vehicle, and toll and ferry legs are named because a
+ * driver pays for them. Flags come from the engine, never from us.
+ */
+function roadNote(g: RoadGeometry): string {
+  let note = `Computed by ${g.engine}`;
+  if (g.vehicle) {
+    note += ` for a camper ${g.vehicle.heightM} m high, ${g.vehicle.lengthM} m long, ${g.vehicle.weightT} t`;
+  }
+  note += '.';
+  if (g.legs?.some((l) => l.hasToll)) note += ' Includes toll roads.';
+  if (g.legs?.some((l) => l.hasFerry)) note += ' Includes a ferry.';
+  return note;
+}
+
 export default function RouteFigures({
   days,
   nights,
@@ -127,7 +143,7 @@ export default function RouteFigures({
           <Figure
             label="Distance by road"
             value={formatKm(road.geometry.metres)}
-            note={`Computed by ${road.geometry.engine}.`}
+            note={roadNote(road.geometry)}
             testId="figure-road-distance"
           />
           <Figure

@@ -29,6 +29,11 @@
 // sentence saying why is a promise we can keep.
 //
 // ─────────────────────────────────────────────────────────────────────
+// 🔴 CAMP-457: THE SWITCH NOW EXISTS, AND IT IS OFF. `ValhallaRouteGeometry`
+// lives in route-geometry-valhalla.ts and is handed out only when
+// ROUTING_PROVIDER=valhalla and VALHALLA_URL are both set. The paragraph
+// below is the history of how it was meant to be done.
+//
 // 🔴 HOW TO SWITCH THIS ON — ONE LINE, AND IT IS NAMED.
 //
 // When Valhalla is running, write ONE implementation of
@@ -40,6 +45,8 @@
 // already prints the road distance and the driving time from the same
 // answer. There is no second call site and no second switch.
 // ─────────────────────────────────────────────────────────────────────
+
+import { ValhallaRouteGeometry } from './route-geometry-valhalla';
 
 /** One point on the ground. Order is (lat, lon) — as people write it. */
 export interface Waypoint {
@@ -65,6 +72,62 @@ export interface RoadGeometry {
   seconds: number;
   /** Which engine produced this, for the attribution line on the page. */
   engine: string;
+  /** Per stage-to-stage leg, when the engine says. CAMP-457. */
+  legs?: RoadLeg[];
+  /** The vehicle the road was computed for, so the page can say so. */
+  vehicle?: VehicleDims;
+}
+
+/** One leg between consecutive waypoints, with what the engine flagged on it. */
+export interface RoadLeg {
+  metres: number;
+  seconds: number;
+  hasToll: boolean;
+  hasFerry: boolean;
+  hasHighway: boolean;
+}
+
+/**
+ * A vehicle's size, in the units Valhalla's truck costing takes: metres and
+ * TONNES. 🔴 Always complete — see route-geometry-valhalla.ts for why a
+ * missing field is a refusal, not a default.
+ */
+export interface VehicleDims {
+  heightM: number;
+  widthM: number;
+  lengthM: number;
+  weightT: number;
+}
+
+/** What a reader's camper is assumed to be when they have told us nothing. */
+export const REFERENCE_CAMPER: VehicleDims = {
+  heightM: 3.2,
+  widthM: 2.3,
+  lengthM: 7.5,
+  weightT: 3.5,
+};
+
+/** Width the planner form does not ask for. */
+export const DEFAULT_WIDTH_M = 2.3;
+
+/**
+ * The planner form's vehicle fields (strings, as typed: metres, metres,
+ * tonnes) as dimensions. Empty or unreadable → undefined, never zero. Width is
+ * not on the form, so it is the default.
+ */
+export function vehicleFromDraft(v: {
+  height: string;
+  length: string;
+  weight: string;
+}): VehicleDims | undefined {
+  const n = (t: string) => Number(t.trim().replace(',', '.'));
+  const heightM = n(v.height);
+  const lengthM = n(v.length);
+  const weightT = n(v.weight);
+  if (![heightM, lengthM, weightT].every((x) => Number.isFinite(x) && x > 0)) {
+    return undefined;
+  }
+  return { heightM, widthM: DEFAULT_WIDTH_M, lengthM, weightT };
 }
 
 /**
@@ -120,13 +183,39 @@ export class NullRouteGeometry implements RouteGeometryProvider {
 }
 
 /**
+ * The words a page prints when the road engine was configured and failed.
+ * 🔴 One sentence, no engine names, and it says the distance on the page is
+ * the straight line — the fallback is shown as a fallback.
+ */
+export const ROAD_FALLBACK_REASON =
+  'Road distance is not shown: our road-routing service did not answer, so the only distance on this page is the straight line between the stops.';
+
+/**
  * The provider the whole site uses.
  *
- * 🔴 THE SINGLE WIRING CHANGE. Replace the `return` below with the real
- * provider and every route page gains its road line, its road distance
- * and its driving time. See the header of this file.
+ * 🔴 THE SINGLE SWITCH (CAMP-457). Valhalla only when BOTH
+ * `ROUTING_PROVIDER=valhalla` and a non-empty `VALHALLA_URL` are set;
+ * anything else is the honest nothing, exactly as before. `vehicle` defaults
+ * to the reference camper, never to Valhalla's lorry.
  */
-export function routeGeometryProvider(): RouteGeometryProvider {
+export function routeGeometryProvider(
+  opts: {
+    vehicle?: VehicleDims;
+    env?: Record<string, string | undefined>;
+    fetchImpl?: typeof fetch;
+    timeoutMs?: number;
+  } = {},
+): RouteGeometryProvider {
+  const env = opts.env ?? process.env;
+  const url = env.VALHALLA_URL?.trim();
+  if (env.ROUTING_PROVIDER?.trim() === 'valhalla' && url) {
+    return new ValhallaRouteGeometry({
+      baseUrl: url,
+      vehicle: opts.vehicle ?? REFERENCE_CAMPER,
+      fetchImpl: opts.fetchImpl,
+      timeoutMs: opts.timeoutMs,
+    });
+  }
   return new NullRouteGeometry();
 }
 
