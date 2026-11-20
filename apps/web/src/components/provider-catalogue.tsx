@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Checkbox from "./checkbox";
 import { SELECT_CHEVRON_ROOM, SelectChevron } from "./select-chevron";
+import { CamperTypeIcon } from "@/components/camper-type-icon";
 import { Flag } from "./flag";
 import MediaCards from "./media-card";
 import { countryName } from "@/lib/api";
@@ -302,12 +303,25 @@ export default function ProviderCatalogue({
                         <p data-testid="row-types">
                           {p.camperTypeSlugs.length > 0 ? (
                             <>
+                              {/* CAMP-444 (рішення власника 20.11): тип —
+                                  нашою іконкою-силуетом, бо фото машин
+                                  компаній без договору не показуємо. Текст
+                                  лишається поруч: іконка aria-hidden. */}
                               types stated:{" "}
-                              {p.camperTypeSlugs
-                                .map((s) =>
-                                  camperTypeName(types, s).toLowerCase(),
-                                )
-                                .join(", ")}
+                              {p.camperTypeSlugs.map((s, i) => (
+                                <span
+                                  key={s}
+                                  className="me-3 inline-flex items-center gap-1 whitespace-nowrap"
+                                  data-camper-type={s}
+                                >
+                                  <CamperTypeIcon
+                                    slug={s}
+                                    className="h-4 w-8 shrink-0 text-heading"
+                                  />
+                                  {camperTypeName(types, s).toLowerCase()}
+                                  {i < p.camperTypeSlugs.length - 1 ? "," : ""}
+                                </span>
+                              )).flatMap((el, i) => (i === 0 ? [el] : [" ", el]))}
                               {p.untypedVehicleCount > 0 && (
                                 <>
                                   {" "}
