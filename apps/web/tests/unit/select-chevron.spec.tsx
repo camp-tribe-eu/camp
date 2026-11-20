@@ -69,9 +69,59 @@ test("🔴 rental picker: every select is the theme select — own chevron, room
     countries: [{ code: "DE", name: "Germany" }],
     types: TYPES,
   });
-  expect(chevronAfterEverySelect(html).length).toBe(2);
+  // CAMP-444: тип — плитками з іконками, тож селект лишився один (країна).
+  expect(chevronAfterEverySelect(html).length).toBe(1);
   const rule = /\.ct-pick__select\{([^}]*)\}/.exec(html)?.[1] ?? "";
   expect(rule, "picker stylesheet not rendered").not.toBe("");
   expect(rule).toMatch(/(^|;)appearance:none/);
   expect(rule).toMatch(/padding:0 40px 0 12px/);
+});
+
+// 🔴 CAMP-444 (ревʼю 444/9–10): тип кемпера — плитками з нашою іконкою,
+// справжніми радіокнопками з імʼям `type` (те саме, що в селекта), «Any
+// type» обрано за замовчуванням, і кожен тип має СВОЮ іконку.
+test("🔴 rental picker: vehicle type is a group of icon tiles over real radios named `type`", () => {
+  const types = [
+    { slug: "van", name: "Campervan", position: 10 },
+    { slug: "caravan", name: "Caravan", position: 50 },
+  ];
+  const html = renderComponent(RentalPicker, {
+    heading: "Find a rental company",
+    submitLabel: "Show rental companies",
+    action: "/camper-rental/providers",
+    countries: [{ code: "DE", name: "Germany" }],
+    types,
+  });
+  const group = /<fieldset\b[^>]*data-testid="picker-type"[\s\S]*?<\/fieldset>/.exec(html)?.[0] ?? "";
+  expect(group, "no type fieldset").not.toBe("");
+  expect(group).toContain("<legend");
+  const radios = [...group.matchAll(/<input\b([^>]*)>/g)].map((m) => m[1]);
+  expect(radios).toHaveLength(types.length + 1);
+  for (const r of radios) {
+    expect(r).toContain('type="radio"');
+    expect(r).toContain('name="type"');
+  }
+  expect(radios[0]).toContain('value=""');
+  expect(radios[0]).toMatch(/checked/);
+  for (const t of types) {
+    expect(group, `${t.slug} icon`).toMatch(
+      new RegExp(`data-camper-type="${t.slug}"[^>]*>\\s*<svg[^>]*data-camper-icon="${t.slug}"`),
+    );
+    expect(group).toContain(t.name);
+  }
+  expect(html, "no type <select> left behind").not.toMatch(/<select[^>]*name="type"/);
+});
+
+// CAMP-444 (ревʼю 444/25): «glass» — розмиття під панеллю там, де браузер
+// його вміє, і суцільний фон як запасний варіант (правило за @supports).
+test("rental picker: glass panel behind @supports, solid background otherwise", () => {
+  const html = renderComponent(RentalPicker, {
+    heading: "Find a rental company",
+    submitLabel: "Show rental companies",
+    action: "/camper-rental/providers",
+    countries: [{ code: "DE", name: "Germany" }],
+    types: [{ slug: "van", name: "Campervan", position: 10 }],
+  });
+  expect(html).toMatch(/\.ct-pick\{[^}]*background-color:var\(--color-surface\)/);
+  expect(html).toMatch(/@supports[^{]*backdrop-filter[^{]*\{\.ct-pick\{[^}]*backdrop-filter:blur\(/);
 });
