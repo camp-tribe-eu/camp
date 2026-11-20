@@ -7,6 +7,7 @@ import { FUEL, isStale, longDate, ranked } from '@/lib/fuel';
 import { abs, jsonLdProps } from '@/lib/jsonld';
 import { alternatesFor } from '@/lib/i18n';
 import { Block } from '@/components/layout';
+import { ProviderNotice } from '@/components/provider-notice';
 
 // CAMP-55 — "how much does a camper trip cost".
 //
@@ -138,6 +139,7 @@ export default function TripCostPage() {
           historical until this page is refreshed.
         </Block>
       )}
+      <ProviderNotice />
 
       <TripCostCalculator />
 
