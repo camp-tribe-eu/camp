@@ -17,6 +17,8 @@ import type { CuratedRoute } from "./route-types";
 import {
   formatKm,
   routeGeometryProvider,
+  ROAD_FALLBACK_REASON,
+  type VehicleDims,
   straightLineLegs,
   type RouteGeometryResult,
 } from "./route-geometry";
@@ -320,9 +322,24 @@ export interface RouteMeasurements {
  */
 export async function measureRoute(
   route: CuratedRoute,
+  vehicle?: VehicleDims,
 ): Promise<RouteMeasurements> {
   const { legs, total } = straightLineLegs(route.stages);
-  const road = await routeGeometryProvider().road(route.stages);
+  const provider = routeGeometryProvider({ vehicle });
+  let road: RouteGeometryResult;
+  try {
+    road = await provider.road(route.stages);
+  } catch (e) {
+    // 🔴 CAMP-457: a configured engine that fails costs THIS page its road
+    // figures, never the build and never an honest page. The page falls back
+    // to the straight line and says so; it does not draw one as a drive.
+    console.warn(
+      `[road] ${provider.id} failed for ${route.slug}: ${(e as Error).name}${
+        (e as { kind?: string }).kind ? `/${(e as { kind?: string }).kind}` : ''
+      }`,
+    );
+    road = { available: false, reason: ROAD_FALLBACK_REASON };
+  }
   return {
     legs,
     straightLineTotal: total,
