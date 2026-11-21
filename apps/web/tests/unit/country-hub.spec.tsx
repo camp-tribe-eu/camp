@@ -19,6 +19,7 @@ import RegionPageN from '@/app/camping/[country]/[region]/page/[n]/page';
 import { Pagination, paginationParts } from '@/components/pagination';
 import { readRegionCards, regionCountLabel, RegionTiles } from '@/components/region-tiles';
 import { HubStatTiles } from '@/components/hub-stats';
+import { coatFor } from '@/components/region-emblem';
 import CountryMap, { circleRadius } from '@/components/country-map';
 import { pickTickerRegions } from '@/components/region-ticker';
 import { renderAsyncComponent, renderComponent, renderNestedAsync, rendersNothing } from './render-component';
@@ -226,14 +227,17 @@ test('картки — всі регіони, і кожна веде на сто
   for (const r of REGIONS) {
     expect(cardLinkAt(html, r.slug), `картки /camping/si/${r.slug} немає`).toBeGreaterThan(-1);
   }
-  // CAMP-441: прапор країни більше НЕ зображення картки регіону.
-  expect(html).not.toContain('/flags/si.svg');
+  // CAMP-441: прапор країни НЕ зображення картки регіону. Він може стояти
+  // лише як знак біля назви (`ct-emblem`), ніколи в рамці зображення.
+  for (const wrapper of html.match(/<span class="ct-rtile__image-wrapper">[\s\S]*?<\/span>/g) ?? []) {
+    expect(wrapper).not.toContain('/flags/');
+  }
 });
 
 test('RegionTiles без жодного регіону не малює нічого; readRegionCards обрізає пробіли', () => {
   expect(rendersNothing(RegionTiles, { country: 'si', regions: [] })).toBe(true);
   expect(readRegionCards([{ region: ' Bled ', slug: ' bled ', spots: 2 }])).toEqual([
-    { region: 'Bled', slug: 'bled', spots: 2 },
+    { region: 'Bled', slug: 'bled', spots: 2, iso: null },
   ]);
   expect(regionCountLabel(1)).toBe('1 campsite');
   expect(regionCountLabel(1250)).toBe('1,250 campsites');
@@ -543,7 +547,11 @@ test('🔴 картка регіону має СВОЮ мінікарту з й�
     expect(card, slug).toContain('See campsites');
   }
   expect(cardCount(html)).toBe(REGIONS.length);
-  expect(html).not.toContain('class="ct-flag"');
+  // CAMP-441: прапор тепер стоїть біля назви як знак-запас, але ніколи не в рамці картинки.
+  expect(cardHtml(html, 'kranj')).toContain('data-emblem="flag"');
+  for (const wrapper of html.match(/<span class="ct-rtile__image-wrapper">[\s\S]*?<\/span>/g) ?? []) {
+    expect(wrapper).not.toContain('ct-flag');
+  }
 });
 
 test('🔴 зіпсовані координати коштують одного регіону: нечислові точки пропущено, решта малюється, сторінка стоїть', async () => {
@@ -612,4 +620,48 @@ test('🔴 сортування й фільтр регіонів: порядок
   // Фільтр «2+» ховає ЛИШЕ регіон із одним кемпінгом — і не прибирає його з документа.
   expect(html.match(/<li[^>]*class="ct-rtiles__col"[^>]*data-single=""/g)).toHaveLength(1);
   expect(html.match(/<li[^>]*data-single=""[^>]*>[\s\S]*?<\/li>/)![0]).toContain('/camping/si/koper');
+});
+
+
+// ── CAMP-441: герб біля назви, інакше прапор країни ─────────────────────────
+
+/** Jesenice має чистий герб (CC0) у `data/coats.json`; Gorenjska — код, якого там немає. */
+const WITH_ISO = [
+  { region: 'Jesenice', slug: 'jesenice', spots: 12, indexable: true, iso3166_2: 'SI-041' },
+  { region: 'Gorenjska', slug: 'gorenjska', spots: 30, indexable: true, iso3166_2: 'SI-999' },
+  { region: 'Koper', slug: 'koper', spots: 1, indexable: false, iso3166_2: null },
+  { region: 'Celje', slug: 'celje', spots: 7, indexable: true },
+  { region: 'Kranj', slug: 'kranj', spots: 40, indexable: true, iso3166_2: 'constructor' },
+];
+
+test('🔴 регіон із чистим гербом показує герб; решта — прапор країни; мінікарта нікуди не ділась', async () => {
+  const html = await countryHtml(WITH_ISO, { jesenice: [marker(46.43, 14.05), marker(46.44, 14.06)] });
+  const jesenice = cardHtml(html, 'jesenice');
+  expect(jesenice).toContain('data-emblem="coat"');
+  expect(jesenice).toMatch(/<img class="ct-coat" src="\/coats\/si-041\.svg" alt=""/);
+  expect(jesenice).not.toContain('/flags/');
+  // Мінікарта лишилась на тій самій картці.
+  expect(jesenice).toContain('ct-rtile__image-wrapper');
+  expect(jesenice).toContain('ct-art__dots');
+  for (const slug of ['gorenjska', 'koper', 'celje', 'kranj']) {
+    const card = cardHtml(html, slug);
+    expect(card, slug).toContain('data-emblem="flag"');
+    expect(card, slug).toContain('src="/flags/si.svg"');
+    expect(card, slug).not.toContain('/coats/');
+  }
+  // Назва стоїть поруч словами: знак німий для читача екрана.
+  expect(visibleText(jesenice)).toContain('Jesenice');
+  expect(html.match(/<img class="ct-coat"/g)).toHaveLength(1);
+});
+
+test('🔴 файл герба, названий манифестом, справді існує на диску, і код-не-код (`constructor`) герба не дає', async () => {
+  const { existsSync, readFileSync } = await import('node:fs');
+  const coats = JSON.parse(readFileSync('src/data/coats.json', 'utf8')) as Record<string, unknown>;
+  const entry = coatFor('SI-041');
+  expect(entry?.file).toBe('/coats/si-041.svg');
+  expect(existsSync(`public${entry!.file}`)).toBe(true);
+  expect(coatFor('constructor')).toBeNull();
+  expect(coatFor('__proto__')).toBeNull();
+  expect(coatFor(null)).toBeNull();
+  expect(Object.keys(coats).length).toBeGreaterThan(50);
 });

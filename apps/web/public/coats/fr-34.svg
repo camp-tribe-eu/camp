@@ -1,0 +1,29 @@
+<svg width="600" height="660" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<defs>
+<radialGradient id="sheen" cx="221" cy="226" fx="221" fy="226" r="300" gradientTransform="matrix(1.353218,0,0,1.348928,-77,-85)" gradientUnits="userSpaceOnUse">
+<stop stop-color="#FFF" stop-opacity=".31"/>
+<stop offset="0.19" stop-color="#FFF" stop-opacity=".25"/>
+<stop offset="0.6" stop-color="#6B6B6B" stop-opacity=".13"/>
+<stop offset="1" stop-color="#000" stop-opacity=".13"/>
+</radialGradient>
+</defs>
+<g fill="#FFF">
+<path id="shield" d="M1.5 1.5h597V280A570 445 0 0 1 300 658.5 570 445 0 0 1 1.5 280Z"/>
+</g>
+<g transform="translate(300,305)">
+<circle r="228.69" fill="#E20909" stroke="#000" stroke-width="3.5"/>
+<g fill="#FCEF3C" stroke="#000" stroke-width="2.45">
+<path d="M18.25-183.64A32 35.4 0 0 0 76-168.2L96.95-156A215 215 0 0 0 31.1-31.1 215 215 0 0 0 157-96.95L168.2-76a35.4 32 0 0 0 15.44 57.75v36.5A35.4 32 0 0 0 168.2 76L156 96.95A215 215 0 0 0 31.1 31.1 215 215 0 0 0 96.95 156L76 168.2a32 35.4 0 0 0-57.75 15.44h-36.5A32 35.4 0 0 0-76 168.2L-96.95 157A215 215 0 0 0-31.1 31.1 215 215 0 0 0-156 96.95L-168.2 76a35.4 32 0 0 0-15.44-57.75v-36.5A35.4 32 0 0 0-168.2-76L-157-96.95A215 215 0 0 0-31.1-31.1 215 215 0 0 0-96.95-157L-76-168.2a32 35.4 0 0 0 57.75-15.44ZM0-165.88a52 52 0 0 1-46.08 34.12A225 225 0 0 1-6.25-6.25 225 225 0 0 1-131.76-46.08 52 52 0 0 1-165.88.65a52 52 0 0 1 34.12 45.43A225 225 0 0 1-6.25 6.25 225 225 0 0 1-46.08 131.76 52 52 0 0 1 .61 165.88a52 52 0 0 1 45.47-34.12A225 225 0 0 1 6.25 6.25 225 225 0 0 1 131.76 46.08 52 52 0 0 1 165.88.04a52 52 0 0 1-34.12-46.12A225 225 0 0 1 6.25-6.25 225 225 0 0 1 46.08-131.76 52 52 0 0 1 0-165.88Z"/>
+<g id="circles2">
+<g id="circles">
+<circle cx="-90.83" cy="157.2" r="20.63"/>
+<circle cy="181.56" r="20.63"/>
+<circle cx="90.83" cy="157.2" r="20.63"/>
+</g>
+<use xlink:href="#circles" transform="scale(1,-1)"/>
+</g>
+<use xlink:href="#circles2" transform="rotate(90)"/>
+</g>
+</g>
+<use xlink:href="#shield" fill="url(#sheen)" stroke="#000" stroke-width="3"/>
+</svg>

@@ -5,6 +5,7 @@ import type { CSSProperties } from "react";
 import type { DotMap } from "@/lib/mini-map";
 import { rankRegions } from "./country-panel";
 import { ArtStyle, RegionArt } from "./place-art";
+import { REGION_EMBLEM_CSS, RegionEmblem } from "./region-emblem";
 
 /**
  * Картки регіонів на сторінці країни — CAMP-451.
@@ -24,6 +25,11 @@ import { ArtStyle, RegionArt } from "./place-art";
  * на другому екрані). Зображення картки — мінікарта її кемпінгів,
  * намальована з наших координат (lib/mini-map.ts, place-art.tsx). Регіон
  * без жодної координати має картку без зображення, не порожню.
+ *
+ * 🔴 ЗНАК БІЛЯ НАЗВИ (CAMP-441, рішення власника 20.11.2026): герб регіону,
+ * а де чистого файлу немає — прапор країни (`region-emblem.tsx`). Мінікарта
+ * лишається: герб не зображення місця, а знак біля імені. Герб ніколи не
+ * малюється.
  *
  * 🔴 КОЛОНКИ: 2 на телефоні, 4 від 768px — і це ЗА ЗАМОВЧУВАННЯМ ТОГО Ж
  * ПЕРЕМИКАЧА, що й картки кемпінгів (listing-panel.tsx: 1/2/3 і 3/4/5).
@@ -58,6 +64,8 @@ export interface RegionCard {
   slug: string;
   /** Ціле невід'ємне число з API, або `null` — число не дійшло. */
   spots: number | null;
+  /** ISO 3166-2 регіону з API (CAMP-441), або `null`: API без поля чи код неоднозначний. */
+  iso?: string | null;
 }
 
 const en = (n: number): string => n.toLocaleString("en-GB");
@@ -76,7 +84,11 @@ export function readRegionCard(raw: unknown): RegionCard | null {
     typeof r.spots === "number" && Number.isInteger(r.spots) && r.spots >= 0
       ? r.spots
       : null;
-  return { region: r.region.trim(), slug: r.slug.trim(), spots };
+  const iso =
+    typeof r.iso3166_2 === "string" && /^[A-Z]{2}-[A-Z0-9]{1,3}$/.test(r.iso3166_2)
+      ? r.iso3166_2
+      : null;
+  return { region: r.region.trim(), slug: r.slug.trim(), spots, iso };
 }
 
 /** Усі картки, у порядку API; зіпсовані рядки випадають поодинці. */
@@ -104,7 +116,8 @@ const REGION_TILES_CSS = `
 .ct-rtile__image-wrapper{position:relative;display:block;overflow:hidden;padding-top:56.4%;border-radius:calc(var(--r,16px) * .75);background-color:var(--color-surface)}
 .ct-rtile__image-wrapper .ct-art{transition:transform .4s ease-out}
 .ct-rtile__header{display:flex;flex:1 1 auto;flex-direction:column;padding:12px 12px 16px;word-wrap:break-word}
-.ct-rtile__title{font-weight:600;line-height:1.5;color:var(--color-heading)}
+.ct-rtile__title{display:flex;align-items:center;gap:.5em;font-weight:600;line-height:1.5;color:var(--color-heading)}
+${REGION_EMBLEM_CSS}
 .ct-rtile__count{font-size:.875rem;line-height:1.6;color:var(--color-ink-2)}
 .ct-rtile__link{margin-top:auto;padding-top:8px;align-self:flex-start;font-size:.875rem;font-weight:600;color:var(--color-heading);text-decoration:underline;text-decoration-color:transparent;transition:text-decoration-color .4s}
 a.ct-rtile:focus-visible{outline:2px solid var(--color-heading);outline-offset:2px}
@@ -162,7 +175,10 @@ export function RegionTiles({
                 </span>
               )}
               <span className="ct-rtile__header">
-                <span className="ct-rtile__title">{r.region}</span>
+                <span className="ct-rtile__title">
+                  <RegionEmblem iso={r.iso} country={country} />
+                  <span>{r.region}</span>
+                </span>
                 <span className="ct-rtile__count">{regionCountLabel(r.spots)}</span>
                 <span className="ct-rtile__link">See campsites</span>
               </span>

@@ -103,6 +103,16 @@ export async function GET() {
       "kind of landscape a page is about, not any particular campsite or " +
       "company, and must not be cited as evidence of what a place looks like.",
   );
+  // CAMP-441. The emblem beside a region's name is a coat of arms only when
+  // a Public domain / CC0 file exists; otherwise the country flag. The guard
+  // scripts/images/check-coats.mjs fails CI if coats are served and this
+  // sentence or the sources route is missing.
+  lines.push(
+    "- **Region emblems are coats of arms or flags.** A coat of arms is " +
+      "a Public domain or CC0 file from Wikimedia Commons, never drawn or " +
+      "generated; where there is none, the country flag stands in. " +
+      `Sources per file: ${SITE}/coats/sources.json (JSON)`,
+  );
   lines.push(
     "- **No reviews and no ratings.** There is no rating data on this " +
       "site to cite, in any form.",

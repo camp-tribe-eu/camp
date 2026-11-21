@@ -1,0 +1,3160 @@
+{
+ "_about": "Region -> ISO 3166-2 pairs the site can show a coat for. Read from production: campsite region joined to ne_admin1 by name + country. Excluded: Cyprus (not published), codes that ne_admin1 gives to more than one region name (ambiguous), names with two different codes. See scripts/images/fetch-coats.mjs header for the query.",
+ "generatedOn": "2026-11-20",
+ "ambiguous": {
+  "IE-D": [
+   "Fingal",
+   "South Dublin"
+  ],
+  "IE-TA": [
+   "North Tipperary",
+   "South Tipperary"
+  ],
+  "LV-REZ": [
+   "Rezekne",
+   "Rezeknes"
+  ]
+ },
+ "regions": {
+  "AT-1": {
+   "country": "AT",
+   "region": "Burgenland"
+  },
+  "AT-2": {
+   "country": "AT",
+   "region": "Kärnten"
+  },
+  "AT-3": {
+   "country": "AT",
+   "region": "Niederösterreich"
+  },
+  "AT-4": {
+   "country": "AT",
+   "region": "Oberösterreich"
+  },
+  "AT-5": {
+   "country": "AT",
+   "region": "Salzburg"
+  },
+  "AT-6": {
+   "country": "AT",
+   "region": "Steiermark"
+  },
+  "AT-7": {
+   "country": "AT",
+   "region": "Tirol"
+  },
+  "AT-8": {
+   "country": "AT",
+   "region": "Vorarlberg"
+  },
+  "AT-9": {
+   "country": "AT",
+   "region": "Wien"
+  },
+  "AX-X04~": {
+   "country": "AX",
+   "region": "Eckerö"
+  },
+  "AX-X09~": {
+   "country": "AX",
+   "region": "Mariehamn"
+  },
+  "AX-X11~": {
+   "country": "AX",
+   "region": "Lumparland"
+  },
+  "AX-X12~": {
+   "country": "AX",
+   "region": "Vårdö"
+  },
+  "AX-X15~": {
+   "country": "AX",
+   "region": "Brändö"
+  },
+  "AX-X16~": {
+   "country": "AX",
+   "region": "Kökar"
+  },
+  "BE-BRU": {
+   "country": "BE",
+   "region": "Brussels"
+  },
+  "BE-VAN": {
+   "country": "BE",
+   "region": "Antwerp"
+  },
+  "BE-VBR": {
+   "country": "BE",
+   "region": "Flemish Brabant"
+  },
+  "BE-VLI": {
+   "country": "BE",
+   "region": "Limburg"
+  },
+  "BE-VOV": {
+   "country": "BE",
+   "region": "East Flanders"
+  },
+  "BE-VWV": {
+   "country": "BE",
+   "region": "West Flanders"
+  },
+  "BE-WBR": {
+   "country": "BE",
+   "region": "Walloon Brabant"
+  },
+  "BE-WHT": {
+   "country": "BE",
+   "region": "Hainaut"
+  },
+  "BE-WLG": {
+   "country": "BE",
+   "region": "Liege"
+  },
+  "BE-WLX": {
+   "country": "BE",
+   "region": "Luxembourg"
+  },
+  "BE-WNA": {
+   "country": "BE",
+   "region": "Namur"
+  },
+  "BG-01": {
+   "country": "BG",
+   "region": "Blagoevgrad"
+  },
+  "BG-02": {
+   "country": "BG",
+   "region": "Burgas"
+  },
+  "BG-03": {
+   "country": "BG",
+   "region": "Varna"
+  },
+  "BG-04": {
+   "country": "BG",
+   "region": "Veliko Tarnovo"
+  },
+  "BG-05": {
+   "country": "BG",
+   "region": "Vidin"
+  },
+  "BG-06": {
+   "country": "BG",
+   "region": "Vratsa"
+  },
+  "BG-07": {
+   "country": "BG",
+   "region": "Gabrovo"
+  },
+  "BG-08": {
+   "country": "BG",
+   "region": "Dobrich"
+  },
+  "BG-09": {
+   "country": "BG",
+   "region": "Kardzhali"
+  },
+  "BG-10": {
+   "country": "BG",
+   "region": "Kyustendil"
+  },
+  "BG-11": {
+   "country": "BG",
+   "region": "Lovech"
+  },
+  "BG-12": {
+   "country": "BG",
+   "region": "Montana"
+  },
+  "BG-13": {
+   "country": "BG",
+   "region": "Pazardzhik"
+  },
+  "BG-14": {
+   "country": "BG",
+   "region": "Pernik"
+  },
+  "BG-15": {
+   "country": "BG",
+   "region": "Pleven"
+  },
+  "BG-16": {
+   "country": "BG",
+   "region": "Plovdiv"
+  },
+  "BG-18": {
+   "country": "BG",
+   "region": "Ruse"
+  },
+  "BG-19": {
+   "country": "BG",
+   "region": "Silistra"
+  },
+  "BG-20": {
+   "country": "BG",
+   "region": "Sliven"
+  },
+  "BG-21": {
+   "country": "BG",
+   "region": "Smolyan"
+  },
+  "BG-22": {
+   "country": "BG",
+   "region": "Grad Sofiya"
+  },
+  "BG-23": {
+   "country": "BG",
+   "region": "Sofia"
+  },
+  "BG-24": {
+   "country": "BG",
+   "region": "Stara Zagora"
+  },
+  "BG-26": {
+   "country": "BG",
+   "region": "Haskovo"
+  },
+  "BG-27": {
+   "country": "BG",
+   "region": "Shumen"
+  },
+  "BG-28": {
+   "country": "BG",
+   "region": "Yambol"
+  },
+  "CZ-JC": {
+   "country": "CZ",
+   "region": "Jihočeský"
+  },
+  "CZ-JM": {
+   "country": "CZ",
+   "region": "Jihomoravský"
+  },
+  "CZ-KA": {
+   "country": "CZ",
+   "region": "Karlovarský"
+  },
+  "CZ-KR": {
+   "country": "CZ",
+   "region": "Královéhradecký"
+  },
+  "CZ-LI": {
+   "country": "CZ",
+   "region": "Liberecký"
+  },
+  "CZ-MO": {
+   "country": "CZ",
+   "region": "Moravskoslezský"
+  },
+  "CZ-OL": {
+   "country": "CZ",
+   "region": "Olomoucký"
+  },
+  "CZ-PA": {
+   "country": "CZ",
+   "region": "Pardubický"
+  },
+  "CZ-PL": {
+   "country": "CZ",
+   "region": "Plzeňský"
+  },
+  "CZ-PR": {
+   "country": "CZ",
+   "region": "Prague"
+  },
+  "CZ-ST": {
+   "country": "CZ",
+   "region": "Středočeský"
+  },
+  "CZ-US": {
+   "country": "CZ",
+   "region": "Ústecký"
+  },
+  "CZ-VY": {
+   "country": "CZ",
+   "region": "Vysočina"
+  },
+  "CZ-ZL": {
+   "country": "CZ",
+   "region": "Zlínský"
+  },
+  "DE-BB": {
+   "country": "DE",
+   "region": "Brandenburg"
+  },
+  "DE-BE": {
+   "country": "DE",
+   "region": "Berlin"
+  },
+  "DE-BW": {
+   "country": "DE",
+   "region": "Baden-Württemberg"
+  },
+  "DE-BY": {
+   "country": "DE",
+   "region": "Bayern"
+  },
+  "DE-HB": {
+   "country": "DE",
+   "region": "Bremen"
+  },
+  "DE-HE": {
+   "country": "DE",
+   "region": "Hessen"
+  },
+  "DE-HH": {
+   "country": "DE",
+   "region": "Hamburg"
+  },
+  "DE-MV": {
+   "country": "DE",
+   "region": "Mecklenburg-Vorpommern"
+  },
+  "DE-NI": {
+   "country": "DE",
+   "region": "Niedersachsen"
+  },
+  "DE-NW": {
+   "country": "DE",
+   "region": "Nordrhein-Westfalen"
+  },
+  "DE-RP": {
+   "country": "DE",
+   "region": "Rheinland-Pfalz"
+  },
+  "DE-SH": {
+   "country": "DE",
+   "region": "Schleswig-Holstein"
+  },
+  "DE-SL": {
+   "country": "DE",
+   "region": "Saarland"
+  },
+  "DE-SN": {
+   "country": "DE",
+   "region": "Sachsen"
+  },
+  "DE-ST": {
+   "country": "DE",
+   "region": "Sachsen-Anhalt"
+  },
+  "DE-TH": {
+   "country": "DE",
+   "region": "Thüringen"
+  },
+  "DK-81": {
+   "country": "DK",
+   "region": "Nordjylland"
+  },
+  "DK-82": {
+   "country": "DK",
+   "region": "Midtjylland"
+  },
+  "DK-83": {
+   "country": "DK",
+   "region": "Syddanmark"
+  },
+  "DK-84": {
+   "country": "DK",
+   "region": "Hovedstaden"
+  },
+  "DK-85": {
+   "country": "DK",
+   "region": "Sjaælland"
+  },
+  "EE-37": {
+   "country": "EE",
+   "region": "Harju"
+  },
+  "EE-39": {
+   "country": "EE",
+   "region": "Hiiu"
+  },
+  "EE-44": {
+   "country": "EE",
+   "region": "Ida-Viru"
+  },
+  "EE-49": {
+   "country": "EE",
+   "region": "Jõgeva"
+  },
+  "EE-51": {
+   "country": "EE",
+   "region": "Järva"
+  },
+  "EE-57": {
+   "country": "EE",
+   "region": "Lääne"
+  },
+  "EE-59": {
+   "country": "EE",
+   "region": "Lääne-Viru"
+  },
+  "EE-65": {
+   "country": "EE",
+   "region": "Põlva"
+  },
+  "EE-67": {
+   "country": "EE",
+   "region": "Pärnu"
+  },
+  "EE-70": {
+   "country": "EE",
+   "region": "Rapla"
+  },
+  "EE-74": {
+   "country": "EE",
+   "region": "Saare"
+  },
+  "EE-78": {
+   "country": "EE",
+   "region": "Tartu"
+  },
+  "EE-82": {
+   "country": "EE",
+   "region": "Valga"
+  },
+  "EE-84": {
+   "country": "EE",
+   "region": "Viljandi"
+  },
+  "EE-86": {
+   "country": "EE",
+   "region": "Võru"
+  },
+  "ES-A": {
+   "country": "ES",
+   "region": "Alicante"
+  },
+  "ES-AB": {
+   "country": "ES",
+   "region": "Albacete"
+  },
+  "ES-AL": {
+   "country": "ES",
+   "region": "Almería"
+  },
+  "ES-AV": {
+   "country": "ES",
+   "region": "Ávila"
+  },
+  "ES-B": {
+   "country": "ES",
+   "region": "Barcelona"
+  },
+  "ES-BA": {
+   "country": "ES",
+   "region": "Badajoz"
+  },
+  "ES-BI": {
+   "country": "ES",
+   "region": "Bizkaia"
+  },
+  "ES-BU": {
+   "country": "ES",
+   "region": "Burgos"
+  },
+  "ES-C": {
+   "country": "ES",
+   "region": "La Coruña"
+  },
+  "ES-CA": {
+   "country": "ES",
+   "region": "Cádiz"
+  },
+  "ES-CC": {
+   "country": "ES",
+   "region": "Cáceres"
+  },
+  "ES-CE": {
+   "country": "ES",
+   "region": "Ceuta"
+  },
+  "ES-CO": {
+   "country": "ES",
+   "region": "Córdoba"
+  },
+  "ES-CR": {
+   "country": "ES",
+   "region": "Ciudad Real"
+  },
+  "ES-CS": {
+   "country": "ES",
+   "region": "Castellón"
+  },
+  "ES-CU": {
+   "country": "ES",
+   "region": "Cuenca"
+  },
+  "ES-GI": {
+   "country": "ES",
+   "region": "Gerona"
+  },
+  "ES-GR": {
+   "country": "ES",
+   "region": "Granada"
+  },
+  "ES-GU": {
+   "country": "ES",
+   "region": "Guadalajara"
+  },
+  "ES-H": {
+   "country": "ES",
+   "region": "Huelva"
+  },
+  "ES-HU": {
+   "country": "ES",
+   "region": "Huesca"
+  },
+  "ES-J": {
+   "country": "ES",
+   "region": "Jaén"
+  },
+  "ES-L": {
+   "country": "ES",
+   "region": "Lérida"
+  },
+  "ES-LE": {
+   "country": "ES",
+   "region": "León"
+  },
+  "ES-LO": {
+   "country": "ES",
+   "region": "La Rioja"
+  },
+  "ES-LU": {
+   "country": "ES",
+   "region": "Lugo"
+  },
+  "ES-M": {
+   "country": "ES",
+   "region": "Madrid"
+  },
+  "ES-MA": {
+   "country": "ES",
+   "region": "Málaga"
+  },
+  "ES-MU": {
+   "country": "ES",
+   "region": "Murcia"
+  },
+  "ES-NA": {
+   "country": "ES",
+   "region": "Navarra"
+  },
+  "ES-O": {
+   "country": "ES",
+   "region": "Asturias"
+  },
+  "ES-OR": {
+   "country": "ES",
+   "region": "Orense"
+  },
+  "ES-P": {
+   "country": "ES",
+   "region": "Palencia"
+  },
+  "ES-PM": {
+   "country": "ES",
+   "region": "Baleares"
+  },
+  "ES-PO": {
+   "country": "ES",
+   "region": "Pontevedra"
+  },
+  "ES-S": {
+   "country": "ES",
+   "region": "Cantabria"
+  },
+  "ES-SA": {
+   "country": "ES",
+   "region": "Salamanca"
+  },
+  "ES-SE": {
+   "country": "ES",
+   "region": "Sevilla"
+  },
+  "ES-SG": {
+   "country": "ES",
+   "region": "Segovia"
+  },
+  "ES-SO": {
+   "country": "ES",
+   "region": "Soria"
+  },
+  "ES-SS": {
+   "country": "ES",
+   "region": "Gipuzkoa"
+  },
+  "ES-T": {
+   "country": "ES",
+   "region": "Tarragona"
+  },
+  "ES-TE": {
+   "country": "ES",
+   "region": "Teruel"
+  },
+  "ES-TO": {
+   "country": "ES",
+   "region": "Toledo"
+  },
+  "ES-V": {
+   "country": "ES",
+   "region": "Valencia"
+  },
+  "ES-VA": {
+   "country": "ES",
+   "region": "Valladolid"
+  },
+  "ES-VI": {
+   "country": "ES",
+   "region": "Álava"
+  },
+  "ES-Z": {
+   "country": "ES",
+   "region": "Zaragoza"
+  },
+  "ES-ZA": {
+   "country": "ES",
+   "region": "Zamora"
+  },
+  "FI-02": {
+   "country": "FI",
+   "region": "South Karelia"
+  },
+  "FI-03": {
+   "country": "FI",
+   "region": "Southern Ostrobothnia"
+  },
+  "FI-04": {
+   "country": "FI",
+   "region": "Southern Savonia"
+  },
+  "FI-05": {
+   "country": "FI",
+   "region": "Kainuu"
+  },
+  "FI-06": {
+   "country": "FI",
+   "region": "Tavastia Proper"
+  },
+  "FI-07": {
+   "country": "FI",
+   "region": "Central Ostrobothnia"
+  },
+  "FI-08": {
+   "country": "FI",
+   "region": "Central Finland"
+  },
+  "FI-09": {
+   "country": "FI",
+   "region": "Kymenlaakso"
+  },
+  "FI-10": {
+   "country": "FI",
+   "region": "Lapland"
+  },
+  "FI-11": {
+   "country": "FI",
+   "region": "Pirkanmaa"
+  },
+  "FI-12": {
+   "country": "FI",
+   "region": "Ostrobothnia"
+  },
+  "FI-13": {
+   "country": "FI",
+   "region": "North Karelia"
+  },
+  "FI-14": {
+   "country": "FI",
+   "region": "Northern Ostrobothnia"
+  },
+  "FI-15": {
+   "country": "FI",
+   "region": "Northern Savonia"
+  },
+  "FI-16": {
+   "country": "FI",
+   "region": "Päijät-Häme"
+  },
+  "FI-17": {
+   "country": "FI",
+   "region": "Satakunta"
+  },
+  "FI-18": {
+   "country": "FI",
+   "region": "Uusimaa"
+  },
+  "FI-19": {
+   "country": "FI",
+   "region": "Finland Proper"
+  },
+  "FR-01": {
+   "country": "FR",
+   "region": "Ain"
+  },
+  "FR-02": {
+   "country": "FR",
+   "region": "Aisne"
+  },
+  "FR-03": {
+   "country": "FR",
+   "region": "Allier"
+  },
+  "FR-04": {
+   "country": "FR",
+   "region": "Alpes-de-Haute-Provence"
+  },
+  "FR-05": {
+   "country": "FR",
+   "region": "Hautes-Alpes"
+  },
+  "FR-06": {
+   "country": "FR",
+   "region": "Alpes-Maritimes"
+  },
+  "FR-07": {
+   "country": "FR",
+   "region": "Ardèche"
+  },
+  "FR-08": {
+   "country": "FR",
+   "region": "Ardennes"
+  },
+  "FR-09": {
+   "country": "FR",
+   "region": "Ariège"
+  },
+  "FR-10": {
+   "country": "FR",
+   "region": "Aube"
+  },
+  "FR-11": {
+   "country": "FR",
+   "region": "Aude"
+  },
+  "FR-12": {
+   "country": "FR",
+   "region": "Aveyron"
+  },
+  "FR-13": {
+   "country": "FR",
+   "region": "Bouches-du-Rhône"
+  },
+  "FR-14": {
+   "country": "FR",
+   "region": "Calvados"
+  },
+  "FR-15": {
+   "country": "FR",
+   "region": "Cantal"
+  },
+  "FR-16": {
+   "country": "FR",
+   "region": "Charente"
+  },
+  "FR-17": {
+   "country": "FR",
+   "region": "Charente-Maritime"
+  },
+  "FR-18": {
+   "country": "FR",
+   "region": "Cher"
+  },
+  "FR-19": {
+   "country": "FR",
+   "region": "Corrèze"
+  },
+  "FR-21": {
+   "country": "FR",
+   "region": "Côte-d'Or"
+  },
+  "FR-22": {
+   "country": "FR",
+   "region": "Côtes-d'Armor"
+  },
+  "FR-23": {
+   "country": "FR",
+   "region": "Creuse"
+  },
+  "FR-24": {
+   "country": "FR",
+   "region": "Dordogne"
+  },
+  "FR-25": {
+   "country": "FR",
+   "region": "Doubs"
+  },
+  "FR-26": {
+   "country": "FR",
+   "region": "Drôme"
+  },
+  "FR-27": {
+   "country": "FR",
+   "region": "Eure"
+  },
+  "FR-28": {
+   "country": "FR",
+   "region": "Eure-et-Loir"
+  },
+  "FR-29": {
+   "country": "FR",
+   "region": "Finistère"
+  },
+  "FR-2A": {
+   "country": "FR",
+   "region": "Corse-du-Sud"
+  },
+  "FR-2B": {
+   "country": "FR",
+   "region": "Haute-Corse"
+  },
+  "FR-30": {
+   "country": "FR",
+   "region": "Gard"
+  },
+  "FR-31": {
+   "country": "FR",
+   "region": "Haute-Garonne"
+  },
+  "FR-32": {
+   "country": "FR",
+   "region": "Gers"
+  },
+  "FR-33": {
+   "country": "FR",
+   "region": "Gironde"
+  },
+  "FR-34": {
+   "country": "FR",
+   "region": "Hérault"
+  },
+  "FR-35": {
+   "country": "FR",
+   "region": "Ille-et-Vilaine"
+  },
+  "FR-36": {
+   "country": "FR",
+   "region": "Indre"
+  },
+  "FR-37": {
+   "country": "FR",
+   "region": "Indre-et-Loire"
+  },
+  "FR-38": {
+   "country": "FR",
+   "region": "Isère"
+  },
+  "FR-39": {
+   "country": "FR",
+   "region": "Jura"
+  },
+  "FR-40": {
+   "country": "FR",
+   "region": "Landes"
+  },
+  "FR-41": {
+   "country": "FR",
+   "region": "Loir-et-Cher"
+  },
+  "FR-42": {
+   "country": "FR",
+   "region": "Loire"
+  },
+  "FR-43": {
+   "country": "FR",
+   "region": "Haute-Loire"
+  },
+  "FR-44": {
+   "country": "FR",
+   "region": "Loire-Atlantique"
+  },
+  "FR-45": {
+   "country": "FR",
+   "region": "Loiret"
+  },
+  "FR-46": {
+   "country": "FR",
+   "region": "Lot"
+  },
+  "FR-47": {
+   "country": "FR",
+   "region": "Lot-et-Garonne"
+  },
+  "FR-48": {
+   "country": "FR",
+   "region": "Lozère"
+  },
+  "FR-49": {
+   "country": "FR",
+   "region": "Maine-et-Loire"
+  },
+  "FR-50": {
+   "country": "FR",
+   "region": "Manche"
+  },
+  "FR-51": {
+   "country": "FR",
+   "region": "Marne"
+  },
+  "FR-52": {
+   "country": "FR",
+   "region": "Haute-Marne"
+  },
+  "FR-53": {
+   "country": "FR",
+   "region": "Mayenne"
+  },
+  "FR-54": {
+   "country": "FR",
+   "region": "Meurthe-et-Moselle"
+  },
+  "FR-55": {
+   "country": "FR",
+   "region": "Meuse"
+  },
+  "FR-56": {
+   "country": "FR",
+   "region": "Morbihan"
+  },
+  "FR-57": {
+   "country": "FR",
+   "region": "Moselle"
+  },
+  "FR-58": {
+   "country": "FR",
+   "region": "Nièvre"
+  },
+  "FR-59": {
+   "country": "FR",
+   "region": "Nord"
+  },
+  "FR-60": {
+   "country": "FR",
+   "region": "Oise"
+  },
+  "FR-61": {
+   "country": "FR",
+   "region": "Orne"
+  },
+  "FR-62": {
+   "country": "FR",
+   "region": "Pas-de-Calais"
+  },
+  "FR-63": {
+   "country": "FR",
+   "region": "Puy-de-Dôme"
+  },
+  "FR-64": {
+   "country": "FR",
+   "region": "Pyrénées-Atlantiques"
+  },
+  "FR-65": {
+   "country": "FR",
+   "region": "Hautes-Pyrénées"
+  },
+  "FR-66": {
+   "country": "FR",
+   "region": "Pyrénées-Orientales"
+  },
+  "FR-67": {
+   "country": "FR",
+   "region": "Bas-Rhin"
+  },
+  "FR-68": {
+   "country": "FR",
+   "region": "Haute-Rhin"
+  },
+  "FR-69": {
+   "country": "FR",
+   "region": "Rhône"
+  },
+  "FR-70": {
+   "country": "FR",
+   "region": "Haute-Saône"
+  },
+  "FR-71": {
+   "country": "FR",
+   "region": "Saône-et-Loire"
+  },
+  "FR-72": {
+   "country": "FR",
+   "region": "Sarthe"
+  },
+  "FR-73": {
+   "country": "FR",
+   "region": "Savoie"
+  },
+  "FR-74": {
+   "country": "FR",
+   "region": "Haute-Savoie"
+  },
+  "FR-75": {
+   "country": "FR",
+   "region": "Paris"
+  },
+  "FR-76": {
+   "country": "FR",
+   "region": "Seine-Maritime"
+  },
+  "FR-77": {
+   "country": "FR",
+   "region": "Seien-et-Marne"
+  },
+  "FR-78": {
+   "country": "FR",
+   "region": "Yvelines"
+  },
+  "FR-79": {
+   "country": "FR",
+   "region": "Deux-Sèvres"
+  },
+  "FR-80": {
+   "country": "FR",
+   "region": "Somme"
+  },
+  "FR-81": {
+   "country": "FR",
+   "region": "Tarn"
+  },
+  "FR-82": {
+   "country": "FR",
+   "region": "Tarn-et-Garonne"
+  },
+  "FR-83": {
+   "country": "FR",
+   "region": "Var"
+  },
+  "FR-84": {
+   "country": "FR",
+   "region": "Vaucluse"
+  },
+  "FR-85": {
+   "country": "FR",
+   "region": "Vendée"
+  },
+  "FR-86": {
+   "country": "FR",
+   "region": "Vienne"
+  },
+  "FR-87": {
+   "country": "FR",
+   "region": "Haute-Vienne"
+  },
+  "FR-88": {
+   "country": "FR",
+   "region": "Vosges"
+  },
+  "FR-89": {
+   "country": "FR",
+   "region": "Yonne"
+  },
+  "FR-90": {
+   "country": "FR",
+   "region": "Territoire de Belfort"
+  },
+  "FR-91": {
+   "country": "FR",
+   "region": "Essonne"
+  },
+  "FR-93": {
+   "country": "FR",
+   "region": "Seine-Saint-Denis"
+  },
+  "FR-94": {
+   "country": "FR",
+   "region": "Val-de-Marne"
+  },
+  "FR-95": {
+   "country": "FR",
+   "region": "Val-d'Oise"
+  },
+  "GR-A": {
+   "country": "GR",
+   "region": "Anatoliki Makedonia kai Thraki"
+  },
+  "GR-A1": {
+   "country": "GR",
+   "region": "Attiki"
+  },
+  "GR-B": {
+   "country": "GR",
+   "region": "Kentriki Makedonia"
+  },
+  "GR-C": {
+   "country": "GR",
+   "region": "Dytiki Makedonia"
+  },
+  "GR-D": {
+   "country": "GR",
+   "region": "Ipeiros"
+  },
+  "GR-E": {
+   "country": "GR",
+   "region": "Thessalia"
+  },
+  "GR-F": {
+   "country": "GR",
+   "region": "Ionioi Nisoi"
+  },
+  "GR-G": {
+   "country": "GR",
+   "region": "Dytiki Ellada"
+  },
+  "GR-H": {
+   "country": "GR",
+   "region": "Stereá Elláda"
+  },
+  "GR-J": {
+   "country": "GR",
+   "region": "Peloponnisos"
+  },
+  "GR-K": {
+   "country": "GR",
+   "region": "Voreio Aigaio"
+  },
+  "GR-L": {
+   "country": "GR",
+   "region": "Notio Aigaio"
+  },
+  "GR-M": {
+   "country": "GR",
+   "region": "Kriti"
+  },
+  "HR-01": {
+   "country": "HR",
+   "region": "Zagrebacka"
+  },
+  "HR-02": {
+   "country": "HR",
+   "region": "Krapinsko-Zagorska"
+  },
+  "HR-03": {
+   "country": "HR",
+   "region": "Sisacko-Moslavacka"
+  },
+  "HR-04": {
+   "country": "HR",
+   "region": "Karlovacka"
+  },
+  "HR-05": {
+   "country": "HR",
+   "region": "Varaždinska"
+  },
+  "HR-06": {
+   "country": "HR",
+   "region": "Koprivničko-Križevačka"
+  },
+  "HR-07": {
+   "country": "HR",
+   "region": "Bjelovarsko-bilogorska"
+  },
+  "HR-08": {
+   "country": "HR",
+   "region": "Primorsko-Goranska"
+  },
+  "HR-09": {
+   "country": "HR",
+   "region": "Licko-Senjska"
+  },
+  "HR-10": {
+   "country": "HR",
+   "region": "Viroviticko-Podravska"
+  },
+  "HR-12": {
+   "country": "HR",
+   "region": "Brodsko-Posavska"
+  },
+  "HR-13": {
+   "country": "HR",
+   "region": "Zadarska"
+  },
+  "HR-14": {
+   "country": "HR",
+   "region": "Osjecko-Baranjska"
+  },
+  "HR-15": {
+   "country": "HR",
+   "region": "Šibensko-Kninska"
+  },
+  "HR-16": {
+   "country": "HR",
+   "region": "Vukovarsko-Srijemska"
+  },
+  "HR-17": {
+   "country": "HR",
+   "region": "Splitsko-Dalmatinska"
+  },
+  "HR-18": {
+   "country": "HR",
+   "region": "Istarska"
+  },
+  "HR-19": {
+   "country": "HR",
+   "region": "Dubrovacko-Neretvanska"
+  },
+  "HR-20": {
+   "country": "HR",
+   "region": "Medimurska"
+  },
+  "HR-21": {
+   "country": "HR",
+   "region": "Grad Zagreb"
+  },
+  "HU-BA": {
+   "country": "HU",
+   "region": "Baranya"
+  },
+  "HU-BC": {
+   "country": "HU",
+   "region": "Békéscsaba"
+  },
+  "HU-BE": {
+   "country": "HU",
+   "region": "Békés"
+  },
+  "HU-BK": {
+   "country": "HU",
+   "region": "Bács-Kiskun"
+  },
+  "HU-BU": {
+   "country": "HU",
+   "region": "Budapest"
+  },
+  "HU-BZ": {
+   "country": "HU",
+   "region": "Borsod-Abaúj-Zemplén"
+  },
+  "HU-CS": {
+   "country": "HU",
+   "region": "Csongrád"
+  },
+  "HU-DE": {
+   "country": "HU",
+   "region": "Debrecen"
+  },
+  "HU-DU": {
+   "country": "HU",
+   "region": "Dunaújváros"
+  },
+  "HU-ED": {
+   "country": "HU",
+   "region": "Érd"
+  },
+  "HU-EG": {
+   "country": "HU",
+   "region": "Eger"
+  },
+  "HU-FE": {
+   "country": "HU",
+   "region": "Fejér"
+  },
+  "HU-GS": {
+   "country": "HU",
+   "region": "Gyor-Moson-Sopron"
+  },
+  "HU-HB": {
+   "country": "HU",
+   "region": "Hajdú-Bihar"
+  },
+  "HU-HE": {
+   "country": "HU",
+   "region": "Heves"
+  },
+  "HU-JN": {
+   "country": "HU",
+   "region": "Jász-Nagykun-Szolnok"
+  },
+  "HU-KE": {
+   "country": "HU",
+   "region": "Komárom-Esztergom"
+  },
+  "HU-KM": {
+   "country": "HU",
+   "region": "Kecskemét"
+  },
+  "HU-KV": {
+   "country": "HU",
+   "region": "Kaposvár"
+  },
+  "HU-MI": {
+   "country": "HU",
+   "region": "Miskolc"
+  },
+  "HU-NK": {
+   "country": "HU",
+   "region": "Nagykanizsa"
+  },
+  "HU-NO": {
+   "country": "HU",
+   "region": "Nógrád"
+  },
+  "HU-NY": {
+   "country": "HU",
+   "region": "Nyíregyháza"
+  },
+  "HU-PE": {
+   "country": "HU",
+   "region": "Pest"
+  },
+  "HU-PS": {
+   "country": "HU",
+   "region": "Pécs"
+  },
+  "HU-SD": {
+   "country": "HU",
+   "region": "Szeged"
+  },
+  "HU-SF": {
+   "country": "HU",
+   "region": "Székesfehérvár"
+  },
+  "HU-SK": {
+   "country": "HU",
+   "region": "Szolnok"
+  },
+  "HU-SN": {
+   "country": "HU",
+   "region": "Sopron"
+  },
+  "HU-SO": {
+   "country": "HU",
+   "region": "Somogy"
+  },
+  "HU-SS": {
+   "country": "HU",
+   "region": "Szekszárd"
+  },
+  "HU-ST": {
+   "country": "HU",
+   "region": "Salgótarján"
+  },
+  "HU-SZ": {
+   "country": "HU",
+   "region": "Szabolcs-Szatmár-Bereg"
+  },
+  "HU-TB": {
+   "country": "HU",
+   "region": "Tatabánya"
+  },
+  "HU-TO": {
+   "country": "HU",
+   "region": "Tolna"
+  },
+  "HU-VA": {
+   "country": "HU",
+   "region": "Vas"
+  },
+  "HU-ZA": {
+   "country": "HU",
+   "region": "Zala"
+  },
+  "HU-ZE": {
+   "country": "HU",
+   "region": "Zalaegerszeg"
+  },
+  "IE-CE": {
+   "country": "IE",
+   "region": "Clare"
+  },
+  "IE-CN": {
+   "country": "IE",
+   "region": "Cavan"
+  },
+  "IE-CO": {
+   "country": "IE",
+   "region": "Cork"
+  },
+  "IE-CW": {
+   "country": "IE",
+   "region": "Carlow"
+  },
+  "IE-DL": {
+   "country": "IE",
+   "region": "Donegal"
+  },
+  "IE-G": {
+   "country": "IE",
+   "region": "Galway"
+  },
+  "IE-KE": {
+   "country": "IE",
+   "region": "Kildare"
+  },
+  "IE-KK": {
+   "country": "IE",
+   "region": "Kilkenny"
+  },
+  "IE-KY": {
+   "country": "IE",
+   "region": "Kerry"
+  },
+  "IE-LD": {
+   "country": "IE",
+   "region": "Longford"
+  },
+  "IE-LH": {
+   "country": "IE",
+   "region": "Louth"
+  },
+  "IE-LK": {
+   "country": "IE",
+   "region": "Limerick"
+  },
+  "IE-LM": {
+   "country": "IE",
+   "region": "Leitrim"
+  },
+  "IE-MH": {
+   "country": "IE",
+   "region": "Meath"
+  },
+  "IE-MO": {
+   "country": "IE",
+   "region": "Mayo"
+  },
+  "IE-OY": {
+   "country": "IE",
+   "region": "Offaly"
+  },
+  "IE-RN": {
+   "country": "IE",
+   "region": "Roscommon"
+  },
+  "IE-SO": {
+   "country": "IE",
+   "region": "Sligo"
+  },
+  "IE-WD": {
+   "country": "IE",
+   "region": "Waterford"
+  },
+  "IE-WH": {
+   "country": "IE",
+   "region": "Westmeath"
+  },
+  "IE-WW": {
+   "country": "IE",
+   "region": "Wicklow"
+  },
+  "IE-WX": {
+   "country": "IE",
+   "region": "Wexford"
+  },
+  "IT-AG": {
+   "country": "IT",
+   "region": "Agrigento"
+  },
+  "IT-AL": {
+   "country": "IT",
+   "region": "Alessandria"
+  },
+  "IT-AN": {
+   "country": "IT",
+   "region": "Ancona"
+  },
+  "IT-AO": {
+   "country": "IT",
+   "region": "Aoste"
+  },
+  "IT-AP": {
+   "country": "IT",
+   "region": "Ascoli Piceno"
+  },
+  "IT-AQ": {
+   "country": "IT",
+   "region": "L'Aquila"
+  },
+  "IT-AR": {
+   "country": "IT",
+   "region": "Arezzo"
+  },
+  "IT-AT": {
+   "country": "IT",
+   "region": "Asti"
+  },
+  "IT-AV": {
+   "country": "IT",
+   "region": "Avellino"
+  },
+  "IT-BA": {
+   "country": "IT",
+   "region": "Bari"
+  },
+  "IT-BG": {
+   "country": "IT",
+   "region": "Bergamo"
+  },
+  "IT-BI": {
+   "country": "IT",
+   "region": "Biella"
+  },
+  "IT-BL": {
+   "country": "IT",
+   "region": "Belluno"
+  },
+  "IT-BN": {
+   "country": "IT",
+   "region": "Benevento"
+  },
+  "IT-BO": {
+   "country": "IT",
+   "region": "Bologna"
+  },
+  "IT-BR": {
+   "country": "IT",
+   "region": "Brindisi"
+  },
+  "IT-BS": {
+   "country": "IT",
+   "region": "Brescia"
+  },
+  "IT-BT": {
+   "country": "IT",
+   "region": "Barletta-Andria Trani"
+  },
+  "IT-BZ": {
+   "country": "IT",
+   "region": "Bozen"
+  },
+  "IT-CA": {
+   "country": "IT",
+   "region": "Cagliari"
+  },
+  "IT-CB": {
+   "country": "IT",
+   "region": "Campobasso"
+  },
+  "IT-CE": {
+   "country": "IT",
+   "region": "Caserta"
+  },
+  "IT-CH": {
+   "country": "IT",
+   "region": "Chieti"
+  },
+  "IT-CI": {
+   "country": "IT",
+   "region": "Carbonia-Iglesias"
+  },
+  "IT-CL": {
+   "country": "IT",
+   "region": "Caltanissetta"
+  },
+  "IT-CN": {
+   "country": "IT",
+   "region": "Cuneo"
+  },
+  "IT-CO": {
+   "country": "IT",
+   "region": "Como"
+  },
+  "IT-CR": {
+   "country": "IT",
+   "region": "Cremona"
+  },
+  "IT-CS": {
+   "country": "IT",
+   "region": "Cosenza"
+  },
+  "IT-CT": {
+   "country": "IT",
+   "region": "Catania"
+  },
+  "IT-CZ": {
+   "country": "IT",
+   "region": "Catanzaro"
+  },
+  "IT-EN": {
+   "country": "IT",
+   "region": "Enna"
+  },
+  "IT-FC": {
+   "country": "IT",
+   "region": "Forlì-Cesena"
+  },
+  "IT-FE": {
+   "country": "IT",
+   "region": "Ferrara"
+  },
+  "IT-FG": {
+   "country": "IT",
+   "region": "Foggia"
+  },
+  "IT-FI": {
+   "country": "IT",
+   "region": "Firenze"
+  },
+  "IT-FM": {
+   "country": "IT",
+   "region": "Fermo"
+  },
+  "IT-FR": {
+   "country": "IT",
+   "region": "Frosinone"
+  },
+  "IT-GE": {
+   "country": "IT",
+   "region": "Genova"
+  },
+  "IT-GO": {
+   "country": "IT",
+   "region": "Gorizia"
+  },
+  "IT-GR": {
+   "country": "IT",
+   "region": "Grosseto"
+  },
+  "IT-IM": {
+   "country": "IT",
+   "region": "Imperia"
+  },
+  "IT-IS": {
+   "country": "IT",
+   "region": "Isernia"
+  },
+  "IT-LC": {
+   "country": "IT",
+   "region": "Lecco"
+  },
+  "IT-LE": {
+   "country": "IT",
+   "region": "Lecce"
+  },
+  "IT-LI": {
+   "country": "IT",
+   "region": "Livorno"
+  },
+  "IT-LO": {
+   "country": "IT",
+   "region": "Lodi"
+  },
+  "IT-LT": {
+   "country": "IT",
+   "region": "Latina"
+  },
+  "IT-LU": {
+   "country": "IT",
+   "region": "Lucca"
+  },
+  "IT-MB": {
+   "country": "IT",
+   "region": "Monza e Brianza"
+  },
+  "IT-MC": {
+   "country": "IT",
+   "region": "Macerata"
+  },
+  "IT-ME": {
+   "country": "IT",
+   "region": "Messina"
+  },
+  "IT-MI": {
+   "country": "IT",
+   "region": "Milano"
+  },
+  "IT-MN": {
+   "country": "IT",
+   "region": "Mantova"
+  },
+  "IT-MO": {
+   "country": "IT",
+   "region": "Modena"
+  },
+  "IT-MS": {
+   "country": "IT",
+   "region": "Massa-Carrara"
+  },
+  "IT-MT": {
+   "country": "IT",
+   "region": "Matera"
+  },
+  "IT-NA": {
+   "country": "IT",
+   "region": "Napoli"
+  },
+  "IT-NO": {
+   "country": "IT",
+   "region": "Novara"
+  },
+  "IT-NU": {
+   "country": "IT",
+   "region": "Nuoro"
+  },
+  "IT-OG": {
+   "country": "IT",
+   "region": "Ogliastra"
+  },
+  "IT-OR": {
+   "country": "IT",
+   "region": "Oristrano"
+  },
+  "IT-OT": {
+   "country": "IT",
+   "region": "Olbia-Tempio"
+  },
+  "IT-PA": {
+   "country": "IT",
+   "region": "Palermo"
+  },
+  "IT-PC": {
+   "country": "IT",
+   "region": "Piacenza"
+  },
+  "IT-PD": {
+   "country": "IT",
+   "region": "Padova"
+  },
+  "IT-PE": {
+   "country": "IT",
+   "region": "Pescara"
+  },
+  "IT-PG": {
+   "country": "IT",
+   "region": "Perugia"
+  },
+  "IT-PI": {
+   "country": "IT",
+   "region": "Pisa"
+  },
+  "IT-PN": {
+   "country": "IT",
+   "region": "Pordenone"
+  },
+  "IT-PO": {
+   "country": "IT",
+   "region": "Prato"
+  },
+  "IT-PR": {
+   "country": "IT",
+   "region": "Parma"
+  },
+  "IT-PT": {
+   "country": "IT",
+   "region": "Pistoia"
+  },
+  "IT-PU": {
+   "country": "IT",
+   "region": "Pesaro e Urbino"
+  },
+  "IT-PV": {
+   "country": "IT",
+   "region": "Pavia"
+  },
+  "IT-PZ": {
+   "country": "IT",
+   "region": "Potenza"
+  },
+  "IT-RA": {
+   "country": "IT",
+   "region": "Ravenna"
+  },
+  "IT-RC": {
+   "country": "IT",
+   "region": "Reggio Calabria"
+  },
+  "IT-RE": {
+   "country": "IT",
+   "region": "Reggio Emilia"
+  },
+  "IT-RG": {
+   "country": "IT",
+   "region": "Ragusa"
+  },
+  "IT-RI": {
+   "country": "IT",
+   "region": "Rieti"
+  },
+  "IT-RM": {
+   "country": "IT",
+   "region": "Roma"
+  },
+  "IT-RN": {
+   "country": "IT",
+   "region": "Rimini"
+  },
+  "IT-RO": {
+   "country": "IT",
+   "region": "Rovigo"
+  },
+  "IT-SA": {
+   "country": "IT",
+   "region": "Salerno"
+  },
+  "IT-SI": {
+   "country": "IT",
+   "region": "Siena"
+  },
+  "IT-SO": {
+   "country": "IT",
+   "region": "Sondrio"
+  },
+  "IT-SP": {
+   "country": "IT",
+   "region": "La Spezia"
+  },
+  "IT-SR": {
+   "country": "IT",
+   "region": "Siracusa"
+  },
+  "IT-SS": {
+   "country": "IT",
+   "region": "Sassari"
+  },
+  "IT-SV": {
+   "country": "IT",
+   "region": "Savona"
+  },
+  "IT-TA": {
+   "country": "IT",
+   "region": "Taranto"
+  },
+  "IT-TE": {
+   "country": "IT",
+   "region": "Teramo"
+  },
+  "IT-TN": {
+   "country": "IT",
+   "region": "Trento"
+  },
+  "IT-TO": {
+   "country": "IT",
+   "region": "Turin"
+  },
+  "IT-TP": {
+   "country": "IT",
+   "region": "Trapani"
+  },
+  "IT-TR": {
+   "country": "IT",
+   "region": "Terni"
+  },
+  "IT-TS": {
+   "country": "IT",
+   "region": "Trieste"
+  },
+  "IT-TV": {
+   "country": "IT",
+   "region": "Treviso"
+  },
+  "IT-UD": {
+   "country": "IT",
+   "region": "Udine"
+  },
+  "IT-VA": {
+   "country": "IT",
+   "region": "Varese"
+  },
+  "IT-VB": {
+   "country": "IT",
+   "region": "Verbano-Cusio-Ossola"
+  },
+  "IT-VC": {
+   "country": "IT",
+   "region": "Vercelli"
+  },
+  "IT-VE": {
+   "country": "IT",
+   "region": "Venezia"
+  },
+  "IT-VI": {
+   "country": "IT",
+   "region": "Vicenza"
+  },
+  "IT-VR": {
+   "country": "IT",
+   "region": "Verona"
+  },
+  "IT-VS": {
+   "country": "IT",
+   "region": "Medio Campidano"
+  },
+  "IT-VT": {
+   "country": "IT",
+   "region": "Viterbo"
+  },
+  "IT-VV": {
+   "country": "IT",
+   "region": "Vibo Valentia"
+  },
+  "LT-AL": {
+   "country": "LT",
+   "region": "Alytaus"
+  },
+  "LT-KL": {
+   "country": "LT",
+   "region": "Klaipedos"
+  },
+  "LT-KU": {
+   "country": "LT",
+   "region": "Kauno"
+  },
+  "LT-MR": {
+   "country": "LT",
+   "region": "Marijampoles"
+  },
+  "LT-PN": {
+   "country": "LT",
+   "region": "Panevezio"
+  },
+  "LT-SA": {
+   "country": "LT",
+   "region": "Šiauliai"
+  },
+  "LT-TA": {
+   "country": "LT",
+   "region": "Taurages"
+  },
+  "LT-TE": {
+   "country": "LT",
+   "region": "Telšiai"
+  },
+  "LT-UT": {
+   "country": "LT",
+   "region": "Utenos"
+  },
+  "LT-VL": {
+   "country": "LT",
+   "region": "Vilniaus"
+  },
+  "LU-D": {
+   "country": "LU",
+   "region": "Diekirch"
+  },
+  "LU-G": {
+   "country": "LU",
+   "region": "Grevenmacher"
+  },
+  "LU-L": {
+   "country": "LU",
+   "region": "Luxembourg"
+  },
+  "LV-001": {
+   "country": "LV",
+   "region": "Aglonas"
+  },
+  "LV-004": {
+   "country": "LV",
+   "region": "Aknistes"
+  },
+  "LV-005": {
+   "country": "LV",
+   "region": "Alojas"
+  },
+  "LV-007": {
+   "country": "LV",
+   "region": "Aluksne"
+  },
+  "LV-008": {
+   "country": "LV",
+   "region": "Amatas"
+  },
+  "LV-009": {
+   "country": "LV",
+   "region": "Apes"
+  },
+  "LV-011": {
+   "country": "LV",
+   "region": "Ādaži"
+  },
+  "LV-012": {
+   "country": "LV",
+   "region": "Babites"
+  },
+  "LV-016": {
+   "country": "LV",
+   "region": "Bauska"
+  },
+  "LV-017": {
+   "country": "LV",
+   "region": "Beverinas"
+  },
+  "LV-018": {
+   "country": "LV",
+   "region": "Brocenu"
+  },
+  "LV-019": {
+   "country": "LV",
+   "region": "Burtnieku"
+  },
+  "LV-020": {
+   "country": "LV",
+   "region": "Carnikavas"
+  },
+  "LV-024": {
+   "country": "LV",
+   "region": "Dagdas"
+  },
+  "LV-026": {
+   "country": "LV",
+   "region": "Dobele"
+  },
+  "LV-027": {
+   "country": "LV",
+   "region": "Dundagas"
+  },
+  "LV-029": {
+   "country": "LV",
+   "region": "Engures"
+  },
+  "LV-032": {
+   "country": "LV",
+   "region": "Grobinas"
+  },
+  "LV-033": {
+   "country": "LV",
+   "region": "Gulbene"
+  },
+  "LV-034": {
+   "country": "LV",
+   "region": "Iecavas"
+  },
+  "LV-035": {
+   "country": "LV",
+   "region": "Ikskiles"
+  },
+  "LV-037": {
+   "country": "LV",
+   "region": "Incukalna"
+  },
+  "LV-038": {
+   "country": "LV",
+   "region": "Jaunjelgavas"
+  },
+  "LV-040": {
+   "country": "LV",
+   "region": "Jaunpils"
+  },
+  "LV-043": {
+   "country": "LV",
+   "region": "Kandavas"
+  },
+  "LV-045": {
+   "country": "LV",
+   "region": "Kocenu"
+  },
+  "LV-047": {
+   "country": "LV",
+   "region": "Kraslavas"
+  },
+  "LV-048": {
+   "country": "LV",
+   "region": "Krimuldas"
+  },
+  "LV-050": {
+   "country": "LV",
+   "region": "Kuldigas"
+  },
+  "LV-051": {
+   "country": "LV",
+   "region": "Keguma"
+  },
+  "LV-052": {
+   "country": "LV",
+   "region": "Kekavas"
+  },
+  "LV-054": {
+   "country": "LV",
+   "region": "Limbaži"
+  },
+  "LV-056": {
+   "country": "LV",
+   "region": "Livanu"
+  },
+  "LV-057": {
+   "country": "LV",
+   "region": "Lubanas"
+  },
+  "LV-058": {
+   "country": "LV",
+   "region": "Ludzas"
+  },
+  "LV-059": {
+   "country": "LV",
+   "region": "Madona"
+  },
+  "LV-060": {
+   "country": "LV",
+   "region": "Mazsalacas"
+  },
+  "LV-062": {
+   "country": "LV",
+   "region": "Marupes"
+  },
+  "LV-063": {
+   "country": "LV",
+   "region": "Mersraga"
+  },
+  "LV-065": {
+   "country": "LV",
+   "region": "Neretas"
+  },
+  "LV-066": {
+   "country": "LV",
+   "region": "Nicas"
+  },
+  "LV-067": {
+   "country": "LV",
+   "region": "Ogre"
+  },
+  "LV-070": {
+   "country": "LV",
+   "region": "Pargaujas"
+  },
+  "LV-071": {
+   "country": "LV",
+   "region": "Pavilostas"
+  },
+  "LV-072": {
+   "country": "LV",
+   "region": "Plavinu"
+  },
+  "LV-073": {
+   "country": "LV",
+   "region": "Preilu"
+  },
+  "LV-075": {
+   "country": "LV",
+   "region": "Priekulu"
+  },
+  "LV-076": {
+   "country": "LV",
+   "region": "Raunas"
+  },
+  "LV-078": {
+   "country": "LV",
+   "region": "Riebinu"
+  },
+  "LV-079": {
+   "country": "LV",
+   "region": "Rojas"
+  },
+  "LV-081": {
+   "country": "LV",
+   "region": "Rucavas"
+  },
+  "LV-082": {
+   "country": "LV",
+   "region": "Rugaju"
+  },
+  "LV-085": {
+   "country": "LV",
+   "region": "Salacgrivas"
+  },
+  "LV-086": {
+   "country": "LV",
+   "region": "Salas"
+  },
+  "LV-088": {
+   "country": "LV",
+   "region": "Saldus"
+  },
+  "LV-089": {
+   "country": "LV",
+   "region": "Saulkrastu"
+  },
+  "LV-091": {
+   "country": "LV",
+   "region": "Siguldas"
+  },
+  "LV-093": {
+   "country": "LV",
+   "region": "Skrundas"
+  },
+  "LV-094": {
+   "country": "LV",
+   "region": "Smiltenes"
+  },
+  "LV-096": {
+   "country": "LV",
+   "region": "Strencu"
+  },
+  "LV-097": {
+   "country": "LV",
+   "region": "Talsi"
+  },
+  "LV-098": {
+   "country": "LV",
+   "region": "Tervetes"
+  },
+  "LV-099": {
+   "country": "LV",
+   "region": "Tukums"
+  },
+  "LV-100": {
+   "country": "LV",
+   "region": "Vainodes"
+  },
+  "LV-101": {
+   "country": "LV",
+   "region": "Valkas"
+  },
+  "LV-104": {
+   "country": "LV",
+   "region": "Vecpiebalgas"
+  },
+  "LV-107": {
+   "country": "LV",
+   "region": "Viesites"
+  },
+  "LV-108": {
+   "country": "LV",
+   "region": "Vilakas"
+  },
+  "LV-110": {
+   "country": "LV",
+   "region": "Zilupes"
+  },
+  "LV-DGV": {
+   "country": "LV",
+   "region": "Daugavpils"
+  },
+  "LV-JEL": {
+   "country": "LV",
+   "region": "Jelgava"
+  },
+  "LV-JKB": {
+   "country": "LV",
+   "region": "Jekabpils"
+  },
+  "LV-JUR": {
+   "country": "LV",
+   "region": "Jurmala"
+  },
+  "LV-LPX": {
+   "country": "LV",
+   "region": "Liepāja"
+  },
+  "LV-RIX": {
+   "country": "LV",
+   "region": "Riga"
+  },
+  "LV-VEN": {
+   "country": "LV",
+   "region": "Ventspils"
+  },
+  "MT-21": {
+   "country": "MT",
+   "region": "Kalkara"
+  },
+  "MT-27": {
+   "country": "MT",
+   "region": "Marsaskala"
+  },
+  "MT-30": {
+   "country": "MT",
+   "region": "Mellieħa"
+  },
+  "MT-32": {
+   "country": "MT",
+   "region": "Mosta"
+  },
+  "MT-37": {
+   "country": "MT",
+   "region": "Nadur"
+  },
+  "MT-40": {
+   "country": "MT",
+   "region": "Pembroke"
+  },
+  "MT-42": {
+   "country": "MT",
+   "region": "Qala"
+  },
+  "MT-50": {
+   "country": "MT",
+   "region": "San Lawrenz"
+  },
+  "MT-68": {
+   "country": "MT",
+   "region": "Żurrieq"
+  },
+  "NL-DR": {
+   "country": "NL",
+   "region": "Drenthe"
+  },
+  "NL-FL": {
+   "country": "NL",
+   "region": "Flevoland"
+  },
+  "NL-FR": {
+   "country": "NL",
+   "region": "Friesland"
+  },
+  "NL-GE": {
+   "country": "NL",
+   "region": "Gelderland"
+  },
+  "NL-GR": {
+   "country": "NL",
+   "region": "Groningen"
+  },
+  "NL-LI": {
+   "country": "NL",
+   "region": "Limburg"
+  },
+  "NL-NB": {
+   "country": "NL",
+   "region": "Noord-Brabant"
+  },
+  "NL-NH": {
+   "country": "NL",
+   "region": "Noord-Holland"
+  },
+  "NL-OV": {
+   "country": "NL",
+   "region": "Overijssel"
+  },
+  "NL-UT": {
+   "country": "NL",
+   "region": "Utrecht"
+  },
+  "NL-ZE": {
+   "country": "NL",
+   "region": "Zeeland"
+  },
+  "NL-ZH": {
+   "country": "NL",
+   "region": "Zuid-Holland"
+  },
+  "PL-DS": {
+   "country": "PL",
+   "region": "Lower Silesian"
+  },
+  "PL-KP": {
+   "country": "PL",
+   "region": "Kuyavian-Pomeranian"
+  },
+  "PL-LB": {
+   "country": "PL",
+   "region": "Lubusz"
+  },
+  "PL-LD": {
+   "country": "PL",
+   "region": "Łódź"
+  },
+  "PL-LU": {
+   "country": "PL",
+   "region": "Lublin"
+  },
+  "PL-MA": {
+   "country": "PL",
+   "region": "Lesser Poland"
+  },
+  "PL-MZ": {
+   "country": "PL",
+   "region": "Masovian"
+  },
+  "PL-OP": {
+   "country": "PL",
+   "region": "Opole"
+  },
+  "PL-PD": {
+   "country": "PL",
+   "region": "Podlachian"
+  },
+  "PL-PK": {
+   "country": "PL",
+   "region": "Subcarpathian"
+  },
+  "PL-PM": {
+   "country": "PL",
+   "region": "Pomeranian"
+  },
+  "PL-SK": {
+   "country": "PL",
+   "region": "Świętokrzyskie"
+  },
+  "PL-SL": {
+   "country": "PL",
+   "region": "Silesian"
+  },
+  "PL-WN": {
+   "country": "PL",
+   "region": "Warmian-Masurian"
+  },
+  "PL-WP": {
+   "country": "PL",
+   "region": "Greater Poland"
+  },
+  "PL-ZP": {
+   "country": "PL",
+   "region": "West Pomeranian"
+  },
+  "PT-01": {
+   "country": "PT",
+   "region": "Aveiro"
+  },
+  "PT-02": {
+   "country": "PT",
+   "region": "Beja"
+  },
+  "PT-03": {
+   "country": "PT",
+   "region": "Braga"
+  },
+  "PT-04": {
+   "country": "PT",
+   "region": "Bragança"
+  },
+  "PT-05": {
+   "country": "PT",
+   "region": "Castelo Branco"
+  },
+  "PT-06": {
+   "country": "PT",
+   "region": "Coimbra"
+  },
+  "PT-07": {
+   "country": "PT",
+   "region": "Évora"
+  },
+  "PT-08": {
+   "country": "PT",
+   "region": "Faro"
+  },
+  "PT-09": {
+   "country": "PT",
+   "region": "Guarda"
+  },
+  "PT-10": {
+   "country": "PT",
+   "region": "Leiria"
+  },
+  "PT-11": {
+   "country": "PT",
+   "region": "Lisboa"
+  },
+  "PT-12": {
+   "country": "PT",
+   "region": "Portalegre"
+  },
+  "PT-13": {
+   "country": "PT",
+   "region": "Porto"
+  },
+  "PT-14": {
+   "country": "PT",
+   "region": "Santarém"
+  },
+  "PT-15": {
+   "country": "PT",
+   "region": "Setúbal"
+  },
+  "PT-16": {
+   "country": "PT",
+   "region": "Viana do Castelo"
+  },
+  "PT-17": {
+   "country": "PT",
+   "region": "Vila Real"
+  },
+  "PT-18": {
+   "country": "PT",
+   "region": "Viseu"
+  },
+  "PT-20": {
+   "country": "PT",
+   "region": "Azores"
+  },
+  "PT-30": {
+   "country": "PT",
+   "region": "Madeira"
+  },
+  "RO-AB": {
+   "country": "RO",
+   "region": "Alba"
+  },
+  "RO-AG": {
+   "country": "RO",
+   "region": "Arges"
+  },
+  "RO-AR": {
+   "country": "RO",
+   "region": "Arad"
+  },
+  "RO-BC": {
+   "country": "RO",
+   "region": "Bacau"
+  },
+  "RO-BH": {
+   "country": "RO",
+   "region": "Bihor"
+  },
+  "RO-BN": {
+   "country": "RO",
+   "region": "Bistrita-Nasaud"
+  },
+  "RO-BR": {
+   "country": "RO",
+   "region": "Braila"
+  },
+  "RO-BT": {
+   "country": "RO",
+   "region": "Botosani"
+  },
+  "RO-BV": {
+   "country": "RO",
+   "region": "Brasov"
+  },
+  "RO-BZ": {
+   "country": "RO",
+   "region": "Buzau"
+  },
+  "RO-CJ": {
+   "country": "RO",
+   "region": "Cluj"
+  },
+  "RO-CL": {
+   "country": "RO",
+   "region": "Calarasi"
+  },
+  "RO-CS": {
+   "country": "RO",
+   "region": "Caras-Severin"
+  },
+  "RO-CT": {
+   "country": "RO",
+   "region": "Constanta"
+  },
+  "RO-CV": {
+   "country": "RO",
+   "region": "Covasna"
+  },
+  "RO-DB": {
+   "country": "RO",
+   "region": "Dâmbovita"
+  },
+  "RO-DJ": {
+   "country": "RO",
+   "region": "Dolj"
+  },
+  "RO-GJ": {
+   "country": "RO",
+   "region": "Gorj"
+  },
+  "RO-GL": {
+   "country": "RO",
+   "region": "Galati"
+  },
+  "RO-HD": {
+   "country": "RO",
+   "region": "Hunedoara"
+  },
+  "RO-HR": {
+   "country": "RO",
+   "region": "Harghita"
+  },
+  "RO-IF": {
+   "country": "RO",
+   "region": "Ilfov"
+  },
+  "RO-IS": {
+   "country": "RO",
+   "region": "Iasi"
+  },
+  "RO-MH": {
+   "country": "RO",
+   "region": "Mehedinti"
+  },
+  "RO-MM": {
+   "country": "RO",
+   "region": "Maramures"
+  },
+  "RO-MS": {
+   "country": "RO",
+   "region": "Mures"
+  },
+  "RO-NT": {
+   "country": "RO",
+   "region": "Neamt"
+  },
+  "RO-OT": {
+   "country": "RO",
+   "region": "Olt"
+  },
+  "RO-PH": {
+   "country": "RO",
+   "region": "Prahova"
+  },
+  "RO-SB": {
+   "country": "RO",
+   "region": "Sibiu"
+  },
+  "RO-SM": {
+   "country": "RO",
+   "region": "Satu Mare"
+  },
+  "RO-SV": {
+   "country": "RO",
+   "region": "Suceava"
+  },
+  "RO-TL": {
+   "country": "RO",
+   "region": "Tulcea"
+  },
+  "RO-TM": {
+   "country": "RO",
+   "region": "Timis"
+  },
+  "RO-TR": {
+   "country": "RO",
+   "region": "Teleorman"
+  },
+  "RO-VL": {
+   "country": "RO",
+   "region": "Vâlcea"
+  },
+  "RO-VN": {
+   "country": "RO",
+   "region": "Vrancea"
+  },
+  "SE-AB": {
+   "country": "SE",
+   "region": "Stockholm"
+  },
+  "SE-AC": {
+   "country": "SE",
+   "region": "Västerbotten"
+  },
+  "SE-BD": {
+   "country": "SE",
+   "region": "Norrbotten"
+  },
+  "SE-C": {
+   "country": "SE",
+   "region": "Uppsala"
+  },
+  "SE-D": {
+   "country": "SE",
+   "region": "Södermanland"
+  },
+  "SE-E": {
+   "country": "SE",
+   "region": "Östergötland"
+  },
+  "SE-F": {
+   "country": "SE",
+   "region": "Jönköping"
+  },
+  "SE-G": {
+   "country": "SE",
+   "region": "Kronoberg"
+  },
+  "SE-H": {
+   "country": "SE",
+   "region": "Kalmar"
+  },
+  "SE-I": {
+   "country": "SE",
+   "region": "Gotland"
+  },
+  "SE-K": {
+   "country": "SE",
+   "region": "Blekinge"
+  },
+  "SE-M": {
+   "country": "SE",
+   "region": "Skåne"
+  },
+  "SE-N": {
+   "country": "SE",
+   "region": "Halland"
+  },
+  "SE-O": {
+   "country": "SE",
+   "region": "Västra Götaland"
+  },
+  "SE-S": {
+   "country": "SE",
+   "region": "Värmland"
+  },
+  "SE-T": {
+   "country": "SE",
+   "region": "Orebro"
+  },
+  "SE-U": {
+   "country": "SE",
+   "region": "Västmanland"
+  },
+  "SE-W": {
+   "country": "SE",
+   "region": "Dalarna"
+  },
+  "SE-X": {
+   "country": "SE",
+   "region": "Gävleborg"
+  },
+  "SE-Y": {
+   "country": "SE",
+   "region": "Västernorrland"
+  },
+  "SE-Z": {
+   "country": "SE",
+   "region": "Jämtland"
+  },
+  "SI-001": {
+   "country": "SI",
+   "region": "Ajdovščina"
+  },
+  "SI-003": {
+   "country": "SI",
+   "region": "Bled"
+  },
+  "SI-004": {
+   "country": "SI",
+   "region": "Bohinj"
+  },
+  "SI-005": {
+   "country": "SI",
+   "region": "Borovnica"
+  },
+  "SI-006": {
+   "country": "SI",
+   "region": "Bovec"
+  },
+  "SI-007": {
+   "country": "SI",
+   "region": "Brda"
+  },
+  "SI-009": {
+   "country": "SI",
+   "region": "Brežice"
+  },
+  "SI-011": {
+   "country": "SI",
+   "region": "Celje"
+  },
+  "SI-013": {
+   "country": "SI",
+   "region": "Cerknica"
+  },
+  "SI-014": {
+   "country": "SI",
+   "region": "Cerkno"
+  },
+  "SI-017": {
+   "country": "SI",
+   "region": "Crnomelj"
+  },
+  "SI-019": {
+   "country": "SI",
+   "region": "Divaca"
+  },
+  "SI-021": {
+   "country": "SI",
+   "region": "Dobrova-Polhov Gradec"
+  },
+  "SI-022": {
+   "country": "SI",
+   "region": "Dol pri Ljubljani"
+  },
+  "SI-025": {
+   "country": "SI",
+   "region": "Dravograd"
+  },
+  "SI-026": {
+   "country": "SI",
+   "region": "Duplek"
+  },
+  "SI-029": {
+   "country": "SI",
+   "region": "Gornja Radgona"
+  },
+  "SI-030": {
+   "country": "SI",
+   "region": "Gornji Grad"
+  },
+  "SI-033": {
+   "country": "SI",
+   "region": "Šalovci"
+  },
+  "SI-035": {
+   "country": "SI",
+   "region": "Hrpelje-Kozina"
+  },
+  "SI-036": {
+   "country": "SI",
+   "region": "Idrija"
+  },
+  "SI-038": {
+   "country": "SI",
+   "region": "Ilirska Bistrica"
+  },
+  "SI-039": {
+   "country": "SI",
+   "region": "Ivancna Gorica"
+  },
+  "SI-040": {
+   "country": "SI",
+   "region": "Izola"
+  },
+  "SI-041": {
+   "country": "SI",
+   "region": "Jesenice"
+  },
+  "SI-043": {
+   "country": "SI",
+   "region": "Kamnik"
+  },
+  "SI-044": {
+   "country": "SI",
+   "region": "Kanal"
+  },
+  "SI-045": {
+   "country": "SI",
+   "region": "Kidricevo"
+  },
+  "SI-046": {
+   "country": "SI",
+   "region": "Kobarid"
+  },
+  "SI-048": {
+   "country": "SI",
+   "region": "Kocevje"
+  },
+  "SI-049": {
+   "country": "SI",
+   "region": "Komen"
+  },
+  "SI-050": {
+   "country": "SI",
+   "region": "Koper"
+  },
+  "SI-051": {
+   "country": "SI",
+   "region": "Kozje"
+  },
+  "SI-052": {
+   "country": "SI",
+   "region": "Kranj"
+  },
+  "SI-053": {
+   "country": "SI",
+   "region": "Kranjska Gora"
+  },
+  "SI-054": {
+   "country": "SI",
+   "region": "Krško"
+  },
+  "SI-059": {
+   "country": "SI",
+   "region": "Lendava"
+  },
+  "SI-061": {
+   "country": "SI",
+   "region": "Ljubljana"
+  },
+  "SI-062": {
+   "country": "SI",
+   "region": "Ljubno"
+  },
+  "SI-063": {
+   "country": "SI",
+   "region": "Ljutomer"
+  },
+  "SI-064": {
+   "country": "SI",
+   "region": "Logatec"
+  },
+  "SI-065": {
+   "country": "SI",
+   "region": "Loška dolina"
+  },
+  "SI-067": {
+   "country": "SI",
+   "region": "Luce"
+  },
+  "SI-070": {
+   "country": "SI",
+   "region": "Maribor"
+  },
+  "SI-071": {
+   "country": "SI",
+   "region": "Medvode"
+  },
+  "SI-073": {
+   "country": "SI",
+   "region": "Metlika"
+  },
+  "SI-075": {
+   "country": "SI",
+   "region": "Miren-Kostanjevica"
+  },
+  "SI-078": {
+   "country": "SI",
+   "region": "Moravske Toplice"
+  },
+  "SI-079": {
+   "country": "SI",
+   "region": "Mozirje"
+  },
+  "SI-080": {
+   "country": "SI",
+   "region": "Murska Sobota"
+  },
+  "SI-082": {
+   "country": "SI",
+   "region": "Naklo"
+  },
+  "SI-083": {
+   "country": "SI",
+   "region": "Nazarje"
+  },
+  "SI-084": {
+   "country": "SI",
+   "region": "Nova Goriška"
+  },
+  "SI-085": {
+   "country": "SI",
+   "region": "Novo Mesto"
+  },
+  "SI-086": {
+   "country": "SI",
+   "region": "Odranci"
+  },
+  "SI-087": {
+   "country": "SI",
+   "region": "Ormož"
+  },
+  "SI-090": {
+   "country": "SI",
+   "region": "Piran"
+  },
+  "SI-091": {
+   "country": "SI",
+   "region": "Pivka"
+  },
+  "SI-094": {
+   "country": "SI",
+   "region": "Postojna"
+  },
+  "SI-095": {
+   "country": "SI",
+   "region": "Preddvor"
+  },
+  "SI-096": {
+   "country": "SI",
+   "region": "Ptuj"
+  },
+  "SI-101": {
+   "country": "SI",
+   "region": "Radlje ob Dravi"
+  },
+  "SI-102": {
+   "country": "SI",
+   "region": "Radovljica"
+  },
+  "SI-106": {
+   "country": "SI",
+   "region": "Rogaška Slatina"
+  },
+  "SI-108": {
+   "country": "SI",
+   "region": "Ruše"
+  },
+  "SI-110": {
+   "country": "SI",
+   "region": "Sevnica"
+  },
+  "SI-111": {
+   "country": "SI",
+   "region": "Sežana"
+  },
+  "SI-112": {
+   "country": "SI",
+   "region": "Slovenj Gradec"
+  },
+  "SI-113": {
+   "country": "SI",
+   "region": "Slovenska Bistrica"
+  },
+  "SI-117": {
+   "country": "SI",
+   "region": "Šenčur"
+  },
+  "SI-118": {
+   "country": "SI",
+   "region": "Šentilj"
+  },
+  "SI-120": {
+   "country": "SI",
+   "region": "Šentjur pri Celju"
+  },
+  "SI-124": {
+   "country": "SI",
+   "region": "Šmarje pri Jelšah"
+  },
+  "SI-127": {
+   "country": "SI",
+   "region": "Štore"
+  },
+  "SI-128": {
+   "country": "SI",
+   "region": "Tolmin"
+  },
+  "SI-130": {
+   "country": "SI",
+   "region": "Trebnje"
+  },
+  "SI-131": {
+   "country": "SI",
+   "region": "Tržič"
+  },
+  "SI-133": {
+   "country": "SI",
+   "region": "Velenje"
+  },
+  "SI-134": {
+   "country": "SI",
+   "region": "Velike Lašče"
+  },
+  "SI-135": {
+   "country": "SI",
+   "region": "Videm"
+  },
+  "SI-136": {
+   "country": "SI",
+   "region": "Vipava"
+  },
+  "SI-137": {
+   "country": "SI",
+   "region": "Vitanje"
+  },
+  "SI-138": {
+   "country": "SI",
+   "region": "Vodice"
+  },
+  "SI-140": {
+   "country": "SI",
+   "region": "Vrhnika"
+  },
+  "SI-144": {
+   "country": "SI",
+   "region": "Zrece"
+  },
+  "SI-146": {
+   "country": "SI",
+   "region": "Železniki"
+  },
+  "SI-147": {
+   "country": "SI",
+   "region": "Žiri"
+  },
+  "SI-149": {
+   "country": "SI",
+   "region": "Bistrica ob Sotli"
+  },
+  "SI-150": {
+   "country": "SI",
+   "region": "Bloke"
+  },
+  "SI-156": {
+   "country": "SI",
+   "region": "Dobrovnik"
+  },
+  "SI-157": {
+   "country": "SI",
+   "region": "Dolenjske Toplice"
+  },
+  "SI-160": {
+   "country": "SI",
+   "region": "Hoce-Slivnica"
+  },
+  "SI-163": {
+   "country": "SI",
+   "region": "Jezersko"
+  },
+  "SI-165": {
+   "country": "SI",
+   "region": "Kostel"
+  },
+  "SI-168": {
+   "country": "SI",
+   "region": "Markovci"
+  },
+  "SI-172": {
+   "country": "SI",
+   "region": "Podlehnik"
+  },
+  "SI-174": {
+   "country": "SI",
+   "region": "Prebold"
+  },
+  "SI-175": {
+   "country": "SI",
+   "region": "Prevalje"
+  },
+  "SI-180": {
+   "country": "SI",
+   "region": "Solcava"
+  },
+  "SI-183": {
+   "country": "SI",
+   "region": "Šempeter-Vrtojba"
+  },
+  "SI-184": {
+   "country": "SI",
+   "region": "Tabor"
+  },
+  "SI-188": {
+   "country": "SI",
+   "region": "Veržej"
+  },
+  "SI-189": {
+   "country": "SI",
+   "region": "Vransko"
+  },
+  "SI-190": {
+   "country": "SI",
+   "region": "Žalec"
+  },
+  "SI-193": {
+   "country": "SI",
+   "region": "Žužemberk"
+  },
+  "SI-194": {
+   "country": "SI",
+   "region": "Šmartno in Litiji"
+  },
+  "SI-195": {
+   "country": "SI",
+   "region": "Apace"
+  },
+  "SK-BC": {
+   "country": "SK",
+   "region": "Banskobystrický"
+  },
+  "SK-BL": {
+   "country": "SK",
+   "region": "Bratislavský"
+  },
+  "SK-KI": {
+   "country": "SK",
+   "region": "Košický"
+  },
+  "SK-NI": {
+   "country": "SK",
+   "region": "Nitriansky"
+  },
+  "SK-PV": {
+   "country": "SK",
+   "region": "Prešov"
+  },
+  "SK-TA": {
+   "country": "SK",
+   "region": "Trnavský"
+  },
+  "SK-TC": {
+   "country": "SK",
+   "region": "Trenciansky"
+  },
+  "SK-ZI": {
+   "country": "SK",
+   "region": "Žilinský"
+  }
+ }
+}

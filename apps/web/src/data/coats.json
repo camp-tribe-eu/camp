@@ -1,0 +1,632 @@
+{
+  "AT-8": {
+    "file": "/coats/at-8.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Vorarlberg_CoA.svg",
+    "author": null,
+    "checkedOn": "2026-11-20"
+  },
+  "BE-VOV": {
+    "file": "/coats/be-vov.svg",
+    "license": "CC0",
+    "source": "https://commons.wikimedia.org/wiki/File:Wapen_van_Oost-Vlaanderen.svg",
+    "author": null,
+    "checkedOn": "2026-11-20"
+  },
+  "BG-01": {
+    "file": "/coats/bg-01.svg",
+    "license": "CC0",
+    "source": "https://commons.wikimedia.org/wiki/File:Gerb_blagoevgrad.svg",
+    "author": "Waterced",
+    "checkedOn": "2026-11-20"
+  },
+  "DE-HE": {
+    "file": "/coats/de-he.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Coat_of_arms_of_Hesse.svg",
+    "author": null,
+    "checkedOn": "2026-11-20"
+  },
+  "DE-HH": {
+    "file": "/coats/de-hh.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:DEU_Hamburg_COA.svg",
+    "author": "Freie und Hansestadt Hamburg",
+    "checkedOn": "2026-11-20"
+  },
+  "DE-RP": {
+    "file": "/coats/de-rp.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Coat_of_arms_of_Rhineland-Palatinate.svg",
+    "author": null,
+    "checkedOn": "2026-11-20"
+  },
+  "DE-SH": {
+    "file": "/coats/de-sh.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:DEU_Schleswig-Holstein_COA.svg",
+    "author": null,
+    "checkedOn": "2026-11-20"
+  },
+  "DE-SN": {
+    "file": "/coats/de-sn.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Coat_of_arms_of_Saxony.svg",
+    "author": null,
+    "checkedOn": "2026-11-20"
+  },
+  "EE-37": {
+    "file": "/coats/ee-37.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Et-Harju_maakond-coa.svg",
+    "author": null,
+    "checkedOn": "2026-11-20"
+  },
+  "EE-39": {
+    "file": "/coats/ee-39.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Hiiumaa_vapp.svg",
+    "author": "Original: T\u00f5nu Kukk; Vectorization: Urmas",
+    "checkedOn": "2026-11-20"
+  },
+  "EE-74": {
+    "file": "/coats/ee-74.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Saaremaa_vapp.svg",
+    "author": "user:Urmas",
+    "checkedOn": "2026-11-20"
+  },
+  "EE-84": {
+    "file": "/coats/ee-84.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Viljandimaa_vapp.svg",
+    "author": null,
+    "checkedOn": "2026-11-20"
+  },
+  "FR-04": {
+    "file": "/coats/fr-04.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Blason_d%C3%A9partement_fr_Alpes-de-Haute-Provence.svg",
+    "author": null,
+    "checkedOn": "2026-11-20"
+  },
+  "FR-05": {
+    "file": "/coats/fr-05.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Blason_d%C3%A9partement_fr_Hautes-Alpes.svg",
+    "author": "Syryatsu",
+    "checkedOn": "2026-11-20"
+  },
+  "FR-07": {
+    "file": "/coats/fr-07.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Blason_d%C3%A9partement_fr_Ard%C3%A8che.svg",
+    "author": "Syryatsu",
+    "checkedOn": "2026-11-20"
+  },
+  "FR-18": {
+    "file": "/coats/fr-18.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Blason_d%C3%A9partement_fr_Cher.svg",
+    "author": "Syryatsu",
+    "checkedOn": "2026-11-20"
+  },
+  "FR-24": {
+    "file": "/coats/fr-24.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Blason_d%C3%A9partement_fr_Dordogne.svg",
+    "author": null,
+    "checkedOn": "2026-11-20"
+  },
+  "FR-32": {
+    "file": "/coats/fr-32.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Blason_d%C3%A9partement_fr_Gers.svg",
+    "author": "Syryatsu",
+    "checkedOn": "2026-11-20"
+  },
+  "FR-34": {
+    "file": "/coats/fr-34.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Blason_d%C3%A9partement_fr_H%C3%A9rault.svg",
+    "author": "Syryatsu",
+    "checkedOn": "2026-11-20"
+  },
+  "FR-36": {
+    "file": "/coats/fr-36.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Blason_d%C3%A9partement_fr_Indre.svg",
+    "author": "Syryatsu",
+    "checkedOn": "2026-11-20"
+  },
+  "FR-46": {
+    "file": "/coats/fr-46.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Blason_d%C3%A9partement_fr_Lot.svg",
+    "author": null,
+    "checkedOn": "2026-11-20"
+  },
+  "FR-49": {
+    "file": "/coats/fr-49.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Blason_duche_fr_Anjou_(moderne).svg",
+    "author": "Syryatsu",
+    "checkedOn": "2026-11-20"
+  },
+  "FR-51": {
+    "file": "/coats/fr-51.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Blason_d%C3%A9partement_fr_Marne.svg",
+    "author": null,
+    "checkedOn": "2026-11-20"
+  },
+  "FR-52": {
+    "file": "/coats/fr-52.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Blason_d%C3%A9partement_fr_Haute-Marne.svg",
+    "author": null,
+    "checkedOn": "2026-11-20"
+  },
+  "FR-58": {
+    "file": "/coats/fr-58.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Blason_d%C3%A9partement_fr_Ni%C3%A8vre.svg",
+    "author": "Syryatsu",
+    "checkedOn": "2026-11-20"
+  },
+  "FR-62": {
+    "file": "/coats/fr-62.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Blason_d%C3%A9partement_fr_Pas-de-Calais.svg",
+    "author": "Syryatsu",
+    "checkedOn": "2026-11-20"
+  },
+  "FR-65": {
+    "file": "/coats/fr-65.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Blason_d%C3%A9partement_fr_Hautes-Pyr%C3%A9n%C3%A9es.svg",
+    "author": "Syryatsu",
+    "checkedOn": "2026-11-20"
+  },
+  "FR-72": {
+    "file": "/coats/fr-72.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Blason_d%C3%A9partement_fr_Sarthe.svg",
+    "author": "Syryatsu",
+    "checkedOn": "2026-11-20"
+  },
+  "FR-73": {
+    "file": "/coats/fr-73.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Blason_duch%C3%A9_fr_Savoie.svg",
+    "author": null,
+    "checkedOn": "2026-11-20"
+  },
+  "FR-81": {
+    "file": "/coats/fr-81.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Blason_d%C3%A9partement_fr_Tarn.svg",
+    "author": "Syryatsu",
+    "checkedOn": "2026-11-20"
+  },
+  "FR-83": {
+    "file": "/coats/fr-83.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Blason_d%C3%A9partement_fr_Var.svg",
+    "author": null,
+    "checkedOn": "2026-11-20"
+  },
+  "HR-09": {
+    "file": "/coats/hr-09.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Lika-Senj_County_coat_of_arms.svg",
+    "author": "Lika-Senj County",
+    "checkedOn": "2026-11-20"
+  },
+  "HR-12": {
+    "file": "/coats/hr-12.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Coat_of_arms_of_Brod-Posavina_County.svg",
+    "author": "PNG: Timbouctou SVG: SiBr 4",
+    "checkedOn": "2026-11-20"
+  },
+  "HR-15": {
+    "file": "/coats/hr-15.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Coat_of_arms_of_%C5%A0ibenik_County.svg",
+    "author": "Sodacan",
+    "checkedOn": "2026-11-20"
+  },
+  "HU-DU": {
+    "file": "/coats/hu-du.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Duna%C3%BAjv%C3%A1ros.svg",
+    "author": "Duna\u00fajv\u00e1ros v\u00e1ros, Melinda R\u00e1cz",
+    "checkedOn": "2026-11-20"
+  },
+  "HU-KV": {
+    "file": "/coats/hu-kv.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Coa_Hungary_Town_Kaposv%C3%A1r.svg",
+    "author": "Madboy74",
+    "checkedOn": "2026-11-20"
+  },
+  "LT-AL": {
+    "file": "/coats/lt-al.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:LTA_Alytaus_apskritis_COA.svg",
+    "author": "Arvydas Ka\u017edailis",
+    "checkedOn": "2026-11-20"
+  },
+  "LT-KL": {
+    "file": "/coats/lt-kl.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:LTU_Klaip%C4%97dos_apskritis_COA.svg",
+    "author": "Arvydas Ka\u017edailis User:Poznaniak",
+    "checkedOn": "2026-11-20"
+  },
+  "LT-KU": {
+    "file": "/coats/lt-ku.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:LTU_Kauno_apskritis_COA.svg",
+    "author": "Rolandas Rimk\u016bnas User:Magul",
+    "checkedOn": "2026-11-20"
+  },
+  "LT-PN": {
+    "file": "/coats/lt-pn.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:LTU_Panev%C4%97%C5%BEio_apskritis_COA.svg",
+    "author": "Rolandas Rimk\u016bnas",
+    "checkedOn": "2026-11-20"
+  },
+  "LT-VL": {
+    "file": "/coats/lt-vl.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:LTU_Vilniaus_apskritis_COA.svg",
+    "author": "Arvydas Ka\u017edailis",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-005": {
+    "file": "/coats/lv-005.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Alojas_novads_COA.svg",
+    "author": "Fenn-O-maniC",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-007": {
+    "file": "/coats/lv-007.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Al%C5%ABksne_novads_COA.svg",
+    "author": "Fenn-O-maniC",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-009": {
+    "file": "/coats/lv-009.png",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:LVA_Apes_novads_COA.png",
+    "author": "Unknown author Unknown author",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-018": {
+    "file": "/coats/lv-018.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Broc%C4%93nu_novads_COA.svg",
+    "author": "Fenn-O-maniC",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-020": {
+    "file": "/coats/lv-020.png",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Carnikavas_novads_COA_since_2015.png",
+    "author": "Ivario",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-024": {
+    "file": "/coats/lv-024.png",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Dagdas_novads_COA.png",
+    "author": "lv:Lietot\u0101js:Kikos",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-027": {
+    "file": "/coats/lv-027.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Dundagas_novads_COA.svg",
+    "author": "Fenn-O-maniC",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-029": {
+    "file": "/coats/lv-029.png",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Engures_novads_COA.png",
+    "author": "Unknown author Unknown author",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-033": {
+    "file": "/coats/lv-033.png",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:LVA_Gulbenes_novads_COA.png",
+    "author": "The original uploader was Kikos at Latvian Wikipedia .",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-034": {
+    "file": "/coats/lv-034.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Iecavas_novads_COA.svg",
+    "author": "Fenn-O-maniC",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-038": {
+    "file": "/coats/lv-038.png",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:LVA_Jaunjelgavas_novads_COA.png",
+    "author": "The original uploader was Kikos at Latvian Wikipedia .",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-040": {
+    "file": "/coats/lv-040.png",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:LVA_Jaunpils_novads_COA.png",
+    "author": "lv:Kikos",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-045": {
+    "file": "/coats/lv-045.png",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Koc%C4%93nu_novads_COA.png",
+    "author": "Ilze L\u012bbiete, Juris Ivanovs",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-048": {
+    "file": "/coats/lv-048.png",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Krimuldas_novads_COA.png",
+    "author": "Kikos",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-051": {
+    "file": "/coats/lv-051.png",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:%C4%B6eguma_novads_COA.png",
+    "author": "Vladimirs Ladus\u0101ns for \u0136egums Municipality",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-052": {
+    "file": "/coats/lv-052.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:%C4%B6ekavas_novada_%C4%A3erbonis.svg",
+    "author": "Ilze L\u012bbiete, Juris Ivanovs",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-056": {
+    "file": "/coats/lv-056.png",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:LVA_L%C4%ABv%C4%81nu_novads_COA.png",
+    "author": "lv:Lietot\u0101js:Kikos",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-057": {
+    "file": "/coats/lv-057.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Lub%C4%81nas_novads_COA.svg",
+    "author": "Fenn-O-maniC",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-060": {
+    "file": "/coats/lv-060.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Mazsalacas_novads_COA.svg",
+    "author": "Fenn-O-maniC",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-063": {
+    "file": "/coats/lv-063.png",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:M%C4%93rsraga_novads_COA.png",
+    "author": "Unknown author Unknown author",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-070": {
+    "file": "/coats/lv-070.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:P%C4%81rgaujas_novads_COA.svg",
+    "author": "Fenn-O-maniC",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-071": {
+    "file": "/coats/lv-071.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:P%C4%81vilostas_novads_COA.svg",
+    "author": "Fenn-O-maniC",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-072": {
+    "file": "/coats/lv-072.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:P%C4%BCavi%C5%86u_novads_COA.svg",
+    "author": "Fenn-O-maniC",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-075": {
+    "file": "/coats/lv-075.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Prieku%C4%BCu_novads_COA.svg",
+    "author": "Fenn-O-maniC",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-076": {
+    "file": "/coats/lv-076.png",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:LVA_Raunas_novads_COA.png",
+    "author": "The original uploader was Kikos at Latvian Wikipedia .",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-079": {
+    "file": "/coats/lv-079.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Rojas_novads_COA.svg",
+    "author": "Fenn-O-maniC",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-082": {
+    "file": "/coats/lv-082.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Rug%C4%81ju_novads_COA.svg",
+    "author": "Fenn-O-maniC",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-088": {
+    "file": "/coats/lv-088.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Saldus_novads_COA.svg",
+    "author": "Fenn-O-maniC",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-093": {
+    "file": "/coats/lv-093.png",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:LVA_Skrundas_novads_COA.png",
+    "author": "lv:Kikos",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-096": {
+    "file": "/coats/lv-096.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Stren%C4%8Du_novads_COA.svg",
+    "author": "Fenn-O-maniC",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-098": {
+    "file": "/coats/lv-098.png",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:T%C4%93rvetes_novads_COA.png",
+    "author": "Template:Normunds J\u0113rums",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-100": {
+    "file": "/coats/lv-100.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Vai%C5%86odes_novads_COA.svg",
+    "author": "Fenn-O-maniC",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-101": {
+    "file": "/coats/lv-101.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Valkas_novads_COA.svg",
+    "author": "Fenn-O-maniC",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-104": {
+    "file": "/coats/lv-104.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Vecpiebalgas_novads_COA.svg",
+    "author": "Fenn-O-maniC",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-110": {
+    "file": "/coats/lv-110.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Zilupes_novads_COA.svg",
+    "author": "Fenn-O-maniC",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-DGV": {
+    "file": "/coats/lv-dgv.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Coat_of_arms_of_Daugavpils.svg",
+    "author": "File:Coat of arms of Daugavpils.png : Daugavpils pils\u0113tas dome derivative work: McSush",
+    "checkedOn": "2026-11-20"
+  },
+  "LV-VEN": {
+    "file": "/coats/lv-ven.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:LVA_Ventspils_COA.svg",
+    "author": "lv:Lietot\u0101js:Kikos",
+    "checkedOn": "2026-11-20"
+  },
+  "RO-BZ": {
+    "file": "/coats/ro-bz.png",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Actual_Buz%C4%83u_county_CoA.png",
+    "author": "Consiliul Jude\u021bean Buz\u0103u.",
+    "checkedOn": "2026-11-20"
+  },
+  "RO-CT": {
+    "file": "/coats/ro-ct.png",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Actual_Constan%C8%9Ba_county_CoA.png",
+    "author": "Consiliul Jude\u021bean Constan\u021ba.",
+    "checkedOn": "2026-11-20"
+  },
+  "RO-CV": {
+    "file": "/coats/ro-cv.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Coa_Romania_County_Kov%C3%A1szna.svg",
+    "author": "Madboy74",
+    "checkedOn": "2026-11-20"
+  },
+  "RO-GJ": {
+    "file": "/coats/ro-gj.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Stema_Gorj.svg",
+    "author": "ArnoldPlaton / Consiliul Jude\u021bean Gorj.",
+    "checkedOn": "2026-11-20"
+  },
+  "RO-HD": {
+    "file": "/coats/ro-hd.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Actual_Hunedoara_county_CoA.svg",
+    "author": "Original: Consiliul Jude\u021bean Hunedoara Vector: \u71c3\u706f",
+    "checkedOn": "2026-11-20"
+  },
+  "RO-IS": {
+    "file": "/coats/ro-is.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Actual_Iasi_county_CoA.svg",
+    "author": "Scntv / Consiliul Jude\u021bean Ia\u0219i.",
+    "checkedOn": "2026-11-20"
+  },
+  "RO-MM": {
+    "file": "/coats/ro-mm.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Coat_of_Arms_of_Maramure%C8%99_County.svg",
+    "author": "Original: Maramure\u0219 County Council Vector: \u71c3\u706f",
+    "checkedOn": "2026-11-20"
+  },
+  "RO-NT": {
+    "file": "/coats/ro-nt.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Stema_Neamt.svg",
+    "author": "ArnoldPlaton / Consiliul Jude\u021bean Neam\u021b.",
+    "checkedOn": "2026-11-20"
+  },
+  "RO-PH": {
+    "file": "/coats/ro-ph.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Stema_Prahova.svg",
+    "author": "ArnoldPlaton / Consiliul Jude\u021bean Prahova.",
+    "checkedOn": "2026-11-20"
+  },
+  "RO-TM": {
+    "file": "/coats/ro-tm.svg",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:ROU_Timis_County_CoA.svg",
+    "author": "Radufan / Consiliul Jude\u021bean Timi\u0219.",
+    "checkedOn": "2026-11-20"
+  },
+  "RO-VN": {
+    "file": "/coats/ro-vn.png",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:ROU_VN_VRANCEA_COA.png",
+    "author": "Consiliul Jude\u021bean Vrancea",
+    "checkedOn": "2026-11-20"
+  },
+  "SI-041": {
+    "file": "/coats/si-041.svg",
+    "license": "CC0",
+    "source": "https://commons.wikimedia.org/wiki/File:Coat_of_arms_of_Jesenice.svg",
+    "author": "Isidor Welti",
+    "checkedOn": "2026-11-20"
+  }
+}
