@@ -35,6 +35,7 @@ const CSS = `
 .ct-pick__select{width:100%;height:48px;padding:0 40px 0 12px;-webkit-appearance:none;appearance:none;border:1px solid var(--color-control-line);border-radius:calc(var(--r,16px) * .5);background-color:var(--color-surface);color:var(--color-ink);font-size:1rem;font-weight:400}
 .ct-pick__select:focus-visible{outline:2px solid var(--color-heading);outline-offset:2px}
 .ct-pick__submit{width:100%}
+.ct-pick__step{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;flex:none;border-radius:999px;background-color:var(--color-heading);color:var(--color-surface);font-size:.75rem;font-weight:700;line-height:1}
 .ct-pick__legend{padding:0;font-size:.875rem;font-weight:600;color:var(--color-heading)}
 .ct-pick__types{grid-column:1 / -1;min-width:0;margin:0;padding:0;border:0}
 .ct-pick__tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:6px}
@@ -112,7 +113,12 @@ export default function RentalPicker({
           те саме (`type`), тож каталог і посилання не змінюються. Фото
           машин компаній без договору не показуємо — тому силует. */}
       <fieldset className="ct-pick__types" data-testid="picker-type">
+        {/* CAMP-444 (ревʼю 444/24, «покроковий вибір»): кроки пронумеровані
+            видимо — 1 тип, 2 країна, 3 кнопка. Номер для читача екрана
+            звучить словами («Step 1:»), кружечок під aria-hidden. */}
         <legend className="ct-pick__label ct-pick__legend">
+          <span className="ct-pick__step" aria-hidden="true">1</span>
+          <span className="sr-only">Step 1: </span>
           {VAN}
           Vehicle type
         </legend>
@@ -137,6 +143,8 @@ export default function RentalPicker({
 
       <label className="ct-pick__field">
         <span className="ct-pick__label">
+          <span className="ct-pick__step" aria-hidden="true">2</span>
+          <span className="sr-only">Step 2: </span>
           {PIN}
           Pick-up country
         </span>
